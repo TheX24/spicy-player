@@ -386,7 +386,7 @@ private fun LyricsPanel(
                 buildDisplayTimeline(lyrics.lines.map { line ->
                     Line(
                         words = line.words.map { word ->
-                            Word(word.text, word.startMs, word.endMs, isPartOfWord = word.attached)
+                            Word(word.text, word.startMs, word.endMs, isPartOfWord = word.attached, romanizedText = word.romanized)
                         },
                         startMs = line.startMs,
                         endMs = line.endMs,

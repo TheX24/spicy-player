@@ -21,7 +21,7 @@ internal object RemoteLyricsAdapter {
                     startMs = line.startMs,
                     endMs = line.endMs,
                     words = line.words.map { word ->
-                        TimedWord(word.text, word.startMs, word.endMs, word.isPartOfWord)
+                        TimedWord(word.text, word.startMs, word.endMs, word.isPartOfWord, word.romanizedText)
                     },
                     role = line.role,
                     groupId = line.groupId,

@@ -27,4 +27,17 @@ class RemoteLyricsAdapterTest {
         assertEquals(listOf("Ada", "Ben"), ready.songwriters)
         assertEquals(LyricsType.Line, ready.lyricsType)
     }
+
+    @Test fun keepsTtmlRomanization() {
+        val ttml = """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="word"><head><metadata><iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><translations><translation xml:lang="ja-Latn"><text for="L1"><span>ko</span><span>re</span></text></translation></translations></iTunesMetadata></metadata></head><body><div><p begin="0s" end="2s" itunes:key="L1"><span begin="0s" end="1s">こ</span><span begin="1s" end="2s">れ</span></p></div></body></tt>"""
+        val selection = RemoteLyricsSelection(
+            LyricsSourceDescriptor("example", "Example", 1, emptySet()),
+            RemoteLyricsPayload(ttmlLyrics = ttml),
+            RemoteLyricsQuality.WORD_SYNCED,
+        )
+
+        val words = RemoteLyricsAdapter.render(selection, 2_000).lines.single().words
+
+        assertEquals(listOf("ko", "re"), words.map { it.romanized })
+    }
 }

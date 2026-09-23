@@ -5,6 +5,8 @@ data class TimedWord(
     val startMs: Long,
     val endMs: Long,
     val attached: Boolean,
+    /** Source-supplied romanization (TTML); on-device romanization fills gaps later. */
+    val romanized: String? = null,
 )
 
 data class TimedLine(

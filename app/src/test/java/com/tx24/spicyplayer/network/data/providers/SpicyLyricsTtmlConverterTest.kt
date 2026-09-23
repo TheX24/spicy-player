@@ -39,4 +39,20 @@ class SpicyLyricsTtmlConverterTest {
         assertEquals(listOf("Hel", "lo", "world"), words.map { it.text.trim() })
         assertEquals(listOf(false, true, false), words.map { it.isPartOfWord })
     }
+
+    @Test fun carriesSpicyTransliterationsPerSyllable() {
+        val body = JsonParser.parseString("""{"Content":[
+            {"Lead":{"Syllables":[
+                {"Text":"なん","TransliteratedText":"nan","StartTime":1,"EndTime":1.2,"IsPartOfWord":true},
+                {"Text":"で","TransliteratedText":"de","StartTime":1.2,"EndTime":1.4,"IsPartOfWord":false}
+            ]}},
+            {"Lead":{"Syllables":[{"Text":"no","StartTime":2,"EndTime":2.4}]}}
+        ]}""").asJsonObject
+        val ttml = requireNotNull(SpicyLyricsTtmlConverter.convert(body, body.getAsJsonArray("Content")))
+
+        val lines = TtmlLyricsParser.parse(ttml.byteInputStream()).lines
+
+        assertEquals(listOf("nan", "de"), lines[0].words.map { it.romanizedText })
+        assertEquals(listOf<String?>(null), lines[1].words.map { it.romanizedText })
+    }
 }

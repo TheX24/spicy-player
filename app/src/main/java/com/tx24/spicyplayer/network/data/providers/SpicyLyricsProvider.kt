@@ -167,6 +167,7 @@ internal object SpicyLyricsTtmlConverter {
     fun convert(body: JsonObject, content: JsonArray): String? {
         val defaultAgent = content.mapNotNull { it.takeIf { value -> value.isJsonObject }?.asJsonObject }
             .firstNotNullOfOrNull { it.string("Agent") ?: it.getAsJsonObject("Lead")?.string("Agent") }
+        val transliterations = StringBuilder()
         val paragraphs = buildList {
             content.forEach { element ->
                 val item = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
@@ -175,7 +176,11 @@ internal object SpicyLyricsTtmlConverter {
                 val agent = item.string("Agent") ?: lead.string("Agent")
                 val opposite = item.get("OppositeAligned")?.takeIf { it.isJsonPrimitive }?.asBoolean
                     ?: (agent != null && defaultAgent != null && agent != defaultAgent)
-                paragraph(lead, item.getAsJsonArray("Background"), agent, opposite)?.let(::add)
+                val key = "L${size + 1}"
+                paragraph(key, lead, item.getAsJsonArray("Background"), agent, opposite)?.let(::add) ?: return@forEach
+                transliteration(lead.getAsJsonArray("Syllables"))?.let {
+                    transliterations.append("<text for=\"$key\">$it</text>")
+                }
             }
         }
         if (paragraphs.isEmpty()) return null
@@ -183,10 +188,19 @@ internal object SpicyLyricsTtmlConverter {
             ?.mapNotNull { it.takeIf { value -> value.isJsonPrimitive }?.asString }
             .orEmpty()
             .joinToString("") { "<songwriter>${xml(it)}</songwriter>" }
-        return """<?xml version="1.0" encoding="UTF-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:spicy="https://spicylyrics.org/ns/ttml" itunes:timing="word"><head><metadata><songwriters>$writers</songwriters></metadata></head><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
+        return """<?xml version="1.0" encoding="UTF-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:spicy="https://spicylyrics.org/ns/ttml" itunes:timing="word"><head><metadata><songwriters>$writers</songwriters>${if (transliterations.isEmpty()) "" else "<transliterations><transliteration>$transliterations</transliteration></transliterations>"}</metadata></head><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
     }
 
-    private fun paragraph(lead: JsonObject, backgrounds: JsonArray?, agent: String?, opposite: Boolean): String? {
+    /** SL's per-syllable romanization, only when every lead syllable has one (the parser matches by position). */
+    private fun transliteration(syllables: JsonArray?): String? {
+        val texts = syllables?.map { element ->
+            element.takeIf { it.isJsonObject }?.asJsonObject?.string("TransliteratedText")?.trim()
+                ?.takeIf(String::isNotEmpty) ?: return null
+        }
+        return texts?.takeIf(List<String>::isNotEmpty)?.joinToString("") { "<span>${xml(it)}</span>" }
+    }
+
+    private fun paragraph(key: String, lead: JsonObject, backgrounds: JsonArray?, agent: String?, opposite: Boolean): String? {
         val leadSpans = spans(lead.getAsJsonArray("Syllables"))
         if (leadSpans.isEmpty()) return null
         val start = lead.number("StartTime") ?: leadSpans.first().start
@@ -198,7 +212,7 @@ internal object SpicyLyricsTtmlConverter {
             "<span ttm:role=\"x-bg\">${group.joinToString("") { it.xmlSpan() }}</span>"
         }
         val agentAttribute = agent?.let { " ttm:agent=\"${xml(it)}\"" }.orEmpty()
-        return "<p begin=\"${seconds(start)}\" end=\"${seconds(end)}\"$agentAttribute spicy:oppositeAligned=\"$opposite\">${leadSpans.joinToString("") { it.xmlSpan() }}$bg</p>"
+        return "<p begin=\"${seconds(start)}\" end=\"${seconds(end)}\" itunes:key=\"$key\"$agentAttribute spicy:oppositeAligned=\"$opposite\">${leadSpans.joinToString("") { it.xmlSpan() }}$bg</p>"
     }
 
     private fun spans(array: JsonArray?): List<TimedText> = array?.mapIndexedNotNull { index, element ->
