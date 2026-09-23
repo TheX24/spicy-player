@@ -7,6 +7,8 @@ import com.tx24.spicyplayer.network.data.providers.*
 import com.tx24.spicyplayer.network.data.spotify.AnonymousSpotifyCatalogSearch
 import com.tx24.spicyplayer.network.data.spotify.SpotifyTrackResolver
 import com.tx24.spicyplayer.network.service.LyricsService
+import java.io.File
+import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
@@ -14,6 +16,7 @@ import retrofit2.converter.gson.GsonConverterFactory
 
 /** External-playback wiring for the original player's provider boundary. */
 internal class NextLyricsBackend(context: Context, clientKey: String) {
+    private val diskCache = File(context.cacheDir, "lyrics")
     private val preferences = context.getSharedPreferences("lyrics_sources", Context.MODE_PRIVATE)
     private val client = OkHttpClient.Builder()
         .connectTimeout(8, TimeUnit.SECONDS)
@@ -53,8 +56,66 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     suspend fun resolve(
         request: LyricsLookupRequest,
-        onSourceStarted: (LyricsSourceDescriptor) -> Unit = {},
-    ): RemoteLyricsResolution = source.resolveLyrics(request, policy(), onSourceStarted = onSourceStarted)
+        known: MutableMap<String, ProviderResult>,
+        onUpdate: suspend (RemoteLyricsResolution) -> Unit = {},
+    ): RemoteLyricsResolution = source.resolveLyrics(request, policy(), known = known, onUpdate = onUpdate)
+
+    /**
+     * The last final pick for [request], like Spicy Lyrics' LyricsStore: kept [CACHE_DAYS] days,
+     * "no lyrics" included, errors never. Only reused while the enabled source order is the one it
+     * was picked under (mild-lyrics' rule), since another order could pick differently.
+     */
+    fun cachedResolution(request: LyricsLookupRequest): RemoteLyricsResolution? {
+        val stored = runCatching { gson.fromJson(cacheFile(request).readText(), StoredPick::class.java) }.getOrNull()
+            ?: return null
+        if (stored.version != CACHE_VERSION || stored.expiresAt < System.currentTimeMillis() || stored.order != enabledOrder()) return null
+        val payload = stored.payload ?: return RemoteLyricsResolution.NotFound(emptyList())
+        val source = descriptors.firstOrNull { it.id == stored.sourceId } ?: return null
+        val quality = payload.measuredQuality()
+        return RemoteLyricsResolution.Found(
+            RemoteLyricsSelection(source, payload, quality),
+            listOf(ProviderAttempt(source.id, ProviderAttemptOutcome.HIT, quality, message = "cached")),
+        )
+    }
+
+    fun store(request: LyricsLookupRequest, resolution: RemoteLyricsResolution) {
+        val found = resolution as? RemoteLyricsResolution.Found
+        if (found == null && resolution !is RemoteLyricsResolution.NotFound) return
+        val stored = StoredPick(
+            version = CACHE_VERSION,
+            expiresAt = System.currentTimeMillis() + CACHE_DAYS * 86_400_000L,
+            order = enabledOrder(),
+            sourceId = found?.selection?.source?.id,
+            payload = found?.selection?.payload,
+        )
+        runCatching { diskCache.mkdirs(); cacheFile(request).writeText(gson.toJson(stored)) }
+    }
+
+    fun forget(request: LyricsLookupRequest) {
+        cacheFile(request).delete()
+    }
+
+    private fun enabledOrder(): List<String> = policy().let { p -> p.sourceOrder.filter { it !in p.disabledSourceIds } }
+
+    private fun cacheFile(request: LyricsLookupRequest): File {
+        val key = MessageDigest.getInstance("SHA-256").digest(request.toString().toByteArray())
+            .joinToString("") { "%02x".format(it) }
+        return File(diskCache, "$key.json")
+    }
+
+    private data class StoredPick(
+        val version: Int,
+        val expiresAt: Long,
+        val order: List<String>,
+        val sourceId: String?,
+        val payload: RemoteLyricsPayload?,
+    )
+
+    private companion object {
+        /** Bump when payload conversion changes, so stale conversions are refetched. */
+        const val CACHE_VERSION = 1
+        const val CACHE_DAYS = 3
+    }
 
     fun policy(): RemoteLyricsPolicy {
         val order = preferences.getString("order", null)?.split(',')?.filter(String::isNotBlank)

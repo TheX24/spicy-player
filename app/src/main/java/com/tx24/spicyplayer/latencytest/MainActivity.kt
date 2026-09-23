@@ -319,7 +319,7 @@ private fun LatencyTestApp(
                         (attempt.failureCategory?.let { " · $it" } ?: "") +
                         (attempt.message?.let { " · $it" } ?: ""))
                 }
-                TextButton(onClick = { viewModel.loadLyrics() }) { Text("Retry lyrics") }
+                TextButton(onClick = { viewModel.loadLyrics(force = true) }) { Text("Retry lyrics") }
                 state.lastCommandLatencyMs?.let { Text("Session acknowledgement: $it ms") }
                 state.clockDriftMs?.let { Text("Session clock drift: ${it.formatSigned()} ms") }
                 if (!state.canSeek) Text("This player does not expose MediaSession seeking")

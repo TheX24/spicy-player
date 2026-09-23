@@ -16,6 +16,9 @@ import com.tx24.spicyplayer.network.data.LyricsLookupRequest
 import com.tx24.spicyplayer.network.data.RemoteLyricsResolution
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor
 import com.tx24.spicyplayer.network.data.ProviderAttempt
+import com.tx24.spicyplayer.network.data.ProviderAttemptOutcome
+import com.tx24.spicyplayer.network.data.ProviderResult
+import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
 import androidx.core.app.NotificationManagerCompat
 import com.tx24.spicyplayer.BuildConfig
 import androidx.lifecycle.AndroidViewModel
@@ -31,6 +34,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
+
+/** How long a track must stay current before its lyrics are fetched; skipping past it costs no requests. */
+private const val TRACK_SETTLE_MS = 700L
 
 data class PlayerUiState(
     val accessGranted: Boolean = false,
@@ -80,6 +87,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val observedSessions = mutableMapOf<MediaSession.Token, MediaController>()
     private val observedCallbacks = mutableMapOf<MediaSession.Token, MediaController.Callback>()
     private var lyricsJob: Job? = null
+    private var shownSelection: RemoteLyricsSelection? = null
+    // ponytail: in-memory only; a disk cache would make app restarts instant too
+    private val lookupCache = object : LinkedHashMap<LyricsLookupRequest, MutableMap<String, ProviderResult>>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LyricsLookupRequest, MutableMap<String, ProviderResult>>) = size > 30
+    }
     private var manualSpotifyId: String? = null
     private var runtimeApiKey: String = ""
     private var currentTrackIdentity: String? = null
@@ -198,6 +210,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     fun useApiKey(key: String) {
         runtimeApiKey = key.trim()
         lyricsBackend = NextLyricsBackend(getApplication(), runtimeApiKey.ifBlank { BuildConfig.SPICY_LYRICS_CLIENT_KEY })
+        lookupCache.clear()  // Spicy Lyrics answers depend on the key
         refreshSourcePolicy()
         loadLyrics()
     }
@@ -264,7 +277,12 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         loadLyrics()
     }
 
-    fun loadLyrics(spotifyIdInput: String? = null) {
+    /**
+     * [settle]: a track change waits [TRACK_SETTLE_MS] before any request, so skipping through
+     * tracks costs nothing (the wait is cancelled by the next change). [force] drops this
+     * track's cached source results, e.g. for Retry.
+     */
+    fun loadLyrics(spotifyIdInput: String? = null, settle: Boolean = false, force: Boolean = false) {
         val metadata = controller?.metadata ?: return
         val identity = metadata.trackIdentity()
         val request = LyricsLookupRequest(
@@ -282,35 +300,35 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             return
         }
         lyricsJob?.cancel()
+        if (force) lookupCache.remove(request)
+        // Results per source for this request: a policy change re-picks from these instead of refetching.
+        val known = lookupCache.getOrPut(request) { ConcurrentHashMap() }
         lyricsJob = viewModelScope.launch {
-            mutableState.value = mutableState.value.copy(lyrics = LyricsState.Loading, providerAttempts = emptyList(), lookupStatus = "Starting lyric lookup…")
-            runCatching { withContext(Dispatchers.IO) {
-                val result = lyricsBackend.resolve(request) { source ->
-                    val detail = if (source.id == "spicy_lyrics" && request.spotifyTrackId == null) " · matching Spotify track" else ""
-                    mutableState.value = mutableState.value.copy(lookupStatus = "Checking ${source.displayName}$detail…")
+            if (mutableState.value.lyrics !is LyricsState.Ready) {
+                mutableState.value = mutableState.value.copy(lyrics = LyricsState.Loading, lookupStatus = "Starting lyric lookup…")
+            }
+            if (known.isEmpty()) {
+                val cached = withContext(Dispatchers.IO) {
+                    if (force) lyricsBackend.forget(request)
+                    lyricsBackend.cachedResolution(request)
                 }
-                // Rendered here: it includes on-device romanization, which is too heavy for main.
-                val rendered = (result as? RemoteLyricsResolution.Found)?.let { found ->
-                    runCatching { RemoteLyricsAdapter.render(found.selection, request.durationSeconds * 1_000L) }
-                        .getOrElse { LyricsState.Error(it.message ?: "Lyrics could not be displayed") }
+                if (cached != null) {
+                    (cached as? RemoteLyricsResolution.Found)?.let { known[it.selection.source.id] = ProviderResult.Hit(it.selection.payload) }
+                    publish(cached, identity, request, final = true)
+                    return@launch
                 }
-                result to rendered
-            } }
-                .onSuccess { (result, rendered) ->
-                    if (currentTrackIdentity != identity) return@onSuccess
-                    Log.d("LyricsProviders", result.attempts.joinToString { "${it.sourceId}:${it.outcome}:${it.failureCategory ?: ""}:${it.message ?: ""}" })
-                    mutableState.value = mutableState.value.copy(
-                        providerAttempts = result.attempts,
-                        lookupStatus = when (result) {
-                            is RemoteLyricsResolution.Found -> "Showing lyrics from ${result.selection.source.displayName}"
-                            is RemoteLyricsResolution.NotFound -> "No enabled source found lyrics"
-                            is RemoteLyricsResolution.Unavailable -> "Lookup finished; some sources were unavailable"
-                        },
-                        lyrics = when (result) {
-                        is RemoteLyricsResolution.Found -> requireNotNull(rendered)
-                        is RemoteLyricsResolution.NotFound -> LyricsState.Error("No enabled lyric source found this track")
-                        is RemoteLyricsResolution.Unavailable -> LyricsState.Error("Lyrics sources are temporarily unavailable")
-                    })
+            }
+            if (settle && known.isEmpty()) delay(TRACK_SETTLE_MS)
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    lyricsBackend.resolve(request, known) { update ->
+                        withContext(Dispatchers.Main) { publish(update, identity, request, final = false) }
+                    }
+                }
+            }
+                .onSuccess { resolution ->
+                    withContext(Dispatchers.IO) { lyricsBackend.store(request, resolution) }
+                    publish(resolution, identity, request, final = true)
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
@@ -320,6 +338,48 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     )
                 }
         }
+    }
+
+    /** Shows the best answer so far; re-renders only when the pick itself changes. */
+    private suspend fun publish(
+        resolution: RemoteLyricsResolution,
+        identity: String?,
+        request: LyricsLookupRequest,
+        final: Boolean,
+    ) {
+        if (currentTrackIdentity != identity) return
+        val selection = (resolution as? RemoteLyricsResolution.Found)?.selection
+        val lyrics = when {
+            selection == null && !final -> if (shownSelection == null) mutableState.value.lyrics else LyricsState.Loading
+            selection == null -> LyricsState.Error(
+                if (resolution is RemoteLyricsResolution.NotFound) "No enabled lyric source found this track"
+                else "Lyrics sources are temporarily unavailable"
+            )
+            selection == shownSelection -> mutableState.value.lyrics
+            // Rendering includes on-device romanization, which is too heavy for main.
+            else -> withContext(Dispatchers.Default) {
+                runCatching { RemoteLyricsAdapter.render(selection, request.durationSeconds * 1_000L) }
+                    .getOrElse { LyricsState.Error(it.message ?: "Lyrics could not be displayed") }
+            }
+        }
+        if (currentTrackIdentity != identity) return
+        shownSelection = selection
+        val pending = resolution.attempts.filter { it.outcome == ProviderAttemptOutcome.PENDING }
+        val names = pending.joinToString { attempt ->
+            lyricsBackend.descriptors.firstOrNull { it.id == attempt.sourceId }?.displayName ?: attempt.sourceId
+        }
+        if (final) Log.d("LyricsProviders", resolution.attempts.joinToString { "${it.sourceId}:${it.outcome}:${it.failureCategory ?: ""}:${it.message ?: ""}" })
+        mutableState.value = mutableState.value.copy(
+            providerAttempts = resolution.attempts,
+            lyrics = lyrics,
+            lookupStatus = when {
+                selection != null && pending.isNotEmpty() -> "Showing ${selection.source.displayName} · still checking $names…"
+                selection != null -> "Showing lyrics from ${selection.source.displayName}"
+                pending.isNotEmpty() -> "Checking $names…"
+                resolution is RemoteLyricsResolution.NotFound -> "No enabled source found lyrics"
+                else -> "Lookup finished; some sources were unavailable"
+            },
+        )
     }
 
     private fun commandForTrackChange(command: MediaController.TransportControls.() -> Unit) {
@@ -415,6 +475,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
         if (trackChanged) {
             currentTrackIdentity = trackIdentity
+            shownSelection = null
             manualSpotifyId = metadata.overrideKey()?.let { overrideStore.getString(it, null) }
             lyricsJob?.cancel()
         }
@@ -454,7 +515,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     ?: metadata?.description?.iconUri?.toString()
             } else mutableState.value.artworkUri,
         )
-        if (trackChanged) loadLyrics()
+        if (trackChanged) loadLyrics(settle = true)
     }
 
     private fun startTicker() = viewModelScope.launch {

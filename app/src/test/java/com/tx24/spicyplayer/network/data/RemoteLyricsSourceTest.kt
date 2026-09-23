@@ -4,6 +4,9 @@ import com.tx24.spicyplayer.network.model.NetworkErrorException
 import com.tx24.spicyplayer.network.model.NotFoundException
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -291,6 +294,90 @@ class RemoteLyricsSourceTest {
         assertTrue(result is RemoteLyricsResolution.Found)
     }
 
+    @Test
+    fun `slow lead does not hold back the rest`() = runBlocking {
+        // The lead only answers once "word" has been asked, so this deadlocks unless the rest
+        // fan out while the lead is still out.
+        val wordAsked = CompletableDeferred<Unit>()
+        val source = source(
+            object : RemoteLyricsProvider {
+                override val descriptor = descriptor("lead", 10)
+                override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
+                    wordAsked.await()
+                    return ProviderResult.Miss
+                }
+            },
+            object : RemoteLyricsProvider {
+                override val descriptor = descriptor("word", 20)
+                override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
+                    wordAsked.complete(Unit)
+                    return ProviderResult.Hit(wordTtml("word"))
+                }
+            },
+        )
+
+        val result = withTimeout(5_000) { source.resolveLyrics(request) } as RemoteLyricsResolution.Found
+
+        assertEquals("word", result.selection.source.id)
+    }
+
+    @Test
+    fun `best answer so far is reported as each source lands`() = runBlocking {
+        val gate = CompletableDeferred<Unit>()
+        val source = source(
+            provider("miss", 10, result = ProviderResult.Miss),
+            provider("line", 20, result = ProviderResult.Hit(synced("[00:01.00]line"))),
+            object : RemoteLyricsProvider {
+                override val descriptor = descriptor("word", 30)
+                override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
+                    gate.await()
+                    return ProviderResult.Hit(wordTtml("word"))
+                }
+            },
+        )
+        val shown = mutableListOf<String>()
+
+        val result = source.resolveLyrics(request) { update ->
+            (update as? RemoteLyricsResolution.Found)?.selection?.source?.id?.let { id ->
+                if (shown.lastOrNull() != id) shown += id
+            }
+            gate.complete(Unit)
+        } as RemoteLyricsResolution.Found
+
+        assertEquals(listOf("line", "word"), shown)
+        assertEquals("word", result.selection.source.id)
+    }
+
+    @Test
+    fun `known results are reused instead of asked again`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val source = source(
+            provider("one", 10, calls, ProviderResult.Miss),
+            provider("two", 20, calls, ProviderResult.Hit(synced("[00:01.00]line"))),
+        )
+        val known = mutableMapOf<String, ProviderResult>()
+
+        source.resolveLyrics(request, known = known)
+        val reordered = source.resolveLyrics(request, RemoteLyricsPolicy(sourceOrder = listOf("two", "one")), known = known)
+
+        assertEquals(listOf("one", "two"), calls)
+        assertEquals("two", (reordered as RemoteLyricsResolution.Found).selection.source.id)
+    }
+
+    @Test
+    fun `word hit cancels sources ranked below it`() = runBlocking {
+        val source = source(
+            provider("miss", 10, result = ProviderResult.Miss),
+            provider("word", 20, result = ProviderResult.Hit(wordTtml("word"))),
+            hanging("slow", 30),
+        )
+
+        val result = withTimeout(5_000) { source.resolveLyrics(request) } as RemoteLyricsResolution.Found
+
+        assertEquals("word", result.selection.source.id)
+        assertEquals(ProviderAttemptOutcome.SKIPPED, result.attempts.last().outcome)
+    }
+
     @Test(expected = NetworkErrorException::class)
     fun `compatibility getLyrics reports unavailable`() = runBlocking {
         source(
@@ -326,6 +413,11 @@ class RemoteLyricsSourceTest {
             calls?.add(id)
             return result
         }
+    }
+
+    private fun hanging(id: String, priority: Int) = object : RemoteLyricsProvider {
+        override val descriptor = descriptor(id, priority)
+        override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = awaitCancellation()
     }
 
     private fun throwingProvider(id: String, priority: Int, error: Exception) =

@@ -6,6 +6,11 @@ import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 enum class ProviderAttemptOutcome {
     HIT,
@@ -16,6 +21,10 @@ enum class ProviderAttemptOutcome {
     QUEUED,
     UNAVAILABLE,
     MALFORMED_HIT,
+    /** Still being asked. */
+    PENDING,
+    /** Never asked or cancelled: a source ranked above it already answered word-synced. */
+    SKIPPED,
 }
 
 data class ProviderAttempt(
@@ -52,8 +61,13 @@ sealed interface RemoteLyricsResolution {
 }
 
 /**
- * Applies source policy and selects the best usable payload. TTML is parsed
+ * Applies source policy and selects the best usable payload: better timing wins, and between
+ * equal timing the user's order wins, never whichever server answered first. TTML is parsed
  * before it can win, so malformed or empty XML never terminates the chain.
+ *
+ * Fetching follows mild-lyrics' walk: the top-ranked source leads alone, since one request
+ * usually settles the song; the rest fan out in parallel if it misses or is slow. The walk stops
+ * once a word-synced answer has nothing ranked above it still out.
  */
 @Singleton
 class RemoteLyricsSource @Inject constructor(
@@ -63,61 +77,123 @@ class RemoteLyricsSource @Inject constructor(
 ) {
     private val providers = providers.toList()
 
+    /**
+     * [known] holds results from earlier lookups of the same request and receives new ones, so a
+     * caller that keeps it (per track) never asks a source twice, e.g. after a policy change.
+     * [onUpdate] gets the best-so-far resolution each time a source lands.
+     */
     suspend fun resolveLyrics(
         request: LyricsLookupRequest,
         policy: RemoteLyricsPolicy = RemoteLyricsPolicy(),
         now: Instant = Instant.now(),
-        onSourceStarted: (LyricsSourceDescriptor) -> Unit = {},
+        known: MutableMap<String, ProviderResult> = mutableMapOf(),
+        onUpdate: suspend (RemoteLyricsResolution) -> Unit = {},
+    ): RemoteLyricsResolution = coroutineScope {
+        val ordered = orderedProviders(policy)
+        val enabled = ordered.filter { isEnabled(it.descriptor, policy) }
+        val cooling = enabled.mapNotNull { provider ->
+            val id = provider.descriptor.id
+            if (id in known) null else cooldowns.retryAt(id, now)?.let { id to it }
+        }.toMap()
+        val toAsk = enabled.filter { it.descriptor.id !in known && it.descriptor.id !in cooling }
+        val qualities = mutableMapOf<String, RemoteLyricsQuality>()
+        val pending = mutableSetOf<String>()
+        val landed = Channel<Pair<String, Result<ProviderResult>>>(Channel.UNLIMITED)
+        val jobs = mutableMapOf<String, Job>()
+        fun ask(provider: RemoteLyricsProvider) {
+            val id = provider.descriptor.id
+            pending += id
+            jobs[id] = launch {
+                // Carried as a Result so a provider's own CancellationException reaches the caller.
+                val result = try {
+                    Result.success(fetch(provider, request))
+                } catch (cancelled: CancellationException) {
+                    Result.failure(cancelled)
+                }
+                landed.trySend(id to result)
+            }
+        }
+        fun current() = select(ordered, policy, known, pending, cooling, qualities)
+
+        var resolution = current()
+        if (known.isNotEmpty()) onUpdate(resolution)
+        toAsk.firstOrNull()?.let(::ask)
+        var fannedOut = toAsk.size <= 1
+        while (!settled(resolution, ordered, pending)) {
+            if (!fannedOut && pending.isEmpty()) {
+                // The lead answered without settling the song: ask everyone else.
+                toAsk.drop(1).forEach(::ask)
+                fannedOut = true
+            }
+            if (pending.isEmpty()) break
+            val next = if (fannedOut) landed.receive() else withTimeoutOrNull(LEAD_HOLD_MS) { landed.receive() }
+            if (next == null) {
+                // ponytail: fixed hold for a slow lead; adapt per source if its latency varies a lot
+                toAsk.drop(1).forEach(::ask)
+                fannedOut = true
+                continue
+            }
+            val (id, outcome) = next
+            val result = outcome.getOrThrow()
+            pending -= id
+            if (result is ProviderResult.CoolingDown) cooldowns.record(id, result.retryAt)
+            known[id] = result
+            resolution = current()
+            onUpdate(resolution)
+        }
+        pending.toList().forEach { id -> jobs[id]?.cancel(); pending -= id }
+        current()
+    }
+
+    /** Whether nothing still out could replace the current pick: word timing is the ceiling. */
+    private fun settled(
+        resolution: RemoteLyricsResolution,
+        ordered: List<RemoteLyricsProvider>,
+        pending: Set<String>,
+    ): Boolean {
+        val best = (resolution as? RemoteLyricsResolution.Found)?.selection ?: return false
+        if (best.quality != RemoteLyricsQuality.WORD_SYNCED) return false
+        val rank = ordered.indexOfFirst { it.descriptor.id == best.source.id }
+        return ordered.take(rank).none { it.descriptor.id in pending }
+    }
+
+    private fun select(
+        ordered: List<RemoteLyricsProvider>,
+        policy: RemoteLyricsPolicy,
+        known: Map<String, ProviderResult>,
+        pending: Set<String>,
+        cooling: Map<String, Instant>,
+        qualities: MutableMap<String, RemoteLyricsQuality>,
     ): RemoteLyricsResolution {
         val attempts = mutableListOf<ProviderAttempt>()
         var best: RemoteLyricsSelection? = null
         var hadUnavailableProvider = false
         var earliestRetryAt: Instant? = null
 
-        for (provider in orderedProviders(policy)) {
+        for (provider in ordered) {
             val source = provider.descriptor
-            if (source.id in policy.disabledSourceIds ||
-                (policy.sourceOrder.isEmpty() && !source.defaultEnabled)
-            ) {
+            if (!isEnabled(source, policy)) {
                 attempts += ProviderAttempt(source.id, ProviderAttemptOutcome.DISABLED)
                 continue
             }
-
-            val activeCooldown = cooldowns.retryAt(source.id, now)
-            if (activeCooldown != null) {
-                attempts += ProviderAttempt(
-                    sourceId = source.id,
-                    outcome = ProviderAttemptOutcome.COOLING_DOWN,
-                    retryAt = activeCooldown,
-                )
-                earliestRetryAt = earliest(earliestRetryAt, activeCooldown)
-                hadUnavailableProvider = true
+            val result = known[source.id]
+            if (result == null) {
+                val retryAt = cooling[source.id]
+                attempts += when {
+                    source.id in pending -> ProviderAttempt(source.id, ProviderAttemptOutcome.PENDING)
+                    retryAt != null -> {
+                        hadUnavailableProvider = true
+                        earliestRetryAt = earliest(earliestRetryAt, retryAt)
+                        ProviderAttempt(source.id, ProviderAttemptOutcome.COOLING_DOWN, retryAt = retryAt)
+                    }
+                    else -> ProviderAttempt(source.id, ProviderAttemptOutcome.SKIPPED)
+                }
                 continue
-            }
-
-            onSourceStarted(source)
-            val result = try {
-                provider.fetch(request)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (_: NotFoundException) {
-                ProviderResult.Miss
-            } catch (error: NetworkErrorException) {
-                ProviderResult.Unavailable(
-                    category = ProviderFailureCategory.NETWORK,
-                    message = error.message,
-                    retryable = true,
-                )
-            } catch (error: Exception) {
-                ProviderResult.Unavailable(
-                    category = ProviderFailureCategory.UNKNOWN,
-                    message = error.message,
-                )
             }
 
             when (result) {
                 is ProviderResult.Hit -> {
-                    val quality = result.payload.measuredQuality()
+                    val quality = qualities.getOrPut(source.id) { result.payload.measuredQuality() }
                     if (quality == RemoteLyricsQuality.NONE) {
                         attempts += ProviderAttempt(
                             source.id,
@@ -127,14 +203,9 @@ class RemoteLyricsSource @Inject constructor(
                         hadUnavailableProvider = true
                         continue
                     }
-
                     attempts += ProviderAttempt(source.id, ProviderAttemptOutcome.HIT, quality)
                     if (best == null || quality.rank > best.quality.rank) {
                         best = RemoteLyricsSelection(source, result.payload, quality)
-                    }
-
-                    if (quality == RemoteLyricsQuality.WORD_SYNCED) {
-                        return RemoteLyricsResolution.Found(requireNotNull(best), attempts)
                     }
                 }
 
@@ -145,7 +216,6 @@ class RemoteLyricsSource @Inject constructor(
                     attempts += ProviderAttempt(source.id, ProviderAttemptOutcome.NEEDS_MATCH)
 
                 is ProviderResult.CoolingDown -> {
-                    cooldowns.record(source.id, result.retryAt)
                     attempts += ProviderAttempt(
                         source.id,
                         ProviderAttemptOutcome.COOLING_DOWN,
@@ -178,12 +248,35 @@ class RemoteLyricsSource @Inject constructor(
         }
 
         best?.let { return RemoteLyricsResolution.Found(it, attempts) }
-        return if (hadUnavailableProvider) {
+        return if (hadUnavailableProvider || pending.isNotEmpty()) {
             RemoteLyricsResolution.Unavailable(attempts, earliestRetryAt)
         } else {
             RemoteLyricsResolution.NotFound(attempts)
         }
     }
+
+    private suspend fun fetch(provider: RemoteLyricsProvider, request: LyricsLookupRequest): ProviderResult = try {
+        provider.fetch(request)
+    } catch (cancelled: CancellationException) {
+        throw cancelled
+    } catch (_: NotFoundException) {
+        ProviderResult.Miss
+    } catch (error: NetworkErrorException) {
+        ProviderResult.Unavailable(
+            category = ProviderFailureCategory.NETWORK,
+            message = error.message,
+            retryable = true,
+        )
+    } catch (error: Exception) {
+        ProviderResult.Unavailable(
+            category = ProviderFailureCategory.UNKNOWN,
+            message = error.message,
+        )
+    }
+
+    private fun isEnabled(source: LyricsSourceDescriptor, policy: RemoteLyricsPolicy) =
+        source.id !in policy.disabledSourceIds && (policy.sourceOrder.isNotEmpty() || source.defaultEnabled)
+
 
     /** Compatibility boundary for the existing repository while it migrates to typed outcomes. */
     suspend fun getLyrics(
@@ -231,6 +324,11 @@ class RemoteLyricsSource @Inject constructor(
             }.thenBy { it.descriptor.defaultPriority }
                 .thenBy { it.descriptor.id }
         )
+    }
+
+    private companion object {
+        /** How long the lead source is asked alone before everyone else is asked too. */
+        const val LEAD_HOLD_MS = 1_500L
     }
 
     private fun earliest(current: Instant?, candidate: Instant): Instant = when {
