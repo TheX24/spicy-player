@@ -1,0 +1,354 @@
+package com.tx24.spicyplayer.network.data
+
+import com.tx24.spicyplayer.network.model.NetworkErrorException
+import com.tx24.spicyplayer.network.model.NotFoundException
+import java.time.Instant
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.runBlocking
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+
+class RemoteLyricsSourceTest {
+    private val request = LyricsLookupRequest("Artist", "Title", "Album", 180)
+
+    @Test
+    fun `uses default priority order`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val source = source(
+            provider("fallback", 100, calls, ProviderResult.Hit(plain("fallback"))),
+            provider("preferred", 10, calls, ProviderResult.Hit(wordTtml("preferred"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("preferred", result.selection.source.id)
+        assertEquals(listOf("preferred"), calls)
+        assertEquals(RemoteLyricsQuality.WORD_SYNCED, result.selection.quality)
+    }
+
+    @Test
+    fun `explicit source order overrides defaults`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val source = source(
+            provider("a", 10, calls, ProviderResult.Hit(wordTtml("a"))),
+            provider("b", 100, calls, ProviderResult.Hit(wordTtml("b"))),
+        )
+
+        val result = source.resolveLyrics(
+            request,
+            RemoteLyricsPolicy(sourceOrder = listOf("b", "a")),
+        ) as RemoteLyricsResolution.Found
+
+        assertEquals("b", result.selection.source.id)
+        assertEquals(listOf("b"), calls)
+    }
+
+    @Test
+    fun `disabled provider is recorded and never called`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val source = source(
+            provider("disabled", 1, calls, ProviderResult.Hit(wordTtml("bad"))),
+            provider("enabled", 2, calls, ProviderResult.Hit(wordTtml("good"))),
+        )
+
+        val result = source.resolveLyrics(
+            request,
+            RemoteLyricsPolicy(disabledSourceIds = setOf("disabled")),
+        ) as RemoteLyricsResolution.Found
+
+        assertEquals("enabled", result.selection.source.id)
+        assertEquals(listOf("enabled"), calls)
+        assertEquals(ProviderAttemptOutcome.DISABLED, result.attempts.first().outcome)
+    }
+
+    @Test
+    fun `falls back after provider miss`() = runBlocking {
+        val source = source(
+            provider("missing", 10, result = ProviderResult.Miss),
+            provider("found", 100, result = ProviderResult.Hit(synced("line"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("found", result.selection.source.id)
+        assertEquals(
+            listOf(ProviderAttemptOutcome.MISS, ProviderAttemptOutcome.HIT),
+            result.attempts.map(ProviderAttempt::outcome),
+        )
+    }
+
+    @Test
+    fun `later richer result replaces earlier plain result`() = runBlocking {
+        val source = source(
+            provider("plain", 10, result = ProviderResult.Hit(plain("words"))),
+            provider("line", 20, result = ProviderResult.Hit(synced("line"))),
+            provider("word", 30, result = ProviderResult.Hit(wordTtml("ttml"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("word", result.selection.source.id)
+        assertEquals(RemoteLyricsQuality.WORD_SYNCED, result.selection.quality)
+        assertEquals(3, result.attempts.size)
+    }
+
+    @Test
+    fun `equal quality keeps earlier source`() = runBlocking {
+        val source = source(
+            provider("first", 10, result = ProviderResult.Hit(synced("first"))),
+            provider("second", 20, result = ProviderResult.Hit(synced("second"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("first", result.selection.source.id)
+        assertEquals("first", result.selection.payload.syncedLyrics)
+    }
+
+    @Test
+    fun `word synced result stops later requests`() = runBlocking {
+        val calls = mutableListOf<String>()
+        val source = source(
+            provider("word", 10, calls, ProviderResult.Hit(wordTtml("word"))),
+            provider("unused", 20, calls, ProviderResult.Hit(wordTtml("unused"))),
+        )
+
+        source.resolveLyrics(request)
+
+        assertEquals(listOf("word"), calls)
+    }
+
+    @Test
+    fun `empty hit is rejected and fallback continues`() = runBlocking {
+        val source = source(
+            provider("broken", 10, result = ProviderResult.Hit(RemoteLyricsPayload())),
+            provider("found", 20, result = ProviderResult.Hit(plain("lyrics"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("found", result.selection.source.id)
+        assertEquals(ProviderAttemptOutcome.MALFORMED_HIT, result.attempts.first().outcome)
+    }
+
+    @Test
+    fun `malformed ttml falls back to valid synced representation in same hit`() = runBlocking {
+        val source = source(
+            provider(
+                "mixed",
+                10,
+                result = ProviderResult.Hit(
+                    RemoteLyricsPayload(
+                        ttmlLyrics = "not xml",
+                        syncedLyrics = "[00:01.00]usable line",
+                    )
+                ),
+            )
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("mixed", result.selection.source.id)
+        assertEquals(RemoteLyricsQuality.LINE_SYNCED, result.selection.quality)
+    }
+
+    @Test
+    fun `static ttml is measured as plain and does not block richer fallback`() = runBlocking {
+        val source = source(
+            provider("static", 10, result = ProviderResult.Hit(staticTtml("plain"))),
+            provider("line", 20, result = ProviderResult.Hit(synced("[00:01.00]line"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("line", result.selection.source.id)
+        assertEquals(RemoteLyricsQuality.LINE_SYNCED, result.selection.quality)
+    }
+
+    @Test
+    fun `empty ttml is rejected instead of stopping source chain`() = runBlocking {
+        val source = source(
+            provider("empty-ttml", 10, result = ProviderResult.Hit(ttml("<tt><body><div /></body></tt>"))),
+            provider("plain", 20, result = ProviderResult.Hit(plain("fallback"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("plain", result.selection.source.id)
+        assertEquals(ProviderAttemptOutcome.MALFORMED_HIT, result.attempts.first().outcome)
+    }
+
+    @Test
+    fun `network failure does not hide later success`() = runBlocking {
+        val source = source(
+            provider(
+                "offline",
+                10,
+                result = ProviderResult.Unavailable(ProviderFailureCategory.NETWORK),
+            ),
+            provider("found", 20, result = ProviderResult.Hit(plain("lyrics"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("found", result.selection.source.id)
+    }
+
+    @Test
+    fun `all authoritative misses resolve not found`() = runBlocking {
+        val result = source(
+            provider("one", 10, result = ProviderResult.Miss),
+            provider("two", 20, result = ProviderResult.Miss),
+        ).resolveLyrics(request)
+
+        assertTrue(result is RemoteLyricsResolution.NotFound)
+    }
+
+    @Test
+    fun `unreachable source without hit resolves unavailable`() = runBlocking {
+        val result = source(
+            provider("missing", 10, result = ProviderResult.Miss),
+            provider(
+                "offline",
+                20,
+                result = ProviderResult.Unavailable(ProviderFailureCategory.NETWORK),
+            ),
+        ).resolveLyrics(request)
+
+        assertTrue(result is RemoteLyricsResolution.Unavailable)
+    }
+
+    @Test
+    fun `cooldown is remembered and suppresses later call`() = runBlocking {
+        val now = Instant.parse("2026-09-21T12:00:00Z")
+        val retryAt = now.plusSeconds(120)
+        val calls = mutableListOf<String>()
+        val cooling = provider(
+            "limited",
+            10,
+            calls,
+            ProviderResult.CoolingDown(retryAt),
+        )
+        val source = source(cooling)
+
+        val first = source.resolveLyrics(request, now = now)
+        val second = source.resolveLyrics(request, now = now.plusSeconds(30))
+
+        assertTrue(first is RemoteLyricsResolution.Unavailable)
+        assertTrue(second is RemoteLyricsResolution.Unavailable)
+        assertEquals(listOf("limited"), calls)
+        assertEquals(
+            ProviderAttemptOutcome.COOLING_DOWN,
+            second.attempts.single().outcome,
+        )
+    }
+
+    @Test
+    fun `expired cooldown permits another call`() = runBlocking {
+        val now = Instant.parse("2026-09-21T12:00:00Z")
+        val calls = mutableListOf<String>()
+        val tracker = ProviderCooldownTracker()
+        tracker.record("source", now.plusSeconds(10))
+        val source = RemoteLyricsSource(
+            setOf(provider("source", 10, calls, ProviderResult.Miss)),
+            tracker,
+        )
+
+        val result = source.resolveLyrics(request, now = now.plusSeconds(11))
+
+        assertTrue(result is RemoteLyricsResolution.NotFound)
+        assertEquals(listOf("source"), calls)
+    }
+
+    @Test
+    fun `cancellation is never converted into provider failure`() = runBlocking {
+        val cancelling = object : RemoteLyricsProvider {
+            override val descriptor = descriptor("cancel", 10)
+
+            override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
+                throw CancellationException("track changed")
+            }
+        }
+
+        try {
+            source(cancelling).resolveLyrics(request)
+            fail("Expected cancellation")
+        } catch (expected: CancellationException) {
+            assertEquals("track changed", expected.message)
+        }
+    }
+
+    @Test
+    fun `legacy not found exception remains isolated during migration`() = runBlocking {
+        val legacy = throwingProvider("legacy", 10, NotFoundException("missing"))
+        val result = source(
+            legacy,
+            provider("found", 20, result = ProviderResult.Hit(plain("lyrics"))),
+        ).resolveLyrics(request)
+
+        assertTrue(result is RemoteLyricsResolution.Found)
+    }
+
+    @Test(expected = NetworkErrorException::class)
+    fun `compatibility getLyrics reports unavailable`() = runBlocking {
+        source(
+            provider(
+                "offline",
+                10,
+                result = ProviderResult.Unavailable(ProviderFailureCategory.NETWORK),
+            )
+        ).getLyrics(request)
+        Unit
+    }
+
+    @Test(expected = NotFoundException::class)
+    fun `compatibility getLyrics reports not found`() = runBlocking {
+        source(provider("missing", 10, result = ProviderResult.Miss)).getLyrics(request)
+        Unit
+    }
+
+    private fun source(vararg providers: RemoteLyricsProvider) = RemoteLyricsSource(
+        providers.toSet(),
+        ProviderCooldownTracker(),
+    )
+
+    private fun provider(
+        id: String,
+        priority: Int,
+        calls: MutableList<String>? = null,
+        result: ProviderResult,
+    ) = object : RemoteLyricsProvider {
+        override val descriptor = descriptor(id, priority)
+
+        override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
+            calls?.add(id)
+            return result
+        }
+    }
+
+    private fun throwingProvider(id: String, priority: Int, error: Exception) =
+        object : RemoteLyricsProvider {
+            override val descriptor = descriptor(id, priority)
+
+            override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = throw error
+        }
+
+    private fun descriptor(id: String, priority: Int) = LyricsSourceDescriptor(
+        id = id,
+        displayName = id,
+        defaultPriority = priority,
+        capabilities = setOf(LyricsCapability.PLAIN_TEXT),
+    )
+
+    private fun plain(value: String) = RemoteLyricsPayload(plainLyrics = value)
+    private fun synced(value: String) = RemoteLyricsPayload(syncedLyrics = value)
+    private fun ttml(value: String) = RemoteLyricsPayload(ttmlLyrics = value)
+    private fun wordTtml(value: String) = ttml(
+        """<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p begin="1s" end="3s"><span begin="1s" end="2s">$value</span></p></div></body></tt>"""
+    )
+    private fun staticTtml(value: String) = ttml(
+        """<tt xmlns="http://www.w3.org/ns/ttml"><body><div><p>$value</p></div></body></tt>"""
+    )
+}

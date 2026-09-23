@@ -1,0 +1,81 @@
+package com.tx24.spicyplayer.network.data
+
+import java.time.Clock
+import java.time.Duration
+import java.time.Instant
+import java.time.ZonedDateTime
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+import java.util.concurrent.ConcurrentHashMap
+import javax.inject.Inject
+import javax.inject.Singleton
+
+/** In-memory cooldown gate. A Room-backed implementation can replace it without provider changes. */
+@Singleton
+class ProviderCooldownTracker @Inject constructor() {
+    private val deadlines = ConcurrentHashMap<String, Instant>()
+
+    fun record(sourceId: String, retryAt: Instant) {
+        deadlines.merge(sourceId, retryAt) { current, proposed -> maxOf(current, proposed) }
+    }
+
+    fun retryAt(sourceId: String, now: Instant = Instant.now()): Instant? {
+        val deadline = deadlines[sourceId] ?: return null
+        if (!deadline.isAfter(now)) {
+            deadlines.remove(sourceId, deadline)
+            return null
+        }
+        return deadline
+    }
+
+    fun clear(sourceId: String) {
+        deadlines.remove(sourceId)
+    }
+
+    fun clearAll() {
+        deadlines.clear()
+    }
+
+    fun activeDeadlines(now: Instant = Instant.now()): Map<String, Instant> =
+        deadlines.filterValues { it.isAfter(now) }
+}
+
+object RetryAfterParser {
+    private val defaultDelay = Duration.ofSeconds(60)
+    private val minimumDelay = Duration.ofSeconds(1)
+    private val maximumDelay = Duration.ofHours(24)
+
+    /** Supports RFC delta-seconds and RFC 1123 HTTP dates, with bounded fallback. */
+    fun deadline(
+        value: String?,
+        now: Instant = Instant.now(Clock.systemUTC()),
+    ): Instant {
+        val requestedDelay = value
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.let { parseDelay(it, now) }
+            ?: defaultDelay
+        return now.plus(requestedDelay.coerceIn(minimumDelay, maximumDelay))
+    }
+
+    private fun parseDelay(value: String, now: Instant): Duration? {
+        value.toLongOrNull()?.let { seconds ->
+            return if (seconds < 0) minimumDelay else Duration.ofSeconds(seconds)
+        }
+
+        return try {
+            Duration.between(
+                now,
+                ZonedDateTime.parse(value, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant(),
+            )
+        } catch (_: DateTimeParseException) {
+            null
+        }
+    }
+
+    private fun Duration.coerceIn(minimum: Duration, maximum: Duration): Duration = when {
+        this < minimum -> minimum
+        this > maximum -> maximum
+        else -> this
+    }
+}
