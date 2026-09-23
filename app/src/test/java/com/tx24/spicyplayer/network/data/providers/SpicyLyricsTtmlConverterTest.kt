@@ -1,6 +1,14 @@
 package com.tx24.spicyplayer.network.data.providers
 
+import com.google.gson.Gson
 import com.google.gson.JsonParser
+import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
+import com.tx24.spicyplayer.network.data.ProviderResult
+import com.tx24.spicyplayer.network.data.RemoteLyricsQuality
+import com.tx24.spicyplayer.network.data.measuredQuality
+import com.tx24.spicyplayer.network.data.spotify.AnonymousSpotifyCatalogSearch
+import com.tx24.spicyplayer.network.data.spotify.SpotifyTrackResolver
+import okhttp3.OkHttpClient
 import com.tx24.spicyplayer.lyrics.spicy.parser.TtmlLyricsParser
 import com.tx24.spicyplayer.lyrics.spicy.models.LineRole
 import org.junit.Assert.assertEquals
@@ -38,6 +46,33 @@ class SpicyLyricsTtmlConverterTest {
 
         assertEquals(listOf("Hel", "lo", "world"), words.map { it.text.trim() })
         assertEquals(listOf(false, true, false), words.map { it.isPartOfWord })
+    }
+
+    @Test fun convertsLineTypeResponses() {
+        val body = JsonParser.parseString("""{"Type":"Line","Content":[
+            {"Type":"Vocal","OppositeAligned":false,"Text":"first line","StartTime":6.74,"EndTime":8.21},
+            {"Type":"Vocal","OppositeAligned":true,"Text":"second","StartTime":8.21,"EndTime":9.72}
+        ]}""").asJsonObject
+        val ttml = requireNotNull(SpicyLyricsTtmlConverter.convert(body, body.getAsJsonArray("Content")))
+
+        val parsed = TtmlLyricsParser.parse(ttml.byteInputStream())
+
+        assertEquals(LyricsType.Line, parsed.type)
+        assertEquals(listOf(6_740L, 8_210L), parsed.lines.map { it.startMs })
+        assertEquals("first line", parsed.lines[0].words.joinToString(" ") { it.text.trim() })
+        assertEquals(true, parsed.lines[1].oppositeAligned)
+    }
+
+    @Test fun staticResponsesBecomePlainLyrics() {
+        val okhttp = OkHttpClient()
+        val gson = Gson()
+        val provider = SpicyLyricsProvider(okhttp, gson, SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(okhttp, gson)), "key")
+
+        val hit = provider.parseHit("""{"Status":200,"Body":{"Type":"Static","Lines":[{"Text":"one"},{"Text":"two"}]}}""")
+
+        val payload = (hit as ProviderResult.Hit).payload
+        assertEquals("one\ntwo", payload.plainLyrics)
+        assertEquals(RemoteLyricsQuality.PLAIN, payload.measuredQuality())
     }
 
     @Test fun carriesSpicyTransliterationsPerSyllable() {

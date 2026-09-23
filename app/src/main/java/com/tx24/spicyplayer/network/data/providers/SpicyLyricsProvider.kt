@@ -119,12 +119,17 @@ class SpicyLyricsProvider @Inject constructor(
         val root = gson.fromJson(json, JsonObject::class.java)
         if (root.get("Status")?.asInt != 200) return ProviderResult.Miss
         val body = root.getAsJsonObject("Body") ?: return malformed("Missing Body")
-        val content = body.getAsJsonArray("Content") ?: return malformed("Missing Content")
-        val ttml = SpicyLyricsTtmlConverter.convert(body, content)
-            ?: return malformed("No usable lyric content")
+        // Syllable/Line responses carry Content; Static ones carry only Lines[].Text.
+        val content = body.getAsJsonArray("Content")
+        val ttml = content?.let { SpicyLyricsTtmlConverter.convert(body, it) }
+        val plain = body.getAsJsonArray("Lines")
+            ?.mapNotNull { it.takeIf { line -> line.isJsonObject }?.asJsonObject?.get("Text")?.takeIf { text -> text.isJsonPrimitive }?.asString }
+            ?.joinToString("\n")?.takeIf(String::isNotBlank)
+        if (ttml == null && plain == null) return malformed("No usable lyric content")
         val upload = body.getAsJsonObject("UploadAttribution")
         return ProviderResult.Hit(RemoteLyricsPayload(
             ttmlLyrics = ttml,
+            plainLyrics = plain,
             attribution = LyricsAttribution(
                 providerName = "Spicy Lyrics",
                 originName = spicyOriginName(body.get("source")?.takeIf { it.isJsonPrimitive }?.asString),
@@ -168,15 +173,22 @@ internal object SpicyLyricsTtmlConverter {
         val defaultAgent = content.mapNotNull { it.takeIf { value -> value.isJsonObject }?.asJsonObject }
             .firstNotNullOfOrNull { it.string("Agent") ?: it.getAsJsonObject("Lead")?.string("Agent") }
         val transliterations = StringBuilder()
+        var wordTimed = false
         val paragraphs = buildList {
             content.forEach { element ->
                 val item = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@forEach
                 if (item.string("Type").equals("Interlude", ignoreCase = true)) return@forEach
-                val lead = item.getAsJsonObject("Lead") ?: return@forEach
-                val agent = item.string("Agent") ?: lead.string("Agent")
+                val lead = item.getAsJsonObject("Lead")
+                val agent = item.string("Agent") ?: lead?.string("Agent")
                 val opposite = item.get("OppositeAligned")?.takeIf { it.isJsonPrimitive }?.asBoolean
                     ?: (agent != null && defaultAgent != null && agent != defaultAgent)
                 val key = "L${size + 1}"
+                if (lead == null) {
+                    // Line-type responses carry the text and timing on the item itself.
+                    lineParagraph(key, item, agent, opposite)?.let(::add)
+                    return@forEach
+                }
+                wordTimed = true
                 paragraph(key, lead, item.getAsJsonArray("Background"), agent, opposite)?.let(::add) ?: return@forEach
                 transliteration(lead.getAsJsonArray("Syllables"))?.let {
                     transliterations.append("<text for=\"$key\">$it</text>")
@@ -188,7 +200,7 @@ internal object SpicyLyricsTtmlConverter {
             ?.mapNotNull { it.takeIf { value -> value.isJsonPrimitive }?.asString }
             .orEmpty()
             .joinToString("") { "<songwriter>${xml(it)}</songwriter>" }
-        return """<?xml version="1.0" encoding="UTF-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:spicy="https://spicylyrics.org/ns/ttml" itunes:timing="word"><head><metadata><songwriters>$writers</songwriters>${if (transliterations.isEmpty()) "" else "<transliterations><transliteration>$transliterations</transliteration></transliterations>"}</metadata></head><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
+        return """<?xml version="1.0" encoding="UTF-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:spicy="https://spicylyrics.org/ns/ttml" itunes:timing="${if (wordTimed) "word" else "line"}"><head><metadata><songwriters>$writers</songwriters>${if (transliterations.isEmpty()) "" else "<transliterations><transliteration>$transliterations</transliteration></transliterations>"}</metadata></head><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
     }
 
     /** SL's per-syllable romanization, only when every lead syllable has one (the parser matches by position). */
@@ -198,6 +210,14 @@ internal object SpicyLyricsTtmlConverter {
                 ?.takeIf(String::isNotEmpty) ?: return null
         }
         return texts?.takeIf(List<String>::isNotEmpty)?.joinToString("") { "<span>${xml(it)}</span>" }
+    }
+
+    private fun lineParagraph(key: String, item: JsonObject, agent: String?, opposite: Boolean): String? {
+        val text = item.string("Text")?.takeIf(String::isNotBlank) ?: return null
+        val start = item.number("StartTime") ?: return null
+        val end = item.number("EndTime") ?: return null
+        val agentAttribute = agent?.let { " ttm:agent=\"${xml(it)}\"" }.orEmpty()
+        return "<p begin=\"${seconds(start)}\" end=\"${seconds(end)}\" itunes:key=\"$key\"$agentAttribute spicy:oppositeAligned=\"$opposite\">${xml(text)}</p>"
     }
 
     private fun paragraph(key: String, lead: JsonObject, backgrounds: JsonArray?, agent: String?, opposite: Boolean): String? {
