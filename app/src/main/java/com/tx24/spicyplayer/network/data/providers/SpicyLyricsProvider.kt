@@ -12,6 +12,8 @@ import com.tx24.spicyplayer.network.data.ProviderFailureCategory
 import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
 import com.tx24.spicyplayer.network.data.RemoteLyricsProvider
+import com.tx24.spicyplayer.network.data.RemoteLyricsQuality
+import com.tx24.spicyplayer.network.data.measuredQuality
 import com.tx24.spicyplayer.network.data.RetryAfterParser
 import com.tx24.spicyplayer.network.data.SourceReleaseChannel
 import com.tx24.spicyplayer.network.data.awaitResponse
@@ -23,6 +25,9 @@ import javax.inject.Inject
 import javax.inject.Qualifier
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -61,7 +66,7 @@ class SpicyLyricsProvider @Inject constructor(
             )
         }
 
-        val spotifyId = request.spotifyTrackId ?: run {
+        val ids = request.spotifyTrackId?.let(::listOf) ?: run {
             val resolution = spotifyResolver.resolve(
                 LocalTrackMetadata(
                     title = request.title,
@@ -71,10 +76,32 @@ class SpicyLyricsProvider @Inject constructor(
                 )
             )
             when (resolution) {
-                is SpotifyTrackResolution.Matched -> resolution.track.candidate.id
+                is SpotifyTrackResolution.Matched ->
+                    (listOf(resolution.track) + resolution.alternates).map { it.candidate.id }
                 is SpotifyTrackResolution.Ambiguous, SpotifyTrackResolution.NotFound -> return ProviderResult.NeedsMatch
             }
         }
+        val first = fetchId(ids.first())
+        if (ids.size == 1 || (first.quality() == RemoteLyricsQuality.WORD_SYNCED && first.isUpload())) return first
+        // A community upload lives on one Spotify ID; the song's other IDs (single, album,
+        // compilation) often answer with the catalogue copy instead, or nothing.
+        val results = listOf(first) + coroutineScope {
+            ids.drop(1).map { id -> async { fetchId(id) } }.awaitAll()
+        }
+        // Better timing first, then an upload over the catalogue copy, then the best-ranked ID.
+        return results.filterIsInstance<ProviderResult.Hit>()
+            .maxWithOrNull(compareBy<ProviderResult.Hit>({ it.quality().rank }, { it.isUpload() }).thenByDescending { results.indexOf(it) })
+            ?: results.firstOrNull { it !is ProviderResult.Miss }
+            ?: ProviderResult.Miss
+    }
+
+    private fun ProviderResult.quality() =
+        (this as? ProviderResult.Hit)?.payload?.measuredQuality() ?: RemoteLyricsQuality.NONE
+
+    private fun ProviderResult.isUpload() =
+        (this as? ProviderResult.Hit)?.payload?.attribution?.let { it.uploader != null || it.maker != null } == true
+
+    private suspend fun fetchId(spotifyId: String): ProviderResult {
         val url = "https://api.spicylyrics.org/v1/lyrics"
             .toHttpUrl()
             .newBuilder()

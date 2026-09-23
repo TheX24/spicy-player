@@ -223,7 +223,7 @@ private fun LatencyTestApp(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp).verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                if (BuildConfig.SPICY_LYRICS_CLIENT_KEY.isBlank()) {
+                run {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         OutlinedTextField(
                             value = clientKey,
@@ -231,7 +231,7 @@ private fun LatencyTestApp(
                             modifier = Modifier.weight(1f),
                             singleLine = true,
                             visualTransformation = PasswordVisualTransformation(),
-                            label = { Text("SL client key") },
+                            label = { Text("Your SL client key (blank = built-in)") },
                         )
                         Button(onClick = { viewModel.useApiKey(clientKey) }, modifier = Modifier.padding(start = 8.dp)) {
                             Text("Use key")

@@ -24,15 +24,13 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
-        buildConfigField("String", "SPICY_LYRICS_CLIENT_KEY", "\"\"")
+        // A publishable (sl_pk_) key, made to ship in clients: SL rate-limits it per viewer IP.
+        val key = localClientKey().replace("\\", "\\\\").replace("\"", "\\\"")
+        buildConfigField("String", "SPICY_LYRICS_CLIENT_KEY", "\"$key\"")
     }
 
-    buildTypes {
-        getByName("debug") {
-            val key = localClientKey().replace("\\", "\\\\").replace("\"", "\\\"")
-            buildConfigField("String", "SPICY_LYRICS_CLIENT_KEY", "\"$key\"")
-        }
-    }
+    // Android logging/clock calls are no-ops in JVM tests, so provider code runs there unchanged.
+    testOptions { unitTests.isReturnDefaultValues = true }
 
     buildFeatures {
         compose = true

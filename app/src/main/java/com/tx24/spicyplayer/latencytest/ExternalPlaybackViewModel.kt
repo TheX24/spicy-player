@@ -70,7 +70,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val sessionManager = application.getSystemService(MediaSessionManager::class.java)
     private val listenerComponent = ComponentName(application, SessionAccessService::class.java)
     private val mainHandler = Handler(Looper.getMainLooper())
-    private var lyricsBackend = NextLyricsBackend(application, BuildConfig.SPICY_LYRICS_CLIENT_KEY)
+    // Optional user-supplied Spicy Lyrics key overriding the shipped one; kept on device (backups are disabled).
+    private val keyStore = application.getSharedPreferences("spicy_lyrics_key", 0)
+    private var runtimeApiKey: String = keyStore.getString("key", null).orEmpty()
+    private var lyricsBackend = NextLyricsBackend(application, runtimeApiKey.ifBlank { BuildConfig.SPICY_LYRICS_CLIENT_KEY })
     private val overrideStore = application.getSharedPreferences("spotify_id_overrides", 0)
     private val outputProfiles = AudioOutputProfiles(application)
     private var outputRoute = outputProfiles.currentRoute()
@@ -93,7 +96,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LyricsLookupRequest, MutableMap<String, ProviderResult>>) = size > 30
     }
     private var manualSpotifyId: String? = null
-    private var runtimeApiKey: String = ""
     private var currentTrackIdentity: String? = null
     private var pendingCommand: PendingCommand? = null
     private var timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
@@ -209,6 +211,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     fun useApiKey(key: String) {
         runtimeApiKey = key.trim()
+        keyStore.edit().putString("key", runtimeApiKey).apply()
         lyricsBackend = NextLyricsBackend(getApplication(), runtimeApiKey.ifBlank { BuildConfig.SPICY_LYRICS_CLIENT_KEY })
         lookupCache.clear()  // Spicy Lyrics answers depend on the key
         refreshSourcePolicy()

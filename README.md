@@ -8,7 +8,7 @@ The current app discovers active media sessions, prefers a playing local player 
 
 Run `.\gradlew.bat assembleDebug testDebugUnitTest lintDebug` on Windows. The application ID is `com.tx24.spicyplayer.next`, separate from the original app and latency prototype.
 
-The debug build can read `SPICY_LYRICS_CLIENT_KEY` from a local `.env` file. `.env` is ignored by Git. Release builds always use a blank build-time key; users can enter a client key in the app at runtime. Do not put upstream provider secrets in the APK.
+Both builds read `SPICY_LYRICS_CLIENT_KEY` from a local `.env` file (ignored by Git) and ship it. It must be a publishable `sl_pk_` key: those are made for clients and Spicy Lyrics rate-limits them per viewer IP, so one user cannot use up everyone's quota. Never ship a secret `sl_sk_` key. Users can override it with their own key in Options; that is saved on the device.
 
 ## Current boundaries
 

@@ -31,7 +31,14 @@ data class ScoredSpotifyTrack(
 )
 
 sealed interface SpotifyTrackResolution {
-    data class Matched(val track: ScoredSpotifyTrack) : SpotifyTrackResolution
+    /**
+     * [alternates]: other IDs for the same recording (single, album, re-release), best first.
+     * Lyrics are uploaded per ID, so a lookup that misses on [track] should try these.
+     */
+    data class Matched(
+        val track: ScoredSpotifyTrack,
+        val alternates: List<ScoredSpotifyTrack> = emptyList(),
+    ) : SpotifyTrackResolution
     data class Ambiguous(val candidates: List<ScoredSpotifyTrack>) : SpotifyTrackResolution
     data object NotFound : SpotifyTrackResolution
 }
@@ -51,6 +58,8 @@ object SpotifyTrackMatcher {
     private const val MAXIMUM_DURATION_DELTA_MS = 8_000L
     private const val MINIMUM_WINNER_MARGIN = 4
     private const val DURATION_SCORE_WINDOW_MS = 15_000.0
+    private const val SAME_RECORDING_DURATION_MS = 2_000L
+    private const val MAXIMUM_ALTERNATES = 3
 
     private val versionTerms = setOf(
         "acoustic",
@@ -83,22 +92,34 @@ object SpotifyTrackMatcher {
             )
             .toList()
 
-        val winner = ranked.firstOrNull() ?: return SpotifyTrackResolution.NotFound
+        var winner = ranked.firstOrNull() ?: return SpotifyTrackResolution.NotFound
         val runnerUp = ranked.getOrNull(1)
         if (runnerUp != null && winner.score - runnerUp.score < MINIMUM_WINNER_MARGIN) {
             // The same recording is often listed as a single, an album track, and a
-            // compilation. A unique exact album match can resolve that tie.
+            // compilation. A unique exact album match picks which to ask first.
+            val tied = ranked.takeWhile { winner.score - it.score < MINIMUM_WINNER_MARGIN }
             val sourceAlbum = normalize(source.album)
-            if (sourceAlbum.isNotBlank()) {
-                val tied = ranked.takeWhile { winner.score - it.score < MINIMUM_WINNER_MARGIN }
-                val albumMatches = tied.filter { normalize(it.candidate.album) == sourceAlbum }
-                if (albumMatches.size == 1) return SpotifyTrackResolution.Matched(albumMatches.single())
+            val albumMatch = tied.filter { sourceAlbum.isNotBlank() && normalize(it.candidate.album) == sourceAlbum }
+                .singleOrNull()
+            if (albumMatch != null) winner = albumMatch
+            // A tie between different songs (same title, other artist) stays unresolved.
+            else if (!tied.all { sameRecording(winner.candidate, it.candidate) }) {
+                return SpotifyTrackResolution.Ambiguous(ranked.take(5))
             }
-            return SpotifyTrackResolution.Ambiguous(ranked.take(5))
         }
 
-        return SpotifyTrackResolution.Matched(winner)
+        // Like mild-lyrics' NetEase alternates: only a copy that ties on title, byline and
+        // length is another pressing of this song; anything less is a different song.
+        val alternates = ranked
+            .filter { it !== winner && sameRecording(winner.candidate, it.candidate) }
+            .take(MAXIMUM_ALTERNATES)
+        return SpotifyTrackResolution.Matched(winner, alternates)
     }
+
+    private fun sameRecording(a: SpotifyTrackCandidate, b: SpotifyTrackCandidate): Boolean =
+        normalize(a.title) == normalize(b.title) &&
+            a.artists.map(::normalize).toSet() == b.artists.map(::normalize).toSet() &&
+            abs(a.durationMs - b.durationMs) <= SAME_RECORDING_DURATION_MS
 
     fun score(source: LocalTrackMetadata, candidate: SpotifyTrackCandidate): ScoredSpotifyTrack {
         val titleSimilarity = similarity(source.title, candidate.title)

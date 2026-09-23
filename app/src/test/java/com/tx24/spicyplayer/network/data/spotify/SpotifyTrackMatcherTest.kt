@@ -45,12 +45,26 @@ class SpotifyTrackMatcherTest {
     }
 
     @Test
-    fun `returns ambiguity when two candidates are effectively tied`() {
+    fun `tied copies of the same recording become alternates`() {
         val result = SpotifyTrackMatcher.resolve(
-            source.copy(title = "Deja Vu"),
+            source.copy(title = "Deja Vu", album = ""),
             listOf(
                 candidate(id = "a", title = "Deja Vu", durationMs = 239_000),
                 candidate(id = "b", title = "Deja Vu", durationMs = 239_200),
+            ),
+        ) as SpotifyTrackResolution.Matched
+
+        assertEquals("a", result.track.candidate.id)
+        assertEquals(listOf("b"), result.alternates.map { it.candidate.id })
+    }
+
+    @Test
+    fun `tie between different artists stays ambiguous`() {
+        val result = SpotifyTrackMatcher.resolve(
+            source.copy(title = "Deja Vu", artist = "Beyoncé", album = ""),
+            listOf(
+                candidate(id = "a", title = "Deja Vu", durationMs = 239_000),
+                candidate(id = "b", title = "Deja Vu", durationMs = 239_200).copy(artists = listOf("Beyoncé", "Someone Else")),
             ),
         )
 
