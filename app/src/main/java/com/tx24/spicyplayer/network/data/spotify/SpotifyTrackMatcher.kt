@@ -122,7 +122,10 @@ object SpotifyTrackMatcher {
             abs(a.durationMs - b.durationMs) <= SAME_RECORDING_DURATION_MS
 
     fun score(source: LocalTrackMetadata, candidate: SpotifyTrackCandidate): ScoredSpotifyTrack {
-        val titleSimilarity = similarity(source.title, candidate.title)
+        // Players often show "イガク - Medicine" or "Artist - Title"; compare the parts too.
+        val titleSimilarity = titleParts(source.title).maxOf { local ->
+            titleParts(candidate.title).maxOf { remote -> similarity(local, remote) }
+        }
         val artistSimilarity = artistSimilarity(source.artist, candidate.artists)
         val durationDelta = abs(source.durationMs - candidate.durationMs)
         val durationScore = max(0.0, 1.0 - durationDelta / DURATION_SCORE_WINDOW_MS)
@@ -173,6 +176,14 @@ object SpotifyTrackMatcher {
         }
         return 2.0 * intersection / (leftBigrams.size + normalizedRight.bigrams().size)
     }
+
+    /** The whole title plus its pieces around " - ", "/", "|" and brackets. */
+    private fun titleParts(title: String): List<String> =
+        (listOf(title) + title.split(Regex("\\s+[-–—|/]\\s+|[／｜()\\[\\]（）【】「」]")))
+            .map(String::trim)
+            // A credit like "(feat. X)" is not a title: two songs sharing it are not the same song.
+            .filter { normalize(it).isNotEmpty() && !normalize(it).matches(Regex("(feat|featuring|ft|with|prod)\\b.*")) }
+            .distinct()
 
     private fun artistSimilarity(localArtist: String, spotifyArtists: List<String>): Double {
         val localParts = splitArtists(localArtist)

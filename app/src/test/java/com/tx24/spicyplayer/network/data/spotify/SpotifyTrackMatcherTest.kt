@@ -59,6 +59,27 @@ class SpotifyTrackMatcherTest {
     }
 
     @Test
+    fun `bilingual player title matches its spotify title`() {
+        val medicine = SpotifyTrackCandidate("medicine", "Medicine", listOf("Sasuke Haraguchi"), "Medicine", 120_352)
+        val result = SpotifyTrackMatcher.resolve(
+            LocalTrackMetadata("イガク - Medicine", "Sasuke Haraguchi", "Medicine", 120_000),
+            listOf(medicine),
+        )
+
+        assertEquals("medicine", (result as SpotifyTrackResolution.Matched).track.candidate.id)
+    }
+
+    @Test
+    fun `shared featuring credit does not make two songs match`() {
+        val result = SpotifyTrackMatcher.resolve(
+            LocalTrackMetadata("Crew Love (feat. Drake)", "The Weeknd", "", 239_000),
+            listOf(candidate(id = "other", title = "Wicked Games (feat. Drake)").copy(artists = listOf("The Weeknd"))),
+        )
+
+        assertEquals(SpotifyTrackResolution.NotFound, result)
+    }
+
+    @Test
     fun `tie between different artists stays ambiguous`() {
         val result = SpotifyTrackMatcher.resolve(
             source.copy(title = "Deja Vu", artist = "Beyoncé", album = ""),
