@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.latencytest
 
+import android.content.Context
 import android.content.Intent
 import android.content.ClipboardManager
 import android.os.Bundle
@@ -62,7 +63,6 @@ import com.tx24.spicyplayer.lyrics.spicy.canvas.SpicyLyricsView
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import com.tx24.spicyplayer.lyrics.spicy.models.buildDisplayTimeline
-import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationService
 
 class MainActivity : ComponentActivity() {
     private val playbackViewModel: ExternalPlaybackViewModel by viewModels()
@@ -99,7 +99,13 @@ private fun LatencyTestApp(
     var clientKey by remember { mutableStateOf("") }
     var spotifyIdInput by remember { mutableStateOf("") }
     var scrubPosition by remember { mutableStateOf<Long?>(null) }
-    var romanize by remember { mutableStateOf(false) }
+    // Global and persisted, like the reference's "romanization" setting.
+    val uiPrefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
+    var romanizePreferred by remember { mutableStateOf(uiPrefs.getBoolean("romanize", false)) }
+    val romanizationAvailable = (state.lyrics as? LyricsState.Ready)?.let { ready ->
+        ready.plainRomanized != null || ready.lines.any { line -> line.words.any { it.romanized != null } }
+    } == true
+    val romanize = romanizePreferred && romanizationAvailable
     var showOptions by remember { mutableStateOf(false) }
     var showDebug by remember { mutableStateOf(false) }
 
@@ -259,8 +265,15 @@ private fun LatencyTestApp(
                     TextButton(onClick = { viewModel.adjustLyricDelay(50) }) { Text("50 ms later") }
                 }
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text("Romanize", modifier = Modifier.weight(1f))
-                    Switch(checked = romanize, onCheckedChange = { romanize = it })
+                    Text(if (romanizationAvailable) "Romanize" else "Romanize (nothing to romanize)", modifier = Modifier.weight(1f))
+                    Switch(
+                        checked = romanizePreferred,
+                        enabled = romanizationAvailable,
+                        onCheckedChange = {
+                            romanizePreferred = it
+                            uiPrefs.edit().putBoolean("romanize", it).apply()
+                        },
+                    )
                 }
                 Text("Lyric sources", style = MaterialTheme.typography.titleMedium)
                 state.sourceOrder.forEachIndexed { index, id ->
@@ -378,7 +391,7 @@ private fun LyricsPanel(
         is LyricsState.Ready -> {
             if (lyrics.lines.isEmpty()) {
                 Box(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp)) {
-                    Text(lyrics.plainText.orEmpty(), style = MaterialTheme.typography.bodyLarge)
+                    Text((if (romanize) lyrics.plainRomanized else null) ?: lyrics.plainText.orEmpty(), style = MaterialTheme.typography.bodyLarge)
                 }
                 return
             }
@@ -397,12 +410,8 @@ private fun LyricsPanel(
                     )
                 }, minimalMode = false)
             }
-            var romanizedLines by remember(lyrics.lines) { mutableStateOf(rendererLines) }
-            LaunchedEffect(rendererLines) {
-                romanizedLines = RomanizationService.romanize(rendererLines)
-            }
             SpicyLyricsView(
-                lines = romanizedLines,
+                lines = rendererLines,
                 documentId = remember(lyrics.lines) { lyrics.lines.hashCode().toString() },
                 currentTimeMs = currentTimeMs,
                 onSeekWord = onSeek,

@@ -1,6 +1,7 @@
 package com.tx24.spicyplayer.latencytest
 
 import com.tx24.spicyplayer.lyrics.spicy.parser.TtmlLyricsParser
+import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationService
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
 import com.tx24.spicyplayer.network.data.RemoteLyricsQuality
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
@@ -30,12 +31,21 @@ internal object RemoteLyricsAdapter {
                 )
             }.takeIf(List<TimedLine>::isNotEmpty)
         }
-        val lines = ttmlLines ?: parseLrc(payload.syncedLyrics, durationMs)
-        val plain = if (lines.isEmpty()) payload.plainLyrics?.takeIf(String::isNotBlank) else null
-        require(lines.isNotEmpty() || plain != null) { "Selected lyrics contain no displayable text" }
+        val unromanized = ttmlLines ?: parseLrc(payload.syncedLyrics, durationMs)
+        val plain = if (unromanized.isEmpty()) payload.plainLyrics?.takeIf(String::isNotBlank) else null
+        require(unromanized.isNotEmpty() || plain != null) { "Selected lyrics contain no displayable text" }
+        // On-device romanization fills only the words the source left unromanized.
+        val plainLines = plain?.lines().orEmpty()
+        val computed = RomanizationService.romanize(unromanized.flatMap { it.words }.map(TimedWord::text) + plainLines)
+            .iterator()
+        val lines = unromanized.map { line ->
+            line.copy(words = line.words.map { word -> computed.next().let { word.copy(romanized = word.romanized ?: it) } })
+        }
+        val plainRomanized = plainLines.map { computed.next() ?: it }.joinToString("\n").takeIf { it != plain }
         return LyricsState.Ready(
             lines = lines,
             plainText = plain,
+            plainRomanized = plainRomanized,
             provider = attribution?.providerName ?: selection.source.displayName,
             source = attribution?.originName ?: selection.source.displayName,
             maker = attribution?.maker?.username,

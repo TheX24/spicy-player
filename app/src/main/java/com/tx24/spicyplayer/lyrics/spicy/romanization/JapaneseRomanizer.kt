@@ -25,9 +25,10 @@ object JapaneseRomanizer : Romanizer {
             for (token in tk.tokenize(text)) {
                 val reading = token.reading
                 val source = if (reading != null && reading != "*") reading else token.surface
-                sb.append(KanaRomanizer.romanize(source))
+                // Spaced between tokens, like the reference's kuroshiro "spaced" mode.
+                sb.append(KanaRomanizer.romanize(source)).append(' ')
             }
-            sb.toString()
+            sb.toString().trim().replace(Regex(" +"), " ")
         } catch (t: Throwable) {
             KanaRomanizer.romanize(text)
         }

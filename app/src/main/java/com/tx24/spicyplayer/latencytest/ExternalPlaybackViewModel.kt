@@ -285,12 +285,18 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         lyricsJob = viewModelScope.launch {
             mutableState.value = mutableState.value.copy(lyrics = LyricsState.Loading, providerAttempts = emptyList(), lookupStatus = "Starting lyric lookup…")
             runCatching { withContext(Dispatchers.IO) {
-                lyricsBackend.resolve(request) { source ->
+                val result = lyricsBackend.resolve(request) { source ->
                     val detail = if (source.id == "spicy_lyrics" && request.spotifyTrackId == null) " · matching Spotify track" else ""
                     mutableState.value = mutableState.value.copy(lookupStatus = "Checking ${source.displayName}$detail…")
                 }
+                // Rendered here: it includes on-device romanization, which is too heavy for main.
+                val rendered = (result as? RemoteLyricsResolution.Found)?.let { found ->
+                    runCatching { RemoteLyricsAdapter.render(found.selection, request.durationSeconds * 1_000L) }
+                        .getOrElse { LyricsState.Error(it.message ?: "Lyrics could not be displayed") }
+                }
+                result to rendered
             } }
-                .onSuccess { result ->
+                .onSuccess { (result, rendered) ->
                     if (currentTrackIdentity != identity) return@onSuccess
                     Log.d("LyricsProviders", result.attempts.joinToString { "${it.sourceId}:${it.outcome}:${it.failureCategory ?: ""}:${it.message ?: ""}" })
                     mutableState.value = mutableState.value.copy(
@@ -301,9 +307,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                             is RemoteLyricsResolution.Unavailable -> "Lookup finished; some sources were unavailable"
                         },
                         lyrics = when (result) {
-                        is RemoteLyricsResolution.Found -> runCatching {
-                            RemoteLyricsAdapter.render(result.selection, request.durationSeconds * 1_000L)
-                        }.getOrElse { LyricsState.Error(it.message ?: "Lyrics could not be displayed") }
+                        is RemoteLyricsResolution.Found -> requireNotNull(rendered)
                         is RemoteLyricsResolution.NotFound -> LyricsState.Error("No enabled lyric source found this track")
                         is RemoteLyricsResolution.Unavailable -> LyricsState.Error("Lyrics sources are temporarily unavailable")
                     })

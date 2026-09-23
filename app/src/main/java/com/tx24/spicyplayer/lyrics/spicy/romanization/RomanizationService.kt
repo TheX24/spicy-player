@@ -1,9 +1,5 @@
 package com.tx24.spicyplayer.lyrics.spicy.romanization
 
-import com.tx24.spicyplayer.lyrics.spicy.models.Line
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-
 /**
  * Resolves the best available [Romanizer] for a script. Japanese prefers the dictionary-backed
  * [JapaneseRomanizer] (Kuromoji) when present, falling back to kana-only conversion.
@@ -20,41 +16,25 @@ object Romanizers {
 }
 
 /**
- * Populates [Line]/word `romanizedText` using on-device romanizers, mirroring
- * `spicy-lyrics/.../ProcessLyrics.ts`. TTML/API-supplied romanizations are never overwritten —
- * only gaps are filled. Runs off the main thread.
+ * On-device romanization, mirroring `spicy-lyrics/src/utils/Lyrics/ProcessLyrics.ts`: the
+ * scripts present are detected across the whole song first (so a kanji-only syllable in a
+ * Japanese song is read as Japanese, never pinyin), then each text is run through every
+ * present-script romanizer whose characters it contains, in priority order.
  */
 object RomanizationService {
 
-    /** True if any word already carries romanization or contains a script we can romanize. */
-    fun isAvailable(lines: List<Line>): Boolean {
-        for (line in lines) {
-            for (word in line.words) {
-                if (word.romanizedText != null) return true
-                val script = ScriptDetector.detect(word.text).firstOrNull() ?: continue
-                val r = Romanizers.forScript(script) ?: continue
-                if (r.isAvailable()) return true
+    /** One entry per input text: its romanization, or null when nothing changed. */
+    fun romanize(texts: List<String>): List<String?> {
+        val songScripts = ScriptDetector.detect(texts.joinToString("\n"))
+        if (songScripts.isEmpty()) return texts.map { null }
+        return texts.map { text ->
+            var romanized = text
+            for (script in songScripts) {
+                if (!ScriptDetector.contains(script, romanized)) continue
+                val romanizer = Romanizers.forScript(script) ?: continue
+                if (romanizer.isAvailable()) romanized = romanizer.romanize(romanized)
             }
-        }
-        return false
-    }
-
-    suspend fun romanize(lines: List<Line>): List<Line> = withContext(Dispatchers.Default) {
-        lines.map { line ->
-            var changed = false
-            val words = line.words.map { word ->
-                if (word.romanizedText != null) return@map word  // supplied romanization wins
-                var romanized = word.text
-                for (script in ScriptDetector.detect(word.text)) {
-                    val romanizer = Romanizers.forScript(script) ?: continue
-                    if (romanizer.isAvailable()) romanized = romanizer.romanize(romanized)
-                }
-                if (romanized != word.text && romanized.isNotBlank()) {
-                    changed = true
-                    word.copy(romanizedText = romanized)
-                } else word
-            }
-            if (changed) line.copy(words = words) else line
+            romanized.takeIf { it != text && it.isNotBlank() }
         }
     }
 }

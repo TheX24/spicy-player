@@ -33,6 +33,18 @@ object ScriptDetector {
     private fun isGreek(c: Char): Boolean =
         Character.UnicodeBlock.of(c) == Character.UnicodeBlock.GREEK
 
+    /** Per-item test once [script] is known to be in the song; Japanese covers kana and kanji. */
+    fun contains(script: Script, text: String): Boolean = text.any { c ->
+        when (script) {
+            Script.JAPANESE -> hasKana(c) || hasHan(c)
+            Script.CHINESE -> hasHan(c)
+            Script.KOREAN -> isHangul(c)
+            Script.CYRILLIC -> isCyrillic(c)
+            Script.GREEK -> isGreek(c)
+            Script.LATIN -> false
+        }
+    }
+
     /**
      * Returns the set of scripts present in [text], most-specific first. Japanese is chosen over
      * Chinese when any kana is present; if only Han is present the text is treated as Chinese.

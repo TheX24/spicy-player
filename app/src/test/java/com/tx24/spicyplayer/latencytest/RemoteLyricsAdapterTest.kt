@@ -40,4 +40,16 @@ class RemoteLyricsAdapterTest {
 
         assertEquals(listOf("ko", "re"), words.map { it.romanized })
     }
+
+    @Test fun fillsRomanizationGapsAndRomanizesPlainText() {
+        val synced = RemoteLyricsSelection(
+            LyricsSourceDescriptor("example", "Example", 1, emptySet()),
+            RemoteLyricsPayload(syncedLyrics = "[00:01.00]사랑"),
+            RemoteLyricsQuality.LINE_SYNCED,
+        )
+        val plain = synced.copy(payload = RemoteLyricsPayload(plainLyrics = "사랑\nhello"), quality = RemoteLyricsQuality.PLAIN)
+
+        assertEquals("sarang", RemoteLyricsAdapter.render(synced, 5_000).lines.single().words.single().romanized)
+        assertEquals("sarang\nhello", RemoteLyricsAdapter.render(plain, 5_000).plainRomanized)
+    }
 }
