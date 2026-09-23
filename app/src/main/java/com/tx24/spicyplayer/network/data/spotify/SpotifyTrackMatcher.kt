@@ -63,7 +63,12 @@ object SpotifyTrackMatcher {
 
     private val versionTerms = setOf(
         "acoustic",
+        "cover",
         "demo",
+        // Language versions are different recordings (e.g. Mesmerizer's "Official English Version").
+        "english",
+        "inst",
+        "japanese",
         "extended",
         "instrumental",
         "karaoke",
@@ -116,15 +121,23 @@ object SpotifyTrackMatcher {
         return SpotifyTrackResolution.Matched(winner, alternates)
     }
 
+    // Loose on purpose: only near-tied, plausible candidates are compared, and remixes, language
+    // versions and extra-release titles have already been scored out. Spotify lists one recording
+    // as "ヤラララ(YARARARA)" by one artist and "YARARARA" with a featured artist added.
     private fun sameRecording(a: SpotifyTrackCandidate, b: SpotifyTrackCandidate): Boolean =
-        normalize(a.title) == normalize(b.title) &&
-            a.artists.map(::normalize).toSet() == b.artists.map(::normalize).toSet() &&
+        titleParts(a.title).map(::normalize).intersect(titleParts(b.title).map(::normalize).toSet()).isNotEmpty() &&
+            a.artists.map(::normalize).intersect(b.artists.map(::normalize).toSet()).isNotEmpty() &&
             abs(a.durationMs - b.durationMs) <= SAME_RECORDING_DURATION_MS
 
     fun score(source: LocalTrackMetadata, candidate: SpotifyTrackCandidate): ScoredSpotifyTrack {
         // Players often show "イガク - Medicine" or "Artist - Title"; compare the parts too.
-        val titleSimilarity = titleParts(source.title).maxOf { local ->
-            titleParts(candidate.title).maxOf { remote -> similarity(local, remote) }
+        val localParts = titleParts(source.title)
+        val remoteParts = titleParts(candidate.title)
+        val titleSimilarity = localParts.maxOf { local -> remoteParts.maxOf { remote -> similarity(local, remote) } }
+        // Extra words only the Spotify title has ("（テトライブ2025-実演盤-）") mark another release;
+        // extra words only the player has are normal (bilingual titles), so they cost nothing.
+        val unexplainedParts = remoteParts.drop(1).count { remote ->
+            localParts.none { local -> similarity(local, remote) >= 0.5 }
         }
         val artistSimilarity = artistSimilarity(source.artist, candidate.artists)
         val durationDelta = abs(source.durationMs - candidate.durationMs)
@@ -135,7 +148,7 @@ object SpotifyTrackMatcher {
                 artistSimilarity * 0.30 +
                 durationScore * 0.15
             )
-        val score = (weightedScore - if (versionConflict) 18 else 0).roundToInt()
+        val score = (weightedScore - (if (versionConflict) 18 else 0) - 10 * unexplainedParts).roundToInt()
 
         return ScoredSpotifyTrack(
             candidate = candidate,

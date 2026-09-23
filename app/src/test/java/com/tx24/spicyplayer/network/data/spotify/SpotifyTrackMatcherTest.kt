@@ -70,6 +70,34 @@ class SpotifyTrackMatcherTest {
     }
 
     @Test
+    fun `language version does not tie with the original`() {
+        val original = SpotifyTrackCandidate("jp", "メズマライザー (feat. 初音ミク&重音テト)", listOf("32ki", "Hatsune Miku", "重音テト"), "メズマライザー", 156_972)
+        val result = SpotifyTrackMatcher.resolve(
+            LocalTrackMetadata("メズマライザー - Mesmerizer (feat. Hatsune Miku&Kasane Teto)", "32ki, Hatsune Miku & Kasane Teto", "Mesmerizer", 157_000),
+            listOf(
+                original,
+                original.copy(id = "compilation", album = "Critical Damage", durationMs = 156_760),
+                SpotifyTrackCandidate("en", "Mesmerizer - Official English Version", listOf("32ki", "Will Stetson", "Rachie"), "Mesmerizer (Official English Version)", 157_013),
+            ),
+        ) as SpotifyTrackResolution.Matched
+
+        assertEquals(setOf("jp", "compilation"), (listOf(result.track) + result.alternates).map { it.candidate.id }.toSet())
+    }
+
+    @Test
+    fun `romaji title with an added featured artist is the same recording`() {
+        val result = SpotifyTrackMatcher.resolve(
+            LocalTrackMetadata("ヤラララ(YARARARA)", "AnythingBecomeMoe", "", 147_000),
+            listOf(
+                SpotifyTrackCandidate("a", "ヤラララ(YARARARA)", listOf("AnythingBecomeMoe"), "ヤラララ(YARARARA)", 147_307),
+                SpotifyTrackCandidate("b", "YARARARA", listOf("AnythingBecomeMoe", "Kasane Teto"), "YARARARA", 147_195),
+            ),
+        ) as SpotifyTrackResolution.Matched
+
+        assertEquals(setOf("a", "b"), (listOf(result.track) + result.alternates).map { it.candidate.id }.toSet())
+    }
+
+    @Test
     fun `shared featuring credit does not make two songs match`() {
         val result = SpotifyTrackMatcher.resolve(
             LocalTrackMetadata("Crew Love (feat. Drake)", "The Weeknd", "", 239_000),
@@ -80,12 +108,12 @@ class SpotifyTrackMatcherTest {
     }
 
     @Test
-    fun `tie between different artists stays ambiguous`() {
+    fun `near tie between clearly different recordings stays ambiguous`() {
         val result = SpotifyTrackMatcher.resolve(
-            source.copy(title = "Deja Vu", artist = "Beyoncé", album = ""),
+            source.copy(title = "Deja Vu", album = ""),
             listOf(
                 candidate(id = "a", title = "Deja Vu", durationMs = 239_000),
-                candidate(id = "b", title = "Deja Vu", durationMs = 239_200).copy(artists = listOf("Beyoncé", "Someone Else")),
+                candidate(id = "b", title = "Deja Vu", durationMs = 242_000),
             ),
         )
 
