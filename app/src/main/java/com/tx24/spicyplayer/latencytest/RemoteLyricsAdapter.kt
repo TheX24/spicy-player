@@ -36,12 +36,14 @@ internal object RemoteLyricsAdapter {
         require(unromanized.isNotEmpty() || plain != null) { "Selected lyrics contain no displayable text" }
         // On-device romanization fills only the words the source left unromanized.
         val plainLines = plain?.lines().orEmpty()
-        val computed = RomanizationService.romanize(unromanized.flatMap { it.words }.map(TimedWord::text) + plainLines)
-            .iterator()
-        val lines = unromanized.map { line ->
-            line.copy(words = line.words.map { word -> computed.next().let { word.copy(romanized = word.romanized ?: it) } })
+        val computed = RomanizationService.romanize(
+            unromanized.map { line -> line.words.map(TimedWord::text) } + plainLines.map(::listOf)
+        )
+        val lines = unromanized.mapIndexed { l, line ->
+            line.copy(words = line.words.mapIndexed { w, word -> word.copy(romanized = word.romanized ?: computed[l][w]) })
         }
-        val plainRomanized = plainLines.map { computed.next() ?: it }.joinToString("\n").takeIf { it != plain }
+        val plainRomanized = plainLines.mapIndexed { i, text -> computed[unromanized.size + i].single() ?: text }
+            .joinToString("\n").takeIf { it != plain }
         return LyricsState.Ready(
             lines = lines,
             plainText = plain,
