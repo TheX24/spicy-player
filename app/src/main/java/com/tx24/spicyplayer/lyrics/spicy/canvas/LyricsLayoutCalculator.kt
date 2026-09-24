@@ -158,17 +158,24 @@ internal object LyricsLayoutCalculator {
             val lineFontFamily = fontFamilyFor(line.words.joinToString(" ") { displayText(it, romanize) })
             val contentSlot = metrics.contentSlot(hasDuet, lineIsRtl, line.oppositeAligned)
             val lineMaxWidth = contentSlot.widthPx
-            // Inter-word gap of 0.32ch (width of "0"), matching the reference's `margin-right: 0.32ch`.
-            val zero = textMeasurer.measure(
-                text = AnnotatedString("0"),
-                style = TextStyle(
-                    fontFamily = lineFontFamily,
-                    fontSize = fontSize,
-                    fontWeight = fontWeight,
-                    color = Color.White,
-                )
+            val gapStyle = TextStyle(
+                fontFamily = lineFontFamily,
+                fontSize = fontSize,
+                fontWeight = fontWeight,
+                color = Color.White,
             )
-            val wordGap = zero.size.width.toFloat() * 0.32f
+            val zero = textMeasurer.measure(text = AnnotatedString("0"), style = gapStyle)
+            // Word-synced lines are rows of word elements spaced by `margin-right: 0.32ch`; line-
+            // synced and static lines are plain text in the reference, spaced by a real space.
+            val textMode = lyricsType == LyricsType.Line || lyricsType == LyricsType.Static
+            val wordGap = if (textMode) {
+                textMeasurer.measure(text = AnnotatedString("a a"), style = gapStyle).size.width -
+                    textMeasurer.measure(text = AnnotatedString("aa"), style = gapStyle).size.width.toFloat()
+            } else zero.size.width.toFloat() * 0.32f
+            // A left-aligned word element's box includes its trailing 0.32ch (an ::after margin,
+            // absent on the line's last word), so it must fit too. Opposite-aligned lines use
+            // column-gap instead, which only sits between words on the same row.
+            val trailingGap = if (!textMode && !line.oppositeAligned && !lineIsRtl) wordGap else 0f
             // Every row sits on the line font's own baseline, like a CSS line box whose strut is
             // the primary font. Fallback glyphs (CJK) have taller line boxes and a lower baseline;
             // aligning only within the row let an all-CJK row sink toward the next line.
@@ -257,76 +264,13 @@ internal object LyricsLayoutCalculator {
                 }
             }
 
-            // Word-wrapping logic on pieces.
-            val numPieces = pieces.size
-            val lineBreaks = mutableListOf<Int>()
-
-            // A run of glued pieces (isPartOfWord chain — CJK char-splits, held-word letters, and
-            // romanized syllables alike) should wrap as one unit, like the reference's adjacent
-            // inline spans with no whitespace between them. Only break inside a run when the run
-            // itself can never fit a row on its own — otherwise it'd overflow off-screen forever.
-            val runFits = BooleanArray(numPieces)
-            run {
-                var runStart = 0
-                var runWidth = 0f
-                for (idx in 0 until numPieces) {
-                    if (idx > 0 && !pieces[idx].isPartOfWord) {
-                        val fits = runWidth <= lineMaxWidth
-                        for (k in runStart until idx) runFits[k] = fits
-                        runStart = idx
-                        runWidth = 0f
-                    }
-                    runWidth += pieces[idx].layout.size.width.toFloat()
-                }
-                val fits = runWidth <= lineMaxWidth
-                for (k in runStart until numPieces) runFits[k] = fits
-            }
-
-            // Greedy wrap for every line. The reference is CSS `flex-wrap: wrap`, which is always
-            // greedy — it fills each row until the next item doesn't fit, then breaks, and never
-            // balances row lengths. Duet/opposite-aligned lines wrap greedily too (right-alignment
-            // is applied afterwards), matching the reference instead of a balanced pass.
-            run {
-                var currentLineW = 0f
-                var lastBreakCandidate = 0
-                lineBreaks.add(0)
-
-                var i = 0
-                while (i < numPieces) {
-                    val piece = pieces[i]
-                    val prevPiece = if (i > 0) pieces[i - 1] else null
-                    val wordW = piece.layout.size.width.toFloat()
-                    val hspace = if (currentLineW > 0f && !piece.isPartOfWord) wordGap else 0f
-
-                    val isCjkBoundary = if (i > 0 && prevPiece != null) {
-                        (isCjk(prevPiece.text.lastOrNull() ?: ' ')) || (isCjk(piece.text.firstOrNull() ?: ' '))
-                    } else false
-
-                    // A glued piece (isPartOfWord — CJK char-split, held-word letter, or romanized
-                    // syllable) prefers to stay attached to its run, same as adjacent no-whitespace
-                    // inline spans in the reference. Falls back to breakable when the run can't
-                    // possibly fit a row (runFits == false), so an overlong glued run still wraps
-                    // instead of overflowing off-screen.
-                    val isForcedSyllable = i > 0 && piece.isPartOfWord && runFits[i] &&
-                                           !(prevPiece?.text?.endsWith("-") == true) && !isCjkBoundary
-
-                    if (!isForcedSyllable) {
-                        lastBreakCandidate = i
-                    }
-
-                    if (currentLineW + hspace + wordW > lineMaxWidth && currentLineW > 0f) {
-                        val breakIdx = if (lastBreakCandidate > lineBreaks.last()) lastBreakCandidate else i
-                        lineBreaks.add(breakIdx)
-                        i = breakIdx
-                        currentLineW = 0f
-                    } else {
-                        currentLineW += hspace + wordW
-                        i++
-                    }
-                }
-                lineBreaks.add(numPieces)
-            }
-
+            val lineBreaks = LineWrapper.breaks(
+                pieces.map { LineWrapper.Piece(it.layout.size.width.toFloat(), it.text, it.isPartOfWord) },
+                maxWidth = lineMaxWidth,
+                wordGap = wordGap,
+                trailingGap = trailingGap,
+                textMode = textMode,
+            )
 
             // Assemble WordLayouts into rows.
             val allRows = mutableListOf<Pair<Float, List<WordLayout>>>()
