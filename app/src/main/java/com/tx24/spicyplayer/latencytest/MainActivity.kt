@@ -294,6 +294,21 @@ private fun LatencyTestApp(
                         )
                     }
                 }
+                Text("Blends", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    "Lines from the best source above, word timing from the donors. Ranked just above " +
+                        "their donors, and only run while every donor is switched on.",
+                    style = MaterialTheme.typography.labelSmall,
+                )
+                state.blendDescriptors.forEach { blend ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(blend.displayName, modifier = Modifier.weight(1f))
+                        Switch(
+                            checked = blend.id in state.enabledBlendIds,
+                            onCheckedChange = { viewModel.setBlendEnabled(blend.id, it) },
+                        )
+                    }
+                }
             }
         }
                         if (showDebug) {

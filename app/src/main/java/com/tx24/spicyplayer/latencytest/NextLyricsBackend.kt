@@ -58,6 +58,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     val descriptors: List<LyricsSourceDescriptor> = providers.map(RemoteLyricsProvider::descriptor)
         .sortedWith(compareBy<LyricsSourceDescriptor> { it.defaultPriority }.thenBy { it.id })
+    /** Blends are switched on and off apart from the ordered sources; their rank follows their donors. */
+    val blendDescriptors: List<LyricsSourceDescriptor> = LyricsBlends.ALL.map(LyricsBlendDefinition::descriptor)
 
     suspend fun resolve(
         request: LyricsLookupRequest,
@@ -75,7 +77,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
             ?: return null
         if (stored.version != CACHE_VERSION || stored.expiresAt < System.currentTimeMillis() || stored.order != enabledOrder()) return null
         val payload = stored.payload ?: return RemoteLyricsResolution.NotFound(emptyList())
-        val source = descriptors.firstOrNull { it.id == stored.sourceId } ?: return null
+        val source = (descriptors + blendDescriptors).firstOrNull { it.id == stored.sourceId } ?: return null
         val quality = payload.measuredQuality()
         return RemoteLyricsResolution.Found(
             RemoteLyricsSelection(source, payload, quality),
@@ -100,7 +102,9 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         cacheFile(request).delete()
     }
 
-    private fun enabledOrder(): List<String> = policy().let { p -> p.sourceOrder.filter { it !in p.disabledSourceIds } }
+    private fun enabledOrder(): List<String> = policy().let { p ->
+        p.sourceOrder.filter { it !in p.disabledSourceIds } + p.enabledBlendIds.sorted()
+    }
 
     private fun cacheFile(request: LyricsLookupRequest): File {
         // Title + artist only: a queue entry warmed ahead has no album or length, and must hit
@@ -122,7 +126,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     private companion object {
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        const val CACHE_VERSION = 8
+        const val CACHE_VERSION = 9
         val LRCLIB_USER_AGENT = "Spicy Player Next ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
         const val CACHE_DAYS = 3
     }
@@ -131,7 +135,15 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         val order = preferences.getString("order", null)?.split(',')?.filter(String::isNotBlank)
         val disabled = preferences.getStringSet("disabled", emptySet()).orEmpty()
         val normalized = LyricsSourcePreferenceNormalizer.normalize(order, disabled, descriptors)
-        return RemoteLyricsPolicy(normalized.order, normalized.disabledSourceIds)
+        val blends = preferences.getStringSet("blends", emptySet()).orEmpty()
+            .filterTo(mutableSetOf()) { LyricsBlends.byId(it) != null }
+        return RemoteLyricsPolicy(normalized.order, normalized.disabledSourceIds, blends)
+    }
+
+    fun setBlendEnabled(id: String, enabled: Boolean) {
+        val blends = policy().enabledBlendIds.toMutableSet()
+        if (enabled) blends += id else blends -= id
+        preferences.edit().putStringSet("blends", blends).apply()
     }
 
     fun setPolicy(order: List<String>, disabledSourceIds: Set<String>) {

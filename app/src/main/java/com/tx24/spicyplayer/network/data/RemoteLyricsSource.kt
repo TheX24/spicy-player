@@ -6,6 +6,7 @@ import java.time.Instant
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.coroutineScope
@@ -100,6 +101,16 @@ class RemoteLyricsSource @Inject constructor(
         val pending = mutableSetOf<String>()
         val landed = Channel<Pair<String, Result<ProviderResult>>>(Channel.UNLIMITED)
         val jobs = mutableMapOf<String, Job>()
+
+        // Blends rank among the providers but are built here, from what the providers answered.
+        // Their results stay out of [known]: they depend on the order, which the caller may change.
+        val blends = LyricsBlends.live(enabled.map { it.descriptor.id }.toSet(), policy.enabledBlendIds)
+        val ranked = LyricsBlends.chain(ordered.map { it.descriptor.id }, blends).map { id ->
+            ordered.firstOrNull { it.descriptor.id == id }?.descriptor ?: LyricsBlends.byId(id)!!.descriptor
+        }
+        val blendResults = mutableMapOf<String, ProviderResult>()
+        val waiting = blends.map { it.id }.toMutableSet()
+
         fun ask(provider: RemoteLyricsProvider) {
             val id = provider.descriptor.id
             pending += id
@@ -113,17 +124,54 @@ class RemoteLyricsSource @Inject constructor(
                 landed.trySend(id to result)
             }
         }
-        fun current() = select(ordered, policy, known, pending, cooling, qualities)
+        fun quality(id: String) = (known[id] as? ProviderResult.Hit)?.let { hit ->
+            qualities.getOrPut(id) { hit.payload.measuredQuality() }
+        } ?: RemoteLyricsQuality.NONE
+        fun answered(id: String) = id in known || id in cooling
+        fun startBlends() {
+            for (blend in blends) {
+                if (blend.id !in waiting) continue
+                val above = ranked.take(ranked.indexOfFirst { it.id == blend.id })
+                    .filter { source -> enabled.any { it.descriptor == source } }
+                // Word timing from a source ranked above is what the blend was for (`_outdone`).
+                if (above.any { quality(it.id) == RemoteLyricsQuality.WORD_SYNCED }) { waiting -= blend.id; continue }
+                if (!above.all { answered(it.id) } || !blend.donorIds.all(::answered)) continue
+                val usable = above.filter { quality(it.id) != RemoteLyricsQuality.NONE }
+                val fallback = enabled.firstOrNull { it.descriptor.id == LRCLIB_ID && it.descriptor !in above }
+                if (usable.isEmpty() && fallback != null && !answered(LRCLIB_ID)) continue
+                waiting -= blend.id
+                pending += blend.id
+                // Read here, on the walk's own thread; the build runs on another.
+                val hits = { id: String -> (known[id] as? ProviderResult.Hit)?.payload }
+                val bases = usable.map { it to hits(it.id)!! }
+                val fallbackBase = fallback?.takeIf { usable.isEmpty() }?.let { lr -> hits(LRCLIB_ID)?.let { lr.descriptor to it } }
+                val donors = blend.donorIds.associateWith(hits)
+                val names = ranked.associate { it.id to it.displayName }
+                jobs[blend.id] = launch(Dispatchers.Default) {
+                    val result = try {
+                        LyricsBlends.build(blend, request, bases, fallbackBase, donors) { id -> names[id] ?: id }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        ProviderResult.Unavailable(ProviderFailureCategory.UNKNOWN, "Blend failed: ${error.message}")
+                    }
+                    landed.trySend(blend.id to Result.success(result))
+                }
+            }
+        }
+        fun current() = select(ranked, policy, known + blendResults, pending + waiting, cooling, qualities)
 
         var resolution = current()
         if (known.isNotEmpty()) onUpdate(resolution)
         toAsk.firstOrNull()?.let(::ask)
         var fannedOut = toAsk.size <= 1
-        while (!settled(resolution, ordered, pending)) {
+        startBlends()
+        while (!settled(resolution, ranked, pending + waiting)) {
             if (!fannedOut && pending.isEmpty()) {
                 // The lead answered without settling the song: ask everyone else.
                 toAsk.drop(1).forEach(::ask)
                 fannedOut = true
+                startBlends()
             }
             if (pending.isEmpty()) break
             val next = if (fannedOut) landed.receive() else withTimeoutOrNull(LEAD_HOLD_MS) { landed.receive() }
@@ -136,29 +184,35 @@ class RemoteLyricsSource @Inject constructor(
             val (id, outcome) = next
             val result = outcome.getOrThrow()
             pending -= id
-            if (result is ProviderResult.CoolingDown) cooldowns.record(id, result.retryAt)
-            known[id] = result
+            if (blends.any { it.id == id }) {
+                blendResults[id] = result
+            } else {
+                if (result is ProviderResult.CoolingDown) cooldowns.record(id, result.retryAt)
+                known[id] = result
+            }
+            startBlends()
             resolution = current()
             onUpdate(resolution)
         }
         pending.toList().forEach { id -> jobs[id]?.cancel(); pending -= id }
+        waiting.clear()
         current()
     }
 
     /** Whether nothing still out could replace the current pick: word timing is the ceiling. */
     private fun settled(
         resolution: RemoteLyricsResolution,
-        ordered: List<RemoteLyricsProvider>,
+        ranked: List<LyricsSourceDescriptor>,
         pending: Set<String>,
     ): Boolean {
         val best = (resolution as? RemoteLyricsResolution.Found)?.selection ?: return false
         if (best.quality != RemoteLyricsQuality.WORD_SYNCED) return false
-        val rank = ordered.indexOfFirst { it.descriptor.id == best.source.id }
-        return ordered.take(rank).none { it.descriptor.id in pending }
+        val rank = ranked.indexOfFirst { it.id == best.source.id }
+        return ranked.take(rank).none { it.id in pending }
     }
 
     private fun select(
-        ordered: List<RemoteLyricsProvider>,
+        ranked: List<LyricsSourceDescriptor>,
         policy: RemoteLyricsPolicy,
         known: Map<String, ProviderResult>,
         pending: Set<String>,
@@ -170,9 +224,9 @@ class RemoteLyricsSource @Inject constructor(
         var hadUnavailableProvider = false
         var earliestRetryAt: Instant? = null
 
-        for (provider in ordered) {
-            val source = provider.descriptor
-            if (!isEnabled(source, policy)) {
+        for (source in ranked) {
+            // A blend is in the ranking only while it is live.
+            if (source.upstreamFamily != BLEND_FAMILY && !isEnabled(source, policy)) {
                 attempts += ProviderAttempt(source.id, ProviderAttemptOutcome.DISABLED)
                 continue
             }
@@ -329,6 +383,9 @@ class RemoteLyricsSource @Inject constructor(
     private companion object {
         /** How long the lead source is asked alone before everyone else is asked too. */
         const val LEAD_HOLD_MS = 1_500L
+        /** Where a blend takes its lines when nothing ranked above it has any (mild-lyrics' too). */
+        const val LRCLIB_ID = "lrclib"
+        const val BLEND_FAMILY = "blend"
     }
 
     private fun earliest(current: Instant?, candidate: Instant): Instant = when {

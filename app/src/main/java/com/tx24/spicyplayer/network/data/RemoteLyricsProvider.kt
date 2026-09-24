@@ -114,6 +114,8 @@ interface RemoteLyricsProvider {
 data class RemoteLyricsPolicy(
     val sourceOrder: List<String> = emptyList(),
     val disabledSourceIds: Set<String> = emptySet(),
+    /** Blends are off unless switched on, as in mild-lyrics; see [LyricsBlends]. */
+    val enabledBlendIds: Set<String> = emptySet(),
 )
 
 enum class RemoteLyricsQuality(val rank: Int) {

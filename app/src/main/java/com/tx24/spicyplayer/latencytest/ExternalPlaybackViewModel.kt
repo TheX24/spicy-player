@@ -66,6 +66,8 @@ data class PlayerUiState(
     val sourceDescriptors: List<LyricsSourceDescriptor> = emptyList(),
     val sourceOrder: List<String> = emptyList(),
     val disabledSourceIds: Set<String> = emptySet(),
+    val blendDescriptors: List<LyricsSourceDescriptor> = emptyList(),
+    val enabledBlendIds: Set<String> = emptySet(),
     val providerAttempts: List<ProviderAttempt> = emptyList(),
     val lookupStatus: String? = null,
 )
@@ -84,9 +86,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val mutableState = MutableStateFlow(PlayerUiState(
         outputLabel = outputRoute.label,
         lyricDelayMs = outputProfiles.delayMs(outputRoute),
-        sourceDescriptors = lyricsBackend.descriptors,
+        sourceDescriptors = lyricsBackend.descriptors + lyricsBackend.blendDescriptors,
         sourceOrder = lyricsBackend.policy().sourceOrder,
         disabledSourceIds = lyricsBackend.policy().disabledSourceIds,
+        blendDescriptors = lyricsBackend.blendDescriptors,
+        enabledBlendIds = lyricsBackend.policy().enabledBlendIds,
     ))
     val state: StateFlow<PlayerUiState> = mutableState.asStateFlow()
 
@@ -136,9 +140,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 accessGranted = false,
                 outputLabel = outputRoute.label,
                 lyricDelayMs = outputProfiles.delayMs(outputRoute),
-                sourceDescriptors = lyricsBackend.descriptors,
+                sourceDescriptors = lyricsBackend.descriptors + lyricsBackend.blendDescriptors,
                 sourceOrder = lyricsBackend.policy().sourceOrder,
                 disabledSourceIds = lyricsBackend.policy().disabledSourceIds,
+                blendDescriptors = lyricsBackend.blendDescriptors,
+                enabledBlendIds = lyricsBackend.policy().enabledBlendIds,
             )
             return
         }
@@ -234,6 +240,12 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         loadLyrics()
     }
 
+    fun setBlendEnabled(id: String, enabled: Boolean) {
+        lyricsBackend.setBlendEnabled(id, enabled)
+        refreshSourcePolicy()
+        loadLyrics()
+    }
+
     fun moveSource(id: String, direction: Int) {
         val order = mutableState.value.sourceOrder.toMutableList()
         val from = order.indexOf(id)
@@ -248,9 +260,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private fun refreshSourcePolicy() {
         val policy = lyricsBackend.policy()
         mutableState.value = mutableState.value.copy(
-            sourceDescriptors = lyricsBackend.descriptors,
+            sourceDescriptors = lyricsBackend.descriptors + lyricsBackend.blendDescriptors,
             sourceOrder = policy.sourceOrder,
             disabledSourceIds = policy.disabledSourceIds,
+            blendDescriptors = lyricsBackend.blendDescriptors,
+            enabledBlendIds = policy.enabledBlendIds,
         )
     }
 
@@ -499,9 +513,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 accessGranted = mutableState.value.accessGranted,
                 outputLabel = outputRoute.label,
                 lyricDelayMs = outputProfiles.delayMs(outputRoute),
-                sourceDescriptors = lyricsBackend.descriptors,
+                sourceDescriptors = lyricsBackend.descriptors + lyricsBackend.blendDescriptors,
                 sourceOrder = lyricsBackend.policy().sourceOrder,
                 disabledSourceIds = lyricsBackend.policy().disabledSourceIds,
+                blendDescriptors = lyricsBackend.blendDescriptors,
+                enabledBlendIds = lyricsBackend.policy().enabledBlendIds,
             )
             return
         }
