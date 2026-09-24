@@ -13,6 +13,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.withStyle
+import com.tx24.spicyplayer.lyrics.spicy.models.interludeDotTimes
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
@@ -108,12 +109,9 @@ internal object LyricsLayoutCalculator {
                 // Instrumental interludes are rendered as three dots.
                 // You can adjust the multiplier here to make the dots bigger or smaller:
                 val dotFontSize = baseFontSize * 1.3f // FIXED: dots=1.3x font
-                // Finish the sequence a little earlier than the true line.endMs (give it a 150ms breather)
-                val effectiveDuration = maxOf(30L, line.duration - 250L)
-                val dotLayouts = (0 until 3).map { dotIdx ->
-                    val chunkDuration = effectiveDuration / 3L
-                    val dotStart = line.startMs + dotIdx * chunkDuration
-                    val dotEnd = dotStart + chunkDuration
+                // Reference .dotGroup gap: clamp(0.005rem, 1.7cqw, 0.18rem), 1rem = 16dp.
+                val dotGap = (canvasWidth * 0.017f).coerceIn(0.005f * 16f * density, 0.18f * 16f * density)
+                val dotLayouts = interludeDotTimes(line.startMs, line.endMs).mapIndexed { dotIdx, (dotStart, dotEnd) ->
                     val dotWord = Word("•", dotStart, dotEnd)
                     val result = textMeasurer.measure(
                         text = AnnotatedString("•"),
@@ -129,10 +127,12 @@ internal object LyricsLayoutCalculator {
                         )
                     )
                     val dotW = result.size.width.toFloat()
-                    val dotGap = 4f // FIXED: tight gaps
                     WordLayout(dotWord, result, Offset(dotIdx * (dotW + dotGap), 0f))
                 }
-                val dotH = dotLayouts.maxOfOrNull { it.textLayoutResult.size.height.toFloat() } ?: 0f
+                // Reference .dot line-height: 0.65 of the dot's font size, not the glyph box.
+                val dotH = dotLayouts.firstOrNull()?.textLayoutResult?.layoutInput?.let { input ->
+                    with(input.density) { input.style.fontSize.toPx() } * 0.65f
+                } ?: 0f
                 val totalDotsW = dotLayouts.lastOrNull()?.let { it.relativeOffset.x + it.textLayoutResult.size.width } ?: 0f
 
                 // Inherit alignment (and RTL-ness) from the next non-interlude, non-background line.
