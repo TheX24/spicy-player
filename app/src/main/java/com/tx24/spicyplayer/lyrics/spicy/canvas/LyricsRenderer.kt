@@ -152,9 +152,10 @@ private fun DrawScope.drawVerticalWipeText(
  * paints inactive text as its own text-shadow (NotSung at the dim alpha, Sung at the bright
  * alpha) whose blur radius is the distance-based --BlurAmount.
  */
-private fun inactiveShadow(plan: LyricPaintPlan.InactiveShadow, suppressBlur: Boolean): Shadow = Shadow(
+private fun inactiveShadow(plan: LyricPaintPlan.InactiveShadow, suppressBlur: Boolean, density: Float): Shadow = Shadow(
     color = Color.White.copy(alpha = plan.alpha),
-    blurRadius = if (suppressBlur) 0f else plan.blurRadius,
+    // --BlurAmount is in CSS px, which scale with the screen like dp.
+    blurRadius = if (suppressBlur) 0f else plan.blurRadius * density,
 )
 
 private fun DrawScope.drawInactiveText(
@@ -167,7 +168,7 @@ private fun DrawScope.drawInactiveText(
     drawText(
         textLayoutResult = layoutResult,
         color = Color.Transparent,
-        shadow = inactiveShadow(plan, suppressBlur),
+        shadow = inactiveShadow(plan, suppressBlur, density),
         topLeft = Offset(xPos, yPos),
     )
 }
