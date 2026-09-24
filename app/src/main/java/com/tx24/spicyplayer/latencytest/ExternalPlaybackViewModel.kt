@@ -39,6 +39,9 @@ import java.util.concurrent.ConcurrentHashMap
 /** How long a track must stay current before its lyrics are fetched; skipping past it costs no requests. */
 private const val TRACK_SETTLE_MS = 700L
 
+/** Upcoming queue entries whose lyrics are fetched ahead, like mild-lyrics' default. */
+private const val FETCH_AHEAD = 3
+
 data class PlayerUiState(
     val accessGranted: Boolean = false,
     val sourcePackage: String? = null,
@@ -90,8 +93,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val observedSessions = mutableMapOf<MediaSession.Token, MediaController>()
     private val observedCallbacks = mutableMapOf<MediaSession.Token, MediaController.Callback>()
     private var lyricsJob: Job? = null
+    private var warmJob: Job? = null
     private var shownSelection: RemoteLyricsSelection? = null
-    // ponytail: in-memory only; a disk cache would make app restarts instant too
+    // Per-source results for recent requests, so a policy change re-picks without refetching.
     private val lookupCache = object : LinkedHashMap<LyricsLookupRequest, MutableMap<String, ProviderResult>>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LyricsLookupRequest, MutableMap<String, ProviderResult>>) = size > 30
     }
@@ -303,6 +307,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             return
         }
         lyricsJob?.cancel()
+        warmJob?.cancel()  // the song on screen goes first
         if (force) lookupCache.remove(request)
         // Results per source for this request: a policy change re-picks from these instead of refetching.
         val known = lookupCache.getOrPut(request) { ConcurrentHashMap() }
@@ -318,6 +323,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 if (cached != null) {
                     (cached as? RemoteLyricsResolution.Found)?.let { known[it.selection.source.id] = ProviderResult.Hit(it.selection.payload) }
                     publish(cached, identity, request, final = true)
+                    warmAhead()
                     return@launch
                 }
             }
@@ -332,6 +338,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 .onSuccess { resolution ->
                     withContext(Dispatchers.IO) { lyricsBackend.store(request, resolution) }
                     publish(resolution, identity, request, final = true)
+                    warmAhead()
                 }
                 .onFailure { error ->
                     if (error is CancellationException) throw error
@@ -340,6 +347,38 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                         lookupStatus = "Lyric lookup failed",
                     )
                 }
+        }
+    }
+
+    /**
+     * Fetches the next [FETCH_AHEAD] queue entries into the disk cache, one at a time, like
+     * mild-lyrics' look-ahead: started only once the current song is settled and cancelled by
+     * the next lookup, so it never competes with the song on screen. Cached entries cost nothing.
+     */
+    private fun warmAhead() {
+        val session = controller ?: return
+        val queue = session.queue.orEmpty()
+        val at = queue.indexOfFirst { it.queueId == session.playbackState?.activeQueueItemId }
+        if (at < 0) return
+        val upcoming = queue.drop(at + 1).take(FETCH_AHEAD).mapNotNull { item ->
+            val d = item.description
+            val title = d.title?.toString()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val artist = d.subtitle?.toString()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            LyricsLookupRequest(
+                artist = artist,
+                title = title,
+                album = "",
+                durationSeconds = ((d.extras?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L) / 1_000L).toInt(),
+            )
+        }
+        val backend = lyricsBackend
+        warmJob = viewModelScope.launch(Dispatchers.IO) {
+            for (request in upcoming) {
+                if (backend.cachedResolution(request) != null) continue
+                // Failures are not reported: nobody is looking at this song yet.
+                runCatching { backend.store(request, backend.resolve(request, ConcurrentHashMap())) }
+                    .onFailure { if (it is CancellationException) throw it }
+            }
         }
     }
 

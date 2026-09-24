@@ -98,7 +98,11 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     private fun enabledOrder(): List<String> = policy().let { p -> p.sourceOrder.filter { it !in p.disabledSourceIds } }
 
     private fun cacheFile(request: LyricsLookupRequest): File {
-        val key = MessageDigest.getInstance("SHA-256").digest(request.toString().toByteArray())
+        // Title + artist only: a queue entry warmed ahead has no album or length, and must hit
+        // the same entry the real load asks for once the song starts.
+        val identity = listOf(request.title, request.artist, request.spotifyTrackId.orEmpty())
+            .joinToString("\u001f") { it.trim().lowercase() }
+        val key = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray())
             .joinToString("") { "%02x".format(it) }
         return File(diskCache, "$key.json")
     }
@@ -113,7 +117,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     private companion object {
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        const val CACHE_VERSION = 4
+        const val CACHE_VERSION = 5
         const val CACHE_DAYS = 3
     }
 

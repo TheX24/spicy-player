@@ -140,7 +140,8 @@ object SpotifyTrackMatcher {
             localParts.none { local -> similarity(local, remote) >= 0.5 }
         }
         val artistSimilarity = artistSimilarity(source.artist, candidate.artists)
-        val durationDelta = abs(source.durationMs - candidate.durationMs)
+        // Unknown length (a queue entry often has none) is not held against anyone.
+        val durationDelta = if (source.durationMs <= 0) 0L else abs(source.durationMs - candidate.durationMs)
         val durationScore = max(0.0, 1.0 - durationDelta / DURATION_SCORE_WINDOW_MS)
         val versionConflict = versionTerms(source.title) != versionTerms(candidate.title)
         val weightedScore = 100 * (

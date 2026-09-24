@@ -98,6 +98,16 @@ class SpotifyTrackMatcherTest {
     }
 
     @Test
+    fun `unknown length from a queue entry still matches`() {
+        val result = SpotifyTrackMatcher.resolve(
+            source.copy(title = "Deja Vu", durationMs = 0),
+            listOf(candidate(id = "only", title = "Deja Vu")),
+        )
+
+        assertEquals("only", (result as SpotifyTrackResolution.Matched).track.candidate.id)
+    }
+
+    @Test
     fun `shared featuring credit does not make two songs match`() {
         val result = SpotifyTrackMatcher.resolve(
             LocalTrackMetadata("Crew Love (feat. Drake)", "The Weeknd", "", 239_000),
