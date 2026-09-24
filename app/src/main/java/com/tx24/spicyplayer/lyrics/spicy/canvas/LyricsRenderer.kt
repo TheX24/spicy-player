@@ -95,9 +95,7 @@ private fun DrawScope.drawWipeText(
         startX = 0f,
         endX = w,
     )
-    val swept = ((localLo + localHi) / 2f).coerceIn(0f, 1f).let { if (rtl) 1f - it else it }
-    val glow = shadow?.dimmedBy(dimAlpha + (brightAlpha - dimAlpha) * swept)
-    drawGlowThenText(layoutResult, topLeft, glow) { drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft) }
+    drawGlowThenText(layoutResult, topLeft, shadow) { drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft) }
 }
 
 /**
@@ -109,13 +107,6 @@ private fun DrawScope.drawWipeText(
  * shadow means "unchanged", so the glow would otherwise stick to the text pass and to later
  * frames. [Shadow.None] clears it.
  */
-/**
- * The glow scaled by the text's average alpha: drawn in the same call as the gradient, the
- * shadow took on the gradient's alpha, so this keeps the glow as strong as it was.
- */
-private fun Shadow.dimmedBy(alpha: Float): Shadow =
-    copy(color = color.copy(alpha = (color.alpha * alpha).coerceIn(0f, 1f)))
-
 private inline fun DrawScope.drawGlowThenText(
     layoutResult: TextLayoutResult,
     topLeft: Offset,
@@ -172,9 +163,7 @@ private fun DrawScope.drawVerticalWipeText(
         startY = 0f,
         endY = h,
     )
-    val swept = ((localLo + localHi) / 2f).coerceIn(0f, 1f)
-    val glow = shadow?.dimmedBy(dimAlpha + (brightAlpha - dimAlpha) * swept)
-    drawGlowThenText(layoutResult, topLeft, glow) { drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft) }
+    drawGlowThenText(layoutResult, topLeft, shadow) { drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft) }
 }
 
 /**
@@ -182,10 +171,9 @@ private fun DrawScope.drawVerticalWipeText(
  * paints inactive text as its own text-shadow (NotSung at the dim alpha, Sung at the bright
  * alpha) whose blur radius is the distance-based --BlurAmount.
  */
-private fun inactiveShadow(plan: LyricPaintPlan.InactiveShadow, suppressBlur: Boolean, density: Float): Shadow = Shadow(
+private fun inactiveShadow(plan: LyricPaintPlan.InactiveShadow, suppressBlur: Boolean, cssPx: Float): Shadow = Shadow(
     color = Color.White.copy(alpha = plan.alpha),
-    // --BlurAmount is in CSS px, which scale with the screen like dp.
-    blurRadius = if (suppressBlur) 0f else plan.blurRadius * density,
+    blurRadius = if (suppressBlur) 0f else plan.blurRadius * cssPx,
 )
 
 private fun DrawScope.drawInactiveText(
@@ -194,11 +182,12 @@ private fun DrawScope.drawInactiveText(
     yPos: Float,
     plan: LyricPaintPlan.InactiveShadow,
     suppressBlur: Boolean,
+    cssPx: Float,
 ) {
     drawText(
         textLayoutResult = layoutResult,
         color = Color.Transparent,
-        shadow = inactiveShadow(plan, suppressBlur, density),
+        shadow = inactiveShadow(plan, suppressBlur, cssPx),
         topLeft = Offset(xPos, yPos),
     )
 }
@@ -243,7 +232,7 @@ internal fun DrawScope.drawInterludeGroup(
         val dotGlow = dotAnim.dotGlow.coerceIn(0f, 1f)
         val dotGlowAlpha = (dotGlow * 0.9f).coerceIn(0f, 1f)
         val dotShadow = if (!lineAnim.suppressShadows && dotGlowAlpha > 0.02f) {
-            Shadow(color = Color.White.copy(alpha = dotGlowAlpha * lineAnim.opacity), blurRadius = (4f + 6f * dotGlow) * density)
+            Shadow(color = Color.White.copy(alpha = dotGlowAlpha * lineAnim.opacity), blurRadius = (4f + 6f * dotGlow) * lyricSizePx / REFERENCE_LYRIC_SIZE_CSS_PX)
         } else null
 
         withTransform({
@@ -276,6 +265,19 @@ private fun scaleAnchor(gluedBefore: Boolean, gluedAfter: Boolean, rtl: Boolean)
     }
     return if (rtl) 1f - ltr else ltr
 }
+
+/**
+ * The reference's lyric size on a desktop window, where its effect sizes (blur, glow radii in CSS
+ * px) were tuned: --DefaultLyricsSize is clamp(1.85rem, 7cqw, 3.5rem), so 3.5rem = 56px.
+ */
+private const val REFERENCE_LYRIC_SIZE_CSS_PX = 56f
+
+/**
+ * One of the reference's CSS px in our px, relative to the text: effects keep the same size next
+ * to the letters as on Spicy Lyrics' desktop page, whatever the screen density.
+ */
+private fun cssPx(layout: TextLayoutResult, isBackground: Boolean): Float =
+    lyricSizePx(layout, isBackground) / REFERENCE_LYRIC_SIZE_CSS_PX
 
 /** The reference's --DefaultLyricsSize in px: a background line's text is 0.75 of it. */
 private fun lyricSizePx(layout: TextLayoutResult, isBackground: Boolean): Float =
@@ -351,7 +353,7 @@ private fun DrawScope.drawSyllabicLetterFragment(
     val lGlowOpacity = (lState.glow * 1.85f).coerceIn(0f, 1f)  // LetterGlowMultiplier_Opacity = 185%
     val lShadow = when {
         !lineAnim.suppressShadows && lGlowOpacity > 0.02f ->
-            Shadow(color = Color.White.copy(alpha = lGlowOpacity * lineAnim.opacity), blurRadius = lGlowBlur * density)
+            Shadow(color = Color.White.copy(alpha = lGlowOpacity * lineAnim.opacity), blurRadius = lGlowBlur * cssPx(wLayout.textLayoutResult, lineAnim.isBackground))
         else -> null
     }
 
@@ -375,6 +377,7 @@ private fun DrawScope.drawSyllabicLetterFragment(
     }) {
         if (paintPlan is LyricPaintPlan.InactiveShadow) drawInactiveText(
             wLayout.textLayoutResult, xPos, yPos + scrollOffset, paintPlan, lineAnim.suppressShadows,
+            cssPx(wLayout.textLayoutResult, lineAnim.isBackground),
         ) else drawWipeText(
             layoutResult = wLayout.textLayoutResult,
             xPos = xPos,
@@ -413,7 +416,7 @@ private fun DrawScope.drawStandardWord(
     val glowOpacity = (wordAnim.glow * 0.35f).coerceIn(0f, 1f)
     val shadow = when {
         !lineAnim.suppressShadows && glowOpacity > 0.02f ->
-            Shadow(color = Color.White.copy(alpha = glowOpacity * lineAnim.opacity), blurRadius = glowBlur)
+            Shadow(color = Color.White.copy(alpha = glowOpacity * lineAnim.opacity), blurRadius = glowBlur * cssPx(wLayout.textLayoutResult, lineAnim.isBackground))
         else -> null
     }
 
@@ -435,6 +438,7 @@ private fun DrawScope.drawStandardWord(
     }) {
         if (paintPlan is LyricPaintPlan.InactiveShadow) drawInactiveText(
             wLayout.textLayoutResult, xPos, yPos, paintPlan, lineAnim.suppressShadows,
+            cssPx(wLayout.textLayoutResult, lineAnim.isBackground),
         ) else drawWipeText(
             layoutResult = wLayout.textLayoutResult,
             xPos = xPos,
@@ -469,10 +473,11 @@ internal fun DrawScope.drawLineModeLine(
     // Whole-line glow spring (reference Line-mode: shadow blur 4 + 8·glow, alpha glow·0.5),
     // layered with the inactive-line distance blur when present.
     val glowAlpha = (lineAnim.lineGlow * 0.5f).coerceIn(0f, 1f)
+    val lineCssPx = layout.words.firstOrNull()?.let { cssPx(it.textLayoutResult, lineAnim.isBackground) } ?: 1f
     val shadow = when {
         !lineAnim.suppressShadows && glowAlpha > 0.02f -> Shadow(
             color = Color.White.copy(alpha = glowAlpha * lineAnim.opacity),
-            blurRadius = (4f + 8f * lineAnim.lineGlow) * density,
+            blurRadius = (4f + 8f * lineAnim.lineGlow) * lineCssPx,
         )
         else -> null
     }
@@ -493,7 +498,8 @@ internal fun DrawScope.drawLineModeLine(
             val textWidth = wLayout.textLayoutResult.size.width.toFloat()
             val textHeight = wLayout.textLayoutResult.size.height.toFloat()
             if (paintPlan is LyricPaintPlan.InactiveShadow) {
-                drawInactiveText(wLayout.textLayoutResult, xPos, yPos, paintPlan, lineAnim.suppressShadows)
+                drawInactiveText(wLayout.textLayoutResult, xPos, yPos, paintPlan, lineAnim.suppressShadows,
+                    cssPx(wLayout.textLayoutResult, lineAnim.isBackground))
             } else if (layout.isRtl) {
                 // RTL lines keep the horizontal right→left sweep (.line.rtl -90deg !important).
                 drawWipeText(
