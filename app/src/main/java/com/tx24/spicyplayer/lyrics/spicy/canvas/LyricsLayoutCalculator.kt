@@ -157,7 +157,7 @@ internal object LyricsLayoutCalculator {
             val contentSlot = metrics.contentSlot(hasDuet, lineIsRtl, line.oppositeAligned)
             val lineMaxWidth = contentSlot.widthPx
             // Inter-word gap of 0.32ch (width of "0"), matching the reference's `margin-right: 0.32ch`.
-            val chWidth = textMeasurer.measure(
+            val zero = textMeasurer.measure(
                 text = AnnotatedString("0"),
                 style = TextStyle(
                     fontFamily = lineFontFamily,
@@ -165,8 +165,12 @@ internal object LyricsLayoutCalculator {
                     fontWeight = fontWeight,
                     color = Color.White,
                 )
-            ).size.width.toFloat()
-            val wordGap = chWidth * 0.32f
+            )
+            val wordGap = zero.size.width.toFloat() * 0.32f
+            // Every row sits on the line font's own baseline, like a CSS line box whose strut is
+            // the primary font. Fallback glyphs (CJK) have taller line boxes and a lower baseline;
+            // aligning only within the row let an all-CJK row sink toward the next line.
+            val rowBaseline = zero.firstBaseline
 
             data class Piece(
                 val word: Word,
@@ -328,17 +332,7 @@ internal object LyricsLayoutCalculator {
                 val startIdx = lineBreaks[b]
                 val endIdx = lineBreaks[b+1]
                 
-                var maxBaseline = 0f
-                for (idx in startIdx until endIdx) {
-                    val piece = pieces[idx]
-                    val baseline = piece.layout.firstBaseline
-                    if (!baseline.isNaN()) {
-                        maxBaseline = kotlin.math.max(maxBaseline, baseline)
-                    }
-                }
-
                 val rowPieces = mutableListOf<WordLayout>()
-                var rowMaxBottom = 0f
                 var rowX = 0f
                 for (idx in startIdx until endIdx) {
                     val piece = pieces[idx]
@@ -346,7 +340,7 @@ internal object LyricsLayoutCalculator {
                     val actualGap = if (rowX > 0f && !piece.isPartOfWord) wordGap else 0f
                     
                     val baseline = piece.layout.firstBaseline
-                    val yShift = if (!baseline.isNaN() && maxBaseline > 0f) maxBaseline - baseline else 0f
+                    val yShift = if (!baseline.isNaN() && !rowBaseline.isNaN()) rowBaseline - baseline else 0f
                     
                     rowPieces.add(WordLayout(
                         word = piece.word,
@@ -358,7 +352,6 @@ internal object LyricsLayoutCalculator {
                         startXOffset = piece.startX
                     ))
                     rowX += pieceWidth + actualGap
-                    rowMaxBottom = kotlin.math.max(rowMaxBottom, yShift + piece.layout.size.height.toFloat())
                 }
                 
                 allRows.add(rowX to rowPieces)
