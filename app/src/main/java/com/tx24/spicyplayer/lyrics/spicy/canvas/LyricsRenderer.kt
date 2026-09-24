@@ -97,13 +97,17 @@ private fun DrawScope.drawWipeText(
     )
     val swept = ((localLo + localHi) / 2f).coerceIn(0f, 1f).let { if (rtl) 1f - it else it }
     val glow = shadow?.dimmedBy(dimAlpha + (brightAlpha - dimAlpha) * swept)
-    drawGlowThenText(layoutResult, topLeft, glow) { drawText(layoutResult, brush = brush, topLeft = topLeft) }
+    drawGlowThenText(layoutResult, topLeft, glow) { drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft) }
 }
 
 /**
  * Draws [shadow] as its own pass (invisible text casting a white glow, like the reference's CSS
  * text-shadow), then the text on top without a shadow, instead of giving the gradient-filled
- * text the shadow in the same draw.
+ * text the shadow in the same draw, which renders the glyphs visibly darker.
+ *
+ * Every draw must pass a shadow: a TextLayoutResult keeps its paint between draws and a null
+ * shadow means "unchanged", so the glow would otherwise stick to the text pass and to later
+ * frames. [Shadow.None] clears it.
  */
 /**
  * The glow scaled by the text's average alpha: drawn in the same call as the gradient, the
@@ -170,7 +174,7 @@ private fun DrawScope.drawVerticalWipeText(
     )
     val swept = ((localLo + localHi) / 2f).coerceIn(0f, 1f)
     val glow = shadow?.dimmedBy(dimAlpha + (brightAlpha - dimAlpha) * swept)
-    drawGlowThenText(layoutResult, topLeft, glow) { drawText(layoutResult, brush = brush, topLeft = topLeft) }
+    drawGlowThenText(layoutResult, topLeft, glow) { drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft) }
 }
 
 /**
@@ -251,7 +255,7 @@ internal fun DrawScope.drawInterludeGroup(
                 textLayoutResult = wLayout.textLayoutResult,
                 color = Color.White,
                 alpha = dotOpacity * lineAnim.opacity,
-                shadow = dotShadow,
+                shadow = dotShadow ?: Shadow.None,
                 topLeft = Offset(xPos, baseYPos),
             )
         }
@@ -539,6 +543,7 @@ internal fun DrawScope.drawStaticLine(
             textLayoutResult = wLayout.textLayoutResult,
             color = Color.White,
             alpha = lineAnim.opacity.coerceIn(0f, 1f),
+            shadow = Shadow.None,
             topLeft = Offset(xPos, yPos),
         )
     }
