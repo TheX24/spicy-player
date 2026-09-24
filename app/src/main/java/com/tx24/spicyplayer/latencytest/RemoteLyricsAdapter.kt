@@ -32,27 +32,20 @@ internal object RemoteLyricsAdapter {
                 )
             }.takeIf(List<TimedLine>::isNotEmpty)
         }
-        val unromanized = (ttmlLines ?: parseLrc(payload.syncedLyrics, durationMs)).let { parsed ->
-            // Word-synced text is already split per syllable; line-timed text can arrive as one
-            // word per line, which the layout (it wraps between words only) can never wrap.
-            if (selection.quality == RemoteLyricsQuality.WORD_SYNCED) parsed else parsed.map(::wrappable)
-        }
-        val plain = if (unromanized.isEmpty()) payload.plainLyrics?.takeIf(String::isNotBlank) else null
-        require(unromanized.isNotEmpty() || plain != null) { "Selected lyrics contain no displayable text" }
+        // Plain text becomes untimed lines, rendered by the lyrics view's static mode like the
+        // reference, so it gets the same layout, romanization and credits as synced lyrics.
+        val parsed = (ttmlLines ?: parseLrc(payload.syncedLyrics, durationMs)).ifEmpty { staticLines(payload.plainLyrics) }
+        // Word-synced text is already split per syllable; line-timed text can arrive as one
+        // word per line, which the layout (it wraps between words only) can never wrap.
+        val unromanized = if (selection.quality == RemoteLyricsQuality.WORD_SYNCED) parsed else parsed.map(::wrappable)
+        require(unromanized.isNotEmpty()) { "Selected lyrics contain no displayable text" }
         // On-device romanization fills only the words the source left unromanized.
-        val plainLines = plain?.lines().orEmpty()
-        val computed = RomanizationService.romanize(
-            unromanized.map { line -> line.words.map(TimedWord::text) } + plainLines.map(::listOf)
-        )
+        val computed = RomanizationService.romanize(unromanized.map { line -> line.words.map(TimedWord::text) })
         val lines = unromanized.mapIndexed { l, line ->
             line.copy(words = line.words.mapIndexed { w, word -> word.copy(romanized = word.romanized ?: computed[l][w]) })
         }
-        val plainRomanized = plainLines.mapIndexed { i, text -> computed[unromanized.size + i].single() ?: text }
-            .joinToString("\n").takeIf { it != plain }
         return LyricsState.Ready(
             lines = lines,
-            plainText = plain,
-            plainRomanized = plainRomanized,
             provider = attribution?.providerName ?: selection.source.displayName,
             source = attribution?.originName ?: selection.source.displayName,
             maker = attribution?.maker,
@@ -85,6 +78,10 @@ internal object RemoteLyricsAdapter {
         if (pieces.size <= 1) listOf(word)
         else pieces.map { (text, attached) -> TimedWord(text, word.startMs, word.endMs, attached) }
     })
+
+    private fun staticLines(plain: String?): List<TimedLine> = plain.orEmpty().lines()
+        .map(String::trim).filter(String::isNotEmpty)
+        .map { text -> TimedLine(0L, 0L, listOf(TimedWord(text, 0L, 0L, false))) }
 
     private fun parseLrc(raw: String?, durationMs: Long): List<TimedLine> {
         val entries = raw.orEmpty().lineSequence().flatMap { line ->

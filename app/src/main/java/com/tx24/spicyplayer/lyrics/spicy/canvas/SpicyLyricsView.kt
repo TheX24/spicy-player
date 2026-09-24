@@ -10,7 +10,11 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.core.graphics.drawable.toBitmap
@@ -118,21 +122,48 @@ fun SpicyLyricsView(
             LyricsLayoutMetrics(canvasWidth, density.density, lyricsType, fontSizeScale)
         }
         val footerSlot = footerMetrics.contentSlot(false, false, false)
-        val footerLayouts = remember(footer, footerMetrics.baseFontSizeSp, footerSlot.widthPx) {
-            val constraints = Constraints(maxWidth = footerSlot.widthPx.roundToInt().coerceAtLeast(1))
-            footer.lines().map { line ->
-                val (size, weight, alpha) = when (line.kind) {
-                    FooterLine.Kind.WRITERS -> Triple(0.47f, FontWeight.Medium, 0.6f)
-                    FooterLine.Kind.CONTRIBUTOR -> Triple(0.42f, FontWeight.Medium, 0.6f)
-                    FooterLine.Kind.NOTE -> Triple(0.38f, FontWeight.Normal, 0.45f)
+        // Sizes, weights, opacities and margins from spicy-lyrics' Mixed.css (.Credits,
+        // .LyricsProvider, .SongInfo, .Maker/.Uploader); 1cqw = 1% of the view's width.
+        val footerLayouts = remember(footer, footerMetrics.baseFontSizeSp, footerSlot.widthPx, canvasWidth) {
+            val cqw = canvasWidth / 100f
+            val avatarPx = 24f * density.density
+            val constraints = Constraints(maxWidth = (footerSlot.widthPx - avatarPx).roundToInt().coerceAtLeast(1))
+            footer.lines().mapIndexed { index, line ->
+                val (size, alpha, margin) = when (line.kind) {
+                    FooterLine.Kind.WRITERS -> Triple(0.47f, 0.6f, 1f * cqw)
+                    FooterLine.Kind.PROVIDER -> Triple(0.34f, 0.5f, 0.75f * cqw)
+                    FooterLine.Kind.NOTE -> Triple(0.35f, 0.5f, 1f * cqw)
+                    FooterLine.Kind.CONTRIBUTOR -> Triple(0.33f, 1f, 0.29f * cqw)
                 }
-                FooterRow(line, textMeasurer.measure(
-                    AnnotatedString(line.text),
-                    TextStyle(fontSize = (footerMetrics.baseFontSizeSp * size).sp, fontWeight = weight),
+                val text = if (line.kind == FooterLine.Kind.CONTRIBUTOR && line.label != null && line.name != null) {
+                    // "Made by " at half opacity, then the bold, underlined "@name" (.song-info-profile-section).
+                    buildAnnotatedString {
+                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.5f))) { append("${line.label} ") }
+                        withStyle(SpanStyle(
+                            color = Color.White.copy(alpha = 0.55f),
+                            fontWeight = FontWeight.Bold,
+                            textDecoration = TextDecoration.Underline,
+                        )) { append("@${line.name}") }
+                    }
+                } else AnnotatedString(line.text)
+                val layout = textMeasurer.measure(
+                    text,
+                    TextStyle(fontSize = (footerMetrics.baseFontSizeSp * size).sp, fontWeight = FontWeight.SemiBold),
                     constraints = constraints,
-                ), alpha)
+                )
+                val avatar = if (line.avatarUrl != null) avatarPx else 0f
+                FooterRow(
+                    line, layout, alpha,
+                    // The block starts a few line gaps below the last lyric; then the CSS margins.
+                    marginTop = if (index == 0) footerMetrics.lineGapPx * 3f else margin,
+                    height = maxOf(layout.size.height.toFloat(), avatar),
+                    avatarSize = avatar,
+                    avatarGap = 0.2f * cqw,
+                )
             }
         }
+        val footerHeight = footerLayouts.sumOf { (it.marginTop + it.height).toDouble() }.toFloat()
+        val footerHeightUpdated by rememberUpdatedState(footerHeight)
         val avatars by produceState(emptyMap<String, ImageBitmap>(), footer) {
             value = footer.lines().mapNotNull(FooterLine::avatarUrl).distinct().mapNotNull { url ->
                 loadAvatar(context, url)?.let { url to it }
@@ -229,7 +260,9 @@ fun SpicyLyricsView(
 
                         // 3. Step the scroll spring and handle user overrides.
                         val lastLayout = currentLayouts.lastOrNull()
-                        val totalContentHeight = (lastLayout?.yOffset ?: 0f) + (lastLayout?.height ?: 0f) + accumulatedY
+                        // Credits scroll into reach too, most visibly when static lyrics are scrolled by hand.
+                        val totalContentHeight = (lastLayout?.yOffset ?: 0f) + (lastLayout?.height ?: 0f) + accumulatedY +
+                            footerHeightUpdated
 
                         // Static lyrics have no timing to follow: leave scrolling entirely to the user.
                         if (isStatic) targetY = null
@@ -260,10 +293,10 @@ fun SpicyLyricsView(
         // Where each credit row sits below the last line, in content space (before scrolling).
         // Shared by drawing and tapping so a tap always lands on what was drawn.
         fun footerRowTops(): List<Float> {
-            var y = (lineLayouts.lastOrNull()?.let { layout ->
+            var y = lineLayouts.lastOrNull()?.let { layout ->
                 dynamicYOffsets.getOrElse(lineLayouts.lastIndex) { layout.yOffset } + layout.height
-            } ?: 0f) + footerMetrics.lineGapPx * 3f
-            return footerLayouts.map { row -> y.also { y += row.height + footerMetrics.lineGapPx } }
+            } ?: 0f
+            return footerLayouts.map { row -> (y + row.marginTop).also { y = it + row.height } }
         }
 
         Canvas(
@@ -340,35 +373,40 @@ fun SpicyLyricsView(
 
             footerLayouts.zip(footerRowTops()).forEach { (row, top) ->
                 val y = top + scrollOffset
-                var x = footerSlot.startPx
-                if (row.line.avatarUrl != null) {
-                    // Round avatar the height of the text, space reserved even while it loads.
-                    val size = row.height
-                    avatars[row.line.avatarUrl]?.let { avatar ->
-                        clipPath(Path().apply { addOval(Rect(x, y, x + size, y + size)) }) {
-                            drawImage(
-                                avatar,
-                                dstOffset = IntOffset(x.roundToInt(), y.roundToInt()),
-                                dstSize = IntSize(size.roundToInt(), size.roundToInt()),
-                            )
-                        }
-                    }
-                    x += size * 1.35f
-                }
+                val x = footerSlot.startPx
+                val textHeight = row.text.size.height.toFloat()
                 drawText(
                     textLayoutResult = row.text,
                     color = Color.White,
                     alpha = row.alpha,
-                    topLeft = Offset(x, y),
+                    topLeft = Offset(x, y + (row.height - textHeight) / 2f),
                 )
+                // The avatar follows the name, a 24px circle, like the reference's profile <img>.
+                row.line.avatarUrl?.let { avatars[it] }?.let { avatar ->
+                    val ax = x + row.text.size.width + row.avatarGap
+                    val ay = y + (row.height - row.avatarSize) / 2f
+                    clipPath(Path().apply { addOval(Rect(ax, ay, ax + row.avatarSize, ay + row.avatarSize)) }) {
+                        drawImage(
+                            avatar,
+                            dstOffset = IntOffset(ax.roundToInt(), ay.roundToInt()),
+                            dstSize = IntSize(row.avatarSize.roundToInt(), row.avatarSize.roundToInt()),
+                        )
+                    }
+                }
             }
         }
     }
 }
 
-private class FooterRow(val line: FooterLine, val text: TextLayoutResult, val alpha: Float) {
-    val height: Float get() = text.size.height.toFloat()
-}
+private class FooterRow(
+    val line: FooterLine,
+    val text: TextLayoutResult,
+    val alpha: Float,
+    val marginTop: Float,
+    val height: Float,
+    val avatarSize: Float,
+    val avatarGap: Float,
+)
 
 private suspend fun loadAvatar(context: Context, url: String): ImageBitmap? = try {
     val request = ImageRequest.Builder(context).data(url).size(128).allowHardware(false).build()

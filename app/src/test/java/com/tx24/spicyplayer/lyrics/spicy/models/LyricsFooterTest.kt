@@ -12,7 +12,7 @@ class LyricsFooterTest {
         val footer = LyricsFooter(songwriters = listOf("Ada", "Ben"), provenance = spicy, uploader = LyricsCredit("TX26"))
 
         assertEquals(
-            listOf("Written by: Ada, Ben", "These lyrics have been provided by our community", "Made by @TX26"),
+            listOf("Written by: Ada, Ben", "Provided by: Spicy Lyrics", "These lyrics have been provided by our community", "Made by @TX26"),
             footer.lines().map(FooterLine::text),
         )
     }
@@ -21,7 +21,7 @@ class LyricsFooterTest {
         val lines = LyricsFooter(provenance = spicy, maker = LyricsCredit("maker"), uploader = LyricsCredit("up")).lines()
 
         assertEquals(
-            listOf("These lyrics have been provided by our community", "Made by @maker", "Uploaded by @up"),
+            listOf("Provided by: Spicy Lyrics", "These lyrics have been provided by our community", "Made by @maker", "Uploaded by @up"),
             lines.map(FooterLine::text),
         )
     }
@@ -30,14 +30,14 @@ class LyricsFooterTest {
         val amll = LyricsFooter(provenance = LyricsProvenance("AMLL TTML DB"), maker = LyricsCredit("someone")).lines()
         val unison = LyricsFooter(provenance = LyricsProvenance("Unison"), uploader = LyricsCredit("sub")).lines()
 
-        assertEquals(listOf("Lyrics: AMLL TTML DB", "Made by @someone"), amll.map(FooterLine::text))
-        assertEquals(listOf("Lyrics: Unison", "Submitted by @sub"), unison.map(FooterLine::text))
+        assertEquals(listOf("Provided by: AMLL TTML DB", "Made by @someone"), amll.map(FooterLine::text))
+        assertEquals(listOf("Provided by: Unison", "Submitted by @sub"), unison.map(FooterLine::text))
     }
 
     @Test fun catalogueLyricsNameTheirSource() {
         val lines = LyricsFooter(provenance = LyricsProvenance("Spicy Lyrics", "Apple Music")).lines()
 
-        assertEquals(listOf("Lyrics: Spicy Lyrics • Apple Music"), lines.map(FooterLine::text))
+        assertEquals(listOf("Provided by: Apple Music"), lines.map(FooterLine::text))
     }
 
     @Test fun onlyTrustedProfilesAreClickable() {

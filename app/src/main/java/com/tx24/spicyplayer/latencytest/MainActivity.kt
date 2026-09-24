@@ -106,7 +106,7 @@ private fun LatencyTestApp(
     val uiPrefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
     var romanizePreferred by remember { mutableStateOf(uiPrefs.getBoolean("romanize", false)) }
     val romanizationAvailable = (state.lyrics as? LyricsState.Ready)?.let { ready ->
-        ready.plainRomanized != null || ready.lines.any { line -> line.words.any { it.romanized != null } }
+        ready.lines.any { line -> line.words.any { it.romanized != null } }
     } == true
     val romanize = romanizePreferred && romanizationAvailable
     var showOptions by remember { mutableStateOf(false) }
@@ -392,12 +392,6 @@ private fun LyricsPanel(
             Text(lyrics.message, color = MaterialTheme.colorScheme.error)
         }
         is LyricsState.Ready -> {
-            if (lyrics.lines.isEmpty()) {
-                Box(modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(24.dp)) {
-                    Text((if (romanize) lyrics.plainRomanized else null) ?: lyrics.plainText.orEmpty(), style = MaterialTheme.typography.bodyLarge)
-                }
-                return
-            }
             val rendererLines = remember(lyrics.lines) {
                 buildDisplayTimeline(lyrics.lines.map { line ->
                     Line(

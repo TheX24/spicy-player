@@ -14,14 +14,17 @@ data class LyricsFooter(
      * the lyric source followed by its own credits.
      */
     fun lines(): List<FooterLine> = buildList {
+        // Reference order (Syllable/Line/Static applyers): Credits, LyricsProvider, SongInfo.
         if (songwriters.isNotEmpty()) add(FooterLine("Written by: ${songwriters.joinToString(", ")}", FooterLine.Kind.WRITERS))
-        val spicyCommunity = provenance?.provider == "Spicy Lyrics" && (maker != null || uploader != null)
-        if (spicyCommunity) {
-            add(FooterLine("These lyrics have been provided by our community", FooterLine.Kind.NOTE))
-        } else provenance?.let { p ->
-            val contributor = p.contributor?.takeIf(String::isNotBlank)?.let { " • $it" }.orEmpty()
-            add(FooterLine("Lyrics: ${p.provider}$contributor", FooterLine.Kind.NOTE))
+        provenance?.let { p ->
+            // The catalogue that answered, like the reference's "Provided by: Apple Music"; a
+            // Spicy Lyrics community sync is "Spicy Lyrics" there.
+            val origin = p.contributor?.takeIf(String::isNotBlank)
+                ?.let { if (it == "Spicy Lyrics Community") "Spicy Lyrics" else it } ?: p.provider
+            add(FooterLine("Provided by: $origin", FooterLine.Kind.PROVIDER))
         }
+        val spicyCommunity = provenance?.provider == "Spicy Lyrics" && (maker != null || uploader != null)
+        if (spicyCommunity) add(FooterLine("These lyrics have been provided by our community", FooterLine.Kind.NOTE))
         maker?.let { add(it.line("Made by")) }
         uploader?.let { add(it.line(if (maker != null) "Uploaded by" else if (spicyCommunity) "Made by" else "Submitted by")) }
     }
@@ -32,6 +35,8 @@ data class LyricsCredit(val name: String, val profileUrl: String? = null, val av
     internal fun line(role: String) = FooterLine(
         "$role @$name",
         FooterLine.Kind.CONTRIBUTOR,
+        label = role,
+        name = name,
         profileUrl = profileUrl?.takeIf(::isTrustedProfile),
         avatarUrl = avatarUrl?.takeIf { it.startsWith("https://") },
     )
@@ -50,8 +55,11 @@ data class FooterLine(
     val kind: Kind,
     val profileUrl: String? = null,
     val avatarUrl: String? = null,
+    /** For [Kind.CONTRIBUTOR]: drawn as "label " then a bold, underlined "@name". */
+    val label: String? = null,
+    val name: String? = null,
 ) {
-    enum class Kind { WRITERS, NOTE, CONTRIBUTOR }
+    enum class Kind { WRITERS, PROVIDER, NOTE, CONTRIBUTOR }
 }
 
 data class LyricsProvenance(

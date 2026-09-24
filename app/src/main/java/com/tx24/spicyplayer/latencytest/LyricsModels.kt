@@ -29,8 +29,6 @@ sealed interface LyricsState {
         val uploader: com.tx24.spicyplayer.network.data.LyricsContributor?,
         val songwriters: List<String>,
         val provider: String = "Spicy Lyrics",
-        val plainText: String? = null,
-        val plainRomanized: String? = null,
         val lyricsType: com.tx24.spicyplayer.lyrics.spicy.models.LyricsType = com.tx24.spicyplayer.lyrics.spicy.models.LyricsType.Syllable,
     ) : LyricsState
     data class Error(val message: String) : LyricsState
