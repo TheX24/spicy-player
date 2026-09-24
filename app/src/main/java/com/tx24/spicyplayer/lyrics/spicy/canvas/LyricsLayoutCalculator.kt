@@ -8,6 +8,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextMotion
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.Font
@@ -120,6 +121,7 @@ internal object LyricsLayoutCalculator {
                             fontSize = dotFontSize,
                             fontWeight = fontWeight,
                             color = Color.White,
+                            textMotion = TextMotion.Animated,
                             // Distinct per-dot identity, same rationale as the word-level hack below:
                             // three identical "•" glyphs would otherwise share one cached
                             // TextLayoutResult (and its highlight/paint state) across dots.
@@ -192,6 +194,10 @@ internal object LyricsLayoutCalculator {
                     fontSize = fontSize,
                     fontWeight = fontWeight,
                     color = Color.White,
+                    // Words move by a pixel or two and scale every frame. Like the reference's
+                    // will-change: transform, render them unsnapped so they glide instead of
+                    // stepping between whole pixel rows (the "bobbing" after a word is sung).
+                    textMotion = TextMotion.Animated,
                     // Use a tiny unique letter spacing based on the Word object's identity.
                     // This prevents Compose from sharing cached TextLayoutResults (and highlights) 
                     // between identical words in different lines.
