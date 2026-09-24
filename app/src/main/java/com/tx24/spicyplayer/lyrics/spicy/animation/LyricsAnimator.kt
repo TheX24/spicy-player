@@ -203,7 +203,7 @@ class LyricsAnimator(
      * Computes the animation state for all lines at [currentTimeMs].
      *
      * @param deltaTime seconds since the last frame (unclamped, like the reference).
-     * @param suppressBlur true while the user is dragging (reference: HideLineBlur).
+     * @param suppressBlur true from the user's first touch until auto-scroll resumes (reference: HideLineBlur).
      */
     fun animate(
         lines: List<Line>,
@@ -336,7 +336,6 @@ class LyricsAnimator(
                 isSongwriter = line.isSongwriter,
                 lineGradientPercent = lineGradient,
                 lineGlow = lineGlow,
-                suppressShadows = suppressBlur,
                 state = lineState,
             )
         }

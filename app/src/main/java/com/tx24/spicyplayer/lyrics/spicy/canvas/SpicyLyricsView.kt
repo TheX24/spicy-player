@@ -109,6 +109,8 @@ fun SpicyLyricsView(
 
     val scrollManager = remember(documentId) { ScrollManager().also { it.reset() } }
     val scrollPolicy = remember(documentId) { ScrollPolicyController() }
+    // Read by the drag handler, written by the frame loop.
+    val contentHeightForDrag = remember(documentId) { FloatArray(1) }
     val density = LocalDensity.current
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
@@ -225,7 +227,7 @@ fun SpicyLyricsView(
 
                     if (currentLayouts.size == currentLines.size && currentLines.isNotEmpty()) {
                         // 1. Step the animator for visual properties (scale, opacity, glow).
-                        animStates = animator.animate(currentLines, currentTime, deltaTime, scrollManager.isUserScrolling, lyricsType)
+                        animStates = animator.animate(currentLines, currentTime, deltaTime, scrollManager.hideLineBlur, lyricsType)
 
                         // 1.5 Calculate dynamic Y offsets based on interlude scales.
                         var accumulatedY = 0f
@@ -296,8 +298,9 @@ fun SpicyLyricsView(
 
                         // Static lyrics have no timing to follow: leave scrolling entirely to the user.
                         if (isStatic) targetY = null
+                        contentHeightForDrag[0] = totalContentHeight
                         scrollManager.updateScroll(
-                            currentTime, deltaTime, totalContentHeight, targetY,
+                            deltaTime, totalContentHeight, targetIndex.takeIf { targetY != null }, targetY,
                             snap = decision.motion == ScrollMotion.SNAP,
                             targetVisiblePx = targetVisiblePx,
                         )
@@ -341,7 +344,7 @@ fun SpicyLyricsView(
                         onDragCancel = { scrollManager.onDragEnd() },
                         onDrag = { change, dragAmount ->
                             change.consume()
-                            scrollManager.onDrag(dragAmount.y)
+                            scrollManager.onDrag(dragAmount.y, contentHeightForDrag[0])
                         }
                     )
                 }
