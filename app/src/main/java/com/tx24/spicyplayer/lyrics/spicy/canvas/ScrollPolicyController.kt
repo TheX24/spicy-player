@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.lyrics.spicy.canvas
 
+import com.tx24.spicyplayer.lyrics.spicy.animation.LyricsAnimator
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.LineRole
 import kotlin.math.abs
@@ -38,13 +39,18 @@ internal class ScrollPolicyController {
     }
 
     companion object {
-        const val POST_INTERLUDE_DELAY_MS = 240L
-
         fun selectTargetIndex(lines: List<Line>, timeMs: Long): Int? {
             if (lines.isEmpty()) return null
             val active = lines.indices.filter { timeMs in lines[it].startMs..lines[it].endMs }
             val activeInterlude = active.firstOrNull { lines[it].role == LineRole.INTERLUDE }
-            if (activeInterlude != null) return activeInterlude
+            if (activeInterlude != null) {
+                // Once the dots start closing, aim at the line after them, so the scroll and the
+                // closing gap move together in one glide instead of chasing the shrinking dots.
+                val interlude = lines[activeInterlude]
+                if (timeMs <= interlude.endMs - LyricsAnimator.PRE_HIDDEN_DOT_LINE_MS) return activeInterlude
+                val next = (activeInterlude + 1 until lines.size).firstOrNull { lines[it].role == LineRole.LEAD }
+                if (next != null) return next
+            }
 
             val leadIndices = active.mapNotNull { index ->
                 val line = lines[index]
@@ -57,7 +63,7 @@ internal class ScrollPolicyController {
                 }
             }.distinct().sorted()
 
-            var selected = when {
+            return when {
                 leadIndices.isEmpty() -> lines.indexOfLast {
                     it.role == LineRole.LEAD && it.startMs <= timeMs
                 }.takeIf { it >= 0 } ?: lines.indexOfFirst { it.role != LineRole.BACKGROUND }.takeIf { it >= 0 }
@@ -71,17 +77,6 @@ internal class ScrollPolicyController {
                     else if (last - first <= 1) first else last
                 }
             }
-
-            if (selected != null && lines[selected].role == LineRole.LEAD) {
-                val lead = lines[selected]
-                val precedingInterlude = lines.indexOfLast {
-                    it.role == LineRole.INTERLUDE && it.endMs == lead.startMs
-                }
-                if (precedingInterlude >= 0 && timeMs < lead.startMs + POST_INTERLUDE_DELAY_MS) {
-                    selected = precedingInterlude
-                }
-            }
-            return selected
         }
 
         fun flingDecayMultiplier(deltaTimeSeconds: Float): Float =

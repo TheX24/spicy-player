@@ -76,7 +76,7 @@ class LyricsAnimator(
         dotOpacitySpline = spline(0f to (if (simple) 0.27f else 0.35f), 0.6f to 1f, 1f to 1f)
     }
 
-    private companion object {
+    internal companion object {
         // Word/letter spring tuning (reference "active" values).
         const val SCALE_FREQUENCY = 0.88f
         const val SCALE_DAMPING = 0.64f

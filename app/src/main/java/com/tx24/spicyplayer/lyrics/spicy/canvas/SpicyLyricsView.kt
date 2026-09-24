@@ -206,6 +206,7 @@ fun SpicyLyricsView(
             // invalidating the Canvas (a fresh FloatArray each frame was forcing a redraw via array
             // identity-equality even when nothing moved).
             var dynamicYScratch = FloatArray(0)
+            var settledYScratch = FloatArray(0)
             while (true) {
                 withFrameNanos { frameTimeNanos ->
                     onFrameTickUpdated?.invoke(frameTimeNanos)
@@ -233,9 +234,25 @@ fun SpicyLyricsView(
                         }
                         val newDynamicYOffsets = dynamicYScratch
 
+                        // Where each line settles once running interlude animations finish; the
+                        // scroll aims here so it doesn't chase an opening or closing gap.
+                        var settledY = 0f
+                        if (settledYScratch.size != currentLayouts.size) {
+                            settledYScratch = FloatArray(currentLayouts.size)
+                        }
                         for (i in currentLayouts.indices) {
                             val layout = currentLayouts[i]
                             val state = animStates.getOrNull(i)
+
+                            if (layout.isInterlude) {
+                                val line = layout.line
+                                val open = if (currentTime >= line.startMs &&
+                                    currentTime <= line.endMs - LyricsAnimator.PRE_HIDDEN_DOT_LINE_MS) 1f else 0f
+                                settledYScratch[i] = layout.yOffset + settledY + rowHeightUpdated / 2f * open
+                                settledY += (rowHeightUpdated + lineGapUpdated) * open
+                            } else {
+                                settledYScratch[i] = layout.yOffset + settledY
+                            }
 
                             if (layout.isInterlude) {
                                 // An open interlude is a full lyric row plus the normal gap, like the
@@ -261,7 +278,9 @@ fun SpicyLyricsView(
                         val decision = scrollPolicy.decide(currentLines, currentTime)
                         val targetIndex = decision.targetIndex
                         var targetY: Float? = targetIndex?.let { index ->
-                            -(newDynamicYOffsets[index] + currentLayouts[index].height / 2f)
+                            // An interlude's offset is already the centre of its dots.
+                            val half = if (currentLayouts[index].isInterlude) 0f else currentLayouts[index].height / 2f
+                            -(settledYScratch[index] + half)
                         }
                         val targetVisiblePx = targetIndex?.let { index ->
                             val top = centerY + scrollManager.animScrollY + newDynamicYOffsets[index]
