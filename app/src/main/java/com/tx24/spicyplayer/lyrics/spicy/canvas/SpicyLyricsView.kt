@@ -123,6 +123,7 @@ fun SpicyLyricsView(
         }
         val footerSlot = footerMetrics.contentSlot(false, false, false)
         val lineGapUpdated by rememberUpdatedState(footerMetrics.lineGapPx)
+        val rowHeightUpdated by rememberUpdatedState(footerMetrics.lineHeightPx(footerMetrics.baseFontSizeSp))
         // Matched to a Spicy Lyrics screenshot, relative to the lyric size L: "Written by" 0.47L,
         // the rest ~0.34L (its Mixed.css), all in the lyrics font; gaps ~0.45L above the block
         // and 0.2-0.3L between rows; the avatar ~1.4x the credit text, right after the name.
@@ -237,12 +238,12 @@ fun SpicyLyricsView(
                             val state = animStates.getOrNull(i)
 
                             if (layout.isInterlude) {
-                                // An open interlude takes the dots' height plus one normal line
-                                // gap, so the lines around it keep the regular spacing; the dots
-                                // are drawn centred on their offset.
+                                // An open interlude is a full lyric row plus the normal gap, like the
+                                // reference's .musical-line.Active getting the regular line-height;
+                                // the dots are drawn centred in that row.
                                 val scale = state?.scale?.coerceIn(0f, 1f) ?: 0f
-                                newDynamicYOffsets[i] = layout.yOffset + accumulatedY + layout.height / 2f * scale
-                                accumulatedY += (layout.height + lineGapUpdated) * scale
+                                newDynamicYOffsets[i] = layout.yOffset + accumulatedY + rowHeightUpdated / 2f * scale
+                                accumulatedY += (rowHeightUpdated + lineGapUpdated) * scale
                             } else {
                                 newDynamicYOffsets[i] = layout.yOffset + accumulatedY
                             }
