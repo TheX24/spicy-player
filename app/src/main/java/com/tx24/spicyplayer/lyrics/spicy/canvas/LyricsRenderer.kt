@@ -204,13 +204,15 @@ internal fun DrawScope.drawInterludeGroup(
 
         val dotPivotX = xPos + textW / 2f
         val dotPivotY = baseYPos + textH / 2f
-        val dotYShift = dotAnim.yOffset * textH
+        // The reference's offset is in lyric font sizes (--DefaultLyricsSize); a dot is 1.3 of that.
+        val lyricSizePx = with(wLayout.textLayoutResult.layoutInput) { with(density) { style.fontSize.toPx() } } / 1.3f
+        val dotYShift = dotAnim.yOffset * lyricSizePx
 
         // Dot halo driven by its own glow spring: blur 4 + 6·glow, opacity glow·0.9.
         val dotGlow = dotAnim.dotGlow.coerceIn(0f, 1f)
         val dotGlowAlpha = (dotGlow * 0.9f).coerceIn(0f, 1f)
         val dotShadow = if (!lineAnim.suppressShadows && dotGlowAlpha > 0.02f) {
-            Shadow(color = Color.White.copy(alpha = dotGlowAlpha * lineAnim.opacity), blurRadius = 4f + 6f * dotGlow)
+            Shadow(color = Color.White.copy(alpha = dotGlowAlpha * lineAnim.opacity), blurRadius = (4f + 6f * dotGlow) * density)
         } else null
 
         withTransform({
@@ -291,7 +293,7 @@ private fun DrawScope.drawSyllabicLetterFragment(
     val lGlowOpacity = (lState.glow * 1.85f).coerceIn(0f, 1f)  // LetterGlowMultiplier_Opacity = 185%
     val lShadow = when {
         !lineAnim.suppressShadows && lGlowOpacity > 0.02f ->
-            Shadow(color = Color.White.copy(alpha = lGlowOpacity * lineAnim.opacity), blurRadius = lGlowBlur)
+            Shadow(color = Color.White.copy(alpha = lGlowOpacity * lineAnim.opacity), blurRadius = lGlowBlur * density)
         else -> null
     }
 
@@ -352,7 +354,7 @@ private fun DrawScope.drawStandardWord(
     val glowOpacity = (wordAnim.glow * 0.35f).coerceIn(0f, 1f)
     val shadow = when {
         !lineAnim.suppressShadows && glowOpacity > 0.02f ->
-            Shadow(color = Color.White.copy(alpha = glowOpacity * lineAnim.opacity), blurRadius = glowBlur)
+            Shadow(color = Color.White.copy(alpha = glowOpacity * lineAnim.opacity), blurRadius = glowBlur * density)
         else -> null
     }
 
@@ -411,7 +413,7 @@ internal fun DrawScope.drawLineModeLine(
     val shadow = when {
         !lineAnim.suppressShadows && glowAlpha > 0.02f -> Shadow(
             color = Color.White.copy(alpha = glowAlpha * lineAnim.opacity),
-            blurRadius = 4f + 8f * lineAnim.lineGlow,
+            blurRadius = (4f + 8f * lineAnim.lineGlow) * density,
         )
         else -> null
     }
