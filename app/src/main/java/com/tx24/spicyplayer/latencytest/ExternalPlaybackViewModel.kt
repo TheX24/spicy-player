@@ -101,6 +101,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
     private var manualSpotifyId: String? = null
     private var currentTrackIdentity: String? = null
+    // Players fill metadata in over several updates (YouTube Music adds length and album after
+    // the title), so lyrics follow title + artist only; the clock follows the full identity.
+    private var currentLyricsKey: String? = null
     private var pendingCommand: PendingCommand? = null
     private var timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
     private var lastPeriodicCheckMs = 0L
@@ -291,7 +294,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
      */
     fun loadLyrics(spotifyIdInput: String? = null, settle: Boolean = false, force: Boolean = false) {
         val metadata = controller?.metadata ?: return
-        val identity = metadata.trackIdentity()
+        val identity = metadata.lyricsKey()
         val request = LyricsLookupRequest(
             artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST)
                 ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST).orEmpty(),
@@ -389,7 +392,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         request: LyricsLookupRequest,
         final: Boolean,
     ) {
-        if (currentTrackIdentity != identity) return
+        if (currentLyricsKey != identity) return
         val selection = (resolution as? RemoteLyricsResolution.Found)?.selection
         val lyrics = when {
             selection == null && !final -> if (shownSelection == null) mutableState.value.lyrics else LyricsState.Loading
@@ -404,7 +407,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     .getOrElse { LyricsState.Error(it.message ?: "Lyrics could not be displayed") }
             }
         }
-        if (currentTrackIdentity != identity) return
+        if (currentLyricsKey != identity) return
         shownSelection = selection
         val pending = resolution.attempts.filter { it.outcome == ProviderAttemptOutcome.PENDING }
         val names = pending.joinToString { attempt ->
@@ -477,6 +480,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         controller?.unregisterCallback(controllerCallback)
         controller = null
         currentTrackIdentity = null
+        currentLyricsKey = null
         manualSpotifyId = null
         lyricsJob?.cancel()
         timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
@@ -515,8 +519,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             ?.let { SystemClock.elapsedRealtime() - it.issuedAtMs }
         if (latency != null) pendingCommand = null
 
-        if (trackChanged) {
-            currentTrackIdentity = trackIdentity
+        if (trackChanged) currentTrackIdentity = trackIdentity
+        val lyricsKey = metadata.lyricsKey()
+        val lyricsChanged = lyricsKey != currentLyricsKey
+        if (lyricsChanged) {
+            currentLyricsKey = lyricsKey
             shownSelection = null
             manualSpotifyId = metadata.overrideKey()?.let { overrideStore.getString(it, null) }
             lyricsJob?.cancel()
@@ -534,14 +541,14 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             canSeek = playback?.actions?.and(PlaybackState.ACTION_SEEK_TO) != 0L && playback != null,
             detectedSpotifyId = manualSpotifyId ?: spotifyId,
             manualSpotifyId = manualSpotifyId,
-            matchInfo = if (trackChanged) {
+            matchInfo = if (lyricsChanged) {
                 if (manualSpotifyId != null) "Manual Spotify ID"
                 else if (spotifyId != null) "Spotify ID from media session"
                 else "Matching through enabled lyric sources…"
             } else mutableState.value.matchInfo,
-            lyrics = if (trackChanged) LyricsState.Idle else mutableState.value.lyrics,
-            providerAttempts = if (trackChanged) emptyList() else mutableState.value.providerAttempts,
-            lookupStatus = if (trackChanged) null else mutableState.value.lookupStatus,
+            lyrics = if (lyricsChanged) LyricsState.Idle else mutableState.value.lyrics,
+            providerAttempts = if (lyricsChanged) emptyList() else mutableState.value.providerAttempts,
+            lookupStatus = if (lyricsChanged) null else mutableState.value.lookupStatus,
             lastCommandLatencyMs = latency ?: mutableState.value.lastCommandLatencyMs,
             status = if (waitingForSeek || preserveStatus) mutableState.value.status else null,
             artwork = if (refreshArtwork) {
@@ -557,7 +564,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     ?: metadata?.description?.iconUri?.toString()
             } else mutableState.value.artworkUri,
         )
-        if (trackChanged) loadLyrics(settle = true)
+        if (lyricsChanged) loadLyrics(settle = true)
     }
 
     private fun startTicker() = viewModelScope.launch {
@@ -677,6 +684,13 @@ private fun MediaMetadata?.trackIdentity(): String? = this?.let {
         album = getString(MediaMetadata.METADATA_KEY_ALBUM),
         durationMs = getLong(MediaMetadata.METADATA_KEY_DURATION),
     )
+}
+
+private fun MediaMetadata?.lyricsKey(): String? = this?.let {
+    val title = getString(MediaMetadata.METADATA_KEY_TITLE)?.trim()?.lowercase().orEmpty()
+    val artist = (getString(MediaMetadata.METADATA_KEY_ARTIST)
+        ?: getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST))?.trim()?.lowercase().orEmpty()
+    if (title.isBlank() && artist.isBlank()) null else "$title\u001f$artist"
 }
 
 private fun MediaMetadata?.overrideKey(): String? = this?.let {

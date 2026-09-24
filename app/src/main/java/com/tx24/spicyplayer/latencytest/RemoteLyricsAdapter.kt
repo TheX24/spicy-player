@@ -55,10 +55,10 @@ internal object RemoteLyricsAdapter {
             plainRomanized = plainRomanized,
             provider = attribution?.providerName ?: selection.source.displayName,
             source = attribution?.originName ?: selection.source.displayName,
-            maker = attribution?.maker?.username,
-            uploader = attribution?.uploader?.username,
+            maker = attribution?.maker,
+            uploader = attribution?.uploader,
             songwriters = (attribution?.songwriters.orEmpty() + parsedTtml?.songwriters.orEmpty())
-                .map(String::trim).filter(String::isNotBlank).distinct(),
+                .map { decodeEntities(it).trim() }.filter(String::isNotBlank).distinct(),
             lyricsType = when (selection.quality) {
                 RemoteLyricsQuality.WORD_SYNCED -> LyricsType.Syllable
                 RemoteLyricsQuality.LINE_SYNCED -> LyricsType.Line
@@ -66,6 +66,11 @@ internal object RemoteLyricsAdapter {
             },
         )
     }
+
+    /** Some sources escape twice ("Tom &amp;amp; Jerry"), so one XML decode still leaves "&amp;". */
+    internal fun decodeEntities(value: String): String = value
+        .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
+        .replace("&#39;", "'").replace("&apos;", "'").replace("&amp;", "&")
 
     /** Splits at spaces, and CJK per character (glued), so long line-timed lines can wrap. */
     internal fun wrappable(line: TimedLine): TimedLine = line.copy(words = line.words.flatMap { word ->

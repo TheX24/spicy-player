@@ -67,6 +67,7 @@ data class RemoteLyricsPayload(
 data class LyricsContributor(
     val username: String,
     val profileUrl: String? = null,
+    val avatarUrl: String? = null,
 )
 
 data class LyricsAttribution(

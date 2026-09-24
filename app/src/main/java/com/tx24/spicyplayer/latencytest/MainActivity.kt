@@ -59,6 +59,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.tx24.spicyplayer.lyrics.spicy.models.LyricsCredit
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsProvenance
 import com.tx24.spicyplayer.lyrics.spicy.canvas.SpicyLyricsView
@@ -167,8 +168,8 @@ private fun LatencyTestApp(
                     ) {
                         (state.lyrics as? LyricsState.Ready)?.let { lyrics ->
                             val credits = buildList {
-                                lyrics.maker?.let { add("Maker: $it") }
-                                lyrics.uploader?.let { add("Uploader: $it") }
+                                lyrics.maker?.let { add("Maker: ${it.username}") }
+                                lyrics.uploader?.let { add("Uploader: ${it.username}") }
                                 if (lyrics.songwriters.isNotEmpty()) add("Writers: ${lyrics.songwriters.joinToString()}")
                             }
                             if (credits.isNotEmpty()) Text(credits.joinToString(" · "), style = MaterialTheme.typography.labelSmall)
@@ -307,8 +308,8 @@ private fun LatencyTestApp(
                 (state.lyrics as? LyricsState.Ready)?.let { lyrics ->
                     Text("Provider: ${lyrics.provider}")
                     lyrics.source?.let { Text("Origin: $it") }
-                    lyrics.maker?.let { Text("Maker: $it") }
-                    lyrics.uploader?.let { Text("Uploader: $it") }
+                    lyrics.maker?.let { Text("Maker: ${it.username}") }
+                    lyrics.uploader?.let { Text("Uploader: ${it.username}") }
                     if (lyrics.songwriters.isNotEmpty()) Text("Writers: ${lyrics.songwriters.joinToString()}")
                 }
                 Text("Last lyric lookup", style = MaterialTheme.typography.titleMedium)
@@ -424,8 +425,8 @@ private fun LyricsPanel(
                         songwriters = lyrics.songwriters,
                         // "Lyrics: Spicy Lyrics • Apple Music" when a provider syndicates another catalogue.
                         provenance = LyricsProvenance(lyrics.provider, lyrics.source?.takeIf { it != lyrics.provider }),
-                        maker = lyrics.maker,
-                        uploader = lyrics.uploader,
+                        maker = lyrics.maker?.let { LyricsCredit(it.username, it.profileUrl, it.avatarUrl) },
+                        uploader = lyrics.uploader?.let { LyricsCredit(it.username, it.profileUrl, it.avatarUrl) },
                     )
                 },
                 modifier = modifier,

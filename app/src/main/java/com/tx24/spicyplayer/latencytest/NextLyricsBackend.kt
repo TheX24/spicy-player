@@ -117,7 +117,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     private companion object {
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        const val CACHE_VERSION = 5
+        const val CACHE_VERSION = 6
         const val CACHE_DAYS = 3
     }
 

@@ -25,8 +25,8 @@ sealed interface LyricsState {
     data class Ready(
         val lines: List<TimedLine>,
         val source: String?,
-        val maker: String?,
-        val uploader: String?,
+        val maker: com.tx24.spicyplayer.network.data.LyricsContributor?,
+        val uploader: com.tx24.spicyplayer.network.data.LyricsContributor?,
         val songwriters: List<String>,
         val provider: String = "Spicy Lyrics",
         val plainText: String? = null,

@@ -2,6 +2,8 @@ package com.tx24.spicyplayer.network.data.providers
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.tx24.spicyplayer.network.data.LyricsAttribution
+import com.tx24.spicyplayer.network.data.LyricsContributor
 import com.tx24.spicyplayer.network.data.LyricsCapability
 import com.tx24.spicyplayer.network.data.LyricsLookupRequest
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor
@@ -54,7 +56,7 @@ class AmllLyricsProvider @Inject constructor(
                 .firstOrNull { item -> item.matches(request) }
                 ?: return ProviderResult.Miss
             val id = candidate.get("id")?.asString ?: return ProviderResult.Miss
-            fetchById(id)
+            fetchById(id, candidate.author())
         }
     } catch (cancelled: CancellationException) {
         throw cancelled
@@ -64,7 +66,21 @@ class AmllLyricsProvider @Inject constructor(
         ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, error.message)
     }
 
-    private suspend fun fetchById(id: String): ProviderResult {
+    /** The TTML's author: AMLL files them by GitHub account, which gives a profile and an avatar. */
+    private fun JsonObject.author(): LyricsContributor? {
+        val login = getAsJsonArray("authorUsernames")?.firstOrNull()?.takeIf { it.isJsonPrimitive }?.asString
+            ?.takeIf { it.matches(Regex("[A-Za-z0-9-]{1,39}")) } ?: return null
+        // ponytail: first author only; files with several authors credit the first
+        val userId = getAsJsonArray("authorIds")?.firstOrNull()?.takeIf { it.isJsonPrimitive }?.asString
+            ?.takeIf { it.all(Char::isDigit) }
+        return LyricsContributor(
+            username = login,
+            profileUrl = "https://github.com/$login",
+            avatarUrl = userId?.let { "https://avatars.githubusercontent.com/u/$it?s=96" },
+        )
+    }
+
+    private suspend fun fetchById(id: String, author: LyricsContributor?): ProviderResult {
         val url = "$BASE/v1/lyrics/get".toHttpUrl().newBuilder()
             .addQueryParameter("id", id)
             .build()
@@ -77,7 +93,10 @@ class AmllLyricsProvider @Inject constructor(
                 .mapNotNull { key -> data.get(key)?.takeIf { it.isJsonPrimitive }?.asString }
                 .firstOrNull { it.contains("<tt", ignoreCase = true) }
                 ?: return@use ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE)
-            ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics = ttml))
+            ProviderResult.Hit(RemoteLyricsPayload(
+                ttmlLyrics = ttml,
+                attribution = LyricsAttribution(providerName = descriptor.displayName, maker = author),
+            ))
         }
     }
 

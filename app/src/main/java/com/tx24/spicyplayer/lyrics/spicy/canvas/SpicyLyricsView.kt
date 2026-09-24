@@ -1,6 +1,23 @@
 package com.tx24.spicyplayer.lyrics.spicy.canvas
 
+import android.content.Context
 import androidx.compose.foundation.Canvas
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
+import androidx.core.graphics.drawable.toBitmap
+import coil.Coil
+import coil.request.ImageRequest
+import coil.request.SuccessResult
+import kotlinx.coroutines.CancellationException
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -89,6 +106,8 @@ fun SpicyLyricsView(
     val scrollManager = remember(documentId) { ScrollManager().also { it.reset() } }
     val scrollPolicy = remember(documentId) { ScrollPolicyController() }
     val density = LocalDensity.current
+    val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
 
     BoxWithConstraints(modifier = modifier.fillMaxSize().clipToBounds()) {
         val canvasWidth = constraints.maxWidth.toFloat()
@@ -107,12 +126,17 @@ fun SpicyLyricsView(
                     FooterLine.Kind.CONTRIBUTOR -> Triple(0.42f, FontWeight.Medium, 0.6f)
                     FooterLine.Kind.NOTE -> Triple(0.38f, FontWeight.Normal, 0.45f)
                 }
-                textMeasurer.measure(
+                FooterRow(line, textMeasurer.measure(
                     AnnotatedString(line.text),
                     TextStyle(fontSize = (footerMetrics.baseFontSizeSp * size).sp, fontWeight = weight),
                     constraints = constraints,
-                ) to alpha
+                ), alpha)
             }
+        }
+        val avatars by produceState(emptyMap<String, ImageBitmap>(), footer) {
+            value = footer.lines().mapNotNull(FooterLine::avatarUrl).distinct().mapNotNull { url ->
+                loadAvatar(context, url)?.let { url to it }
+            }.toMap()
         }
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
         LaunchedEffect(displayLines, canvasWidth, fontSizeScale, romanize, documentId) {
@@ -233,6 +257,15 @@ fun SpicyLyricsView(
             )
         }
 
+        // Where each credit row sits below the last line, in content space (before scrolling).
+        // Shared by drawing and tapping so a tap always lands on what was drawn.
+        fun footerRowTops(): List<Float> {
+            var y = (lineLayouts.lastOrNull()?.let { layout ->
+                dynamicYOffsets.getOrElse(lineLayouts.lastIndex) { layout.yOffset } + layout.height
+            } ?: 0f) + footerMetrics.lineGapPx * 3f
+            return footerLayouts.map { row -> y.also { y += row.height + footerMetrics.lineGapPx } }
+        }
+
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -249,12 +282,21 @@ fun SpicyLyricsView(
                         }
                     )
                 }
-                .pointerInput(isStatic) {
-                    // Interaction: Tapping to seek. Static lyrics are not seekable.
-                    if (isStatic) return@pointerInput
+                .pointerInput(isStatic, footerLayouts) {
                     detectTapGestures { tapOffset ->
                         val currentScrollY = scrollManager.animScrollY
                         val adjustedTapY = tapOffset.y - (centerY + currentScrollY)
+
+                        // A credit with a profile opens it (Spicy Lyrics' "View TTML Profile").
+                        footerLayouts.zip(footerRowTops()).firstOrNull { (row, top) ->
+                            row.line.profileUrl != null && adjustedTapY in top..(top + row.height)
+                        }?.let { (row, _) ->
+                            runCatching { uriHandler.openUri(row.line.profileUrl!!) }
+                            return@detectTapGestures
+                        }
+
+                        // Tapping a line seeks to it. Static lyrics are not seekable.
+                        if (isStatic) return@detectTapGestures
 
                         for (i in lineLayouts.indices) {
                             val layout = lineLayouts[i]
@@ -296,22 +338,45 @@ fun SpicyLyricsView(
                 }
             }
 
-            if (footerLayouts.isNotEmpty()) {
-                var footerY = (lineLayouts.lastOrNull()?.let { layout ->
-                    dynamicYOffsets.getOrElse(lineLayouts.lastIndex) { layout.yOffset } + layout.height
-                } ?: 0f) + footerMetrics.lineGapPx * 3f + scrollOffset
-                footerLayouts.forEach { (textLayout, alpha) ->
-                    drawText(
-                        textLayoutResult = textLayout,
-                        color = Color.White,
-                        alpha = alpha,
-                        topLeft = androidx.compose.ui.geometry.Offset(footerSlot.startPx, footerY),
-                    )
-                    footerY += textLayout.size.height + footerMetrics.lineGapPx
+            footerLayouts.zip(footerRowTops()).forEach { (row, top) ->
+                val y = top + scrollOffset
+                var x = footerSlot.startPx
+                if (row.line.avatarUrl != null) {
+                    // Round avatar the height of the text, space reserved even while it loads.
+                    val size = row.height
+                    avatars[row.line.avatarUrl]?.let { avatar ->
+                        clipPath(Path().apply { addOval(Rect(x, y, x + size, y + size)) }) {
+                            drawImage(
+                                avatar,
+                                dstOffset = IntOffset(x.roundToInt(), y.roundToInt()),
+                                dstSize = IntSize(size.roundToInt(), size.roundToInt()),
+                            )
+                        }
+                    }
+                    x += size * 1.35f
                 }
+                drawText(
+                    textLayoutResult = row.text,
+                    color = Color.White,
+                    alpha = row.alpha,
+                    topLeft = Offset(x, y),
+                )
             }
         }
     }
+}
+
+private class FooterRow(val line: FooterLine, val text: TextLayoutResult, val alpha: Float) {
+    val height: Float get() = text.size.height.toFloat()
+}
+
+private suspend fun loadAvatar(context: Context, url: String): ImageBitmap? = try {
+    val request = ImageRequest.Builder(context).data(url).size(128).allowHardware(false).build()
+    (Coil.imageLoader(context).execute(request) as? SuccessResult)?.drawable?.toBitmap()?.asImageBitmap()
+} catch (cancelled: CancellationException) {
+    throw cancelled
+} catch (_: Exception) {
+    null
 }
 
 /**

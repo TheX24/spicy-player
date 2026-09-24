@@ -183,7 +183,8 @@ class SpicyLyricsProvider @Inject constructor(
         val url = sequenceOf("url", "Url", "profileUrl", "ProfileUrl")
             .mapNotNull { key -> item.get(key)?.takeIf { it.isJsonPrimitive }?.asString }
             .firstOrNull { it.startsWith("https://") }
-        return LyricsContributor(username, url)
+        val avatar = item.get("avatar")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.startsWith("https://") }
+        return LyricsContributor(username, url, avatar)
     }
 
     private fun spicyOriginName(raw: String?): String = when (raw?.trim()?.lowercase()?.replace('-', '_')?.replace(' ', '_')) {

@@ -2,7 +2,9 @@ package com.tx24.spicyplayer.network.data.providers
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.tx24.spicyplayer.network.data.LyricsAttribution
 import com.tx24.spicyplayer.network.data.LyricsCapability
+import com.tx24.spicyplayer.network.data.LyricsContributor
 import com.tx24.spicyplayer.network.data.LyricsLookupRequest
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor
 import com.tx24.spicyplayer.network.data.ProviderFailureCategory
@@ -101,7 +103,13 @@ class UnisonLyricsProvider @Inject constructor(
                 RemoteLyricsPayload(plainLyrics = lyrics)
             else -> return null // YAML needs a dedicated lossless converter.
         }
-        return ProviderResult.Hit(payload)
+        // Unison credits whoever submitted the sync; its API gives no profile link or avatar.
+        val submitter = data.getAsJsonObject("submitter")?.get("displayName")
+            ?.takeIf { it.isJsonPrimitive }?.asString?.takeIf(String::isNotBlank)
+        return ProviderResult.Hit(payload.copy(attribution = LyricsAttribution(
+            providerName = descriptor.displayName,
+            uploader = submitter?.let(::LyricsContributor),
+        )))
     }
 
     private fun JsonObject.matches(request: LyricsLookupRequest): Boolean {

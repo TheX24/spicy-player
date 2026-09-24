@@ -4,28 +4,53 @@ package com.tx24.spicyplayer.lyrics.spicy.models
 data class LyricsFooter(
     val songwriters: List<String> = emptyList(),
     val provenance: LyricsProvenance? = null,
-    /** Community sync credits (Spicy Lyrics' "Made by" / "Uploaded by"). */
-    val maker: String? = null,
-    val uploader: String? = null,
+    /** Sync credits: who made the timing and who uploaded/submitted it. */
+    val maker: LyricsCredit? = null,
+    val uploader: LyricsCredit? = null,
 ) {
     /**
      * The lines shown after the lyrics, mirroring spicy-lyrics' ApplyLyricsCredits and
-     * ApplyIsByCommunity: writers, then the community block, else the lyric source.
+     * ApplyIsByCommunity: writers, then Spicy Lyrics' community block, or for other sources
+     * the lyric source followed by its own credits.
      */
     fun lines(): List<FooterLine> = buildList {
         if (songwriters.isNotEmpty()) add(FooterLine("Written by: ${songwriters.joinToString(", ")}", FooterLine.Kind.WRITERS))
-        if (maker != null || uploader != null) {
+        val spicyCommunity = provenance?.provider == "Spicy Lyrics" && (maker != null || uploader != null)
+        if (spicyCommunity) {
             add(FooterLine("These lyrics have been provided by our community", FooterLine.Kind.NOTE))
-            maker?.let { add(FooterLine("Made by @$it", FooterLine.Kind.CONTRIBUTOR)) }
-            uploader?.let { add(FooterLine("${if (maker != null) "Uploaded by" else "Made by"} @$it", FooterLine.Kind.CONTRIBUTOR)) }
         } else provenance?.let { p ->
             val contributor = p.contributor?.takeIf(String::isNotBlank)?.let { " • $it" }.orEmpty()
             add(FooterLine("Lyrics: ${p.provider}$contributor", FooterLine.Kind.NOTE))
         }
+        maker?.let { add(it.line("Made by")) }
+        uploader?.let { add(it.line(if (maker != null) "Uploaded by" else if (spicyCommunity) "Made by" else "Submitted by")) }
     }
 }
 
-data class FooterLine(val text: String, val kind: Kind) {
+/** A person credited for a sync, with the links the source gave for them. */
+data class LyricsCredit(val name: String, val profileUrl: String? = null, val avatarUrl: String? = null) {
+    internal fun line(role: String) = FooterLine(
+        "$role @$name",
+        FooterLine.Kind.CONTRIBUTOR,
+        profileUrl = profileUrl?.takeIf(::isTrustedProfile),
+        avatarUrl = avatarUrl?.takeIf { it.startsWith("https://") },
+    )
+
+    private companion object {
+        val TRUSTED_HOSTS = setOf("spicylyrics.org", "www.spicylyrics.org", "github.com")
+
+        /** Only https profiles on hosts we know are opened from a tap. */
+        fun isTrustedProfile(url: String): Boolean =
+            url.startsWith("https://") && url.removePrefix("https://").substringBefore('/').lowercase() in TRUSTED_HOSTS
+    }
+}
+
+data class FooterLine(
+    val text: String,
+    val kind: Kind,
+    val profileUrl: String? = null,
+    val avatarUrl: String? = null,
+) {
     enum class Kind { WRITERS, NOTE, CONTRIBUTOR }
 }
 
