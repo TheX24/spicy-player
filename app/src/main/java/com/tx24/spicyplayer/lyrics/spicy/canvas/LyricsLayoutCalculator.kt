@@ -46,7 +46,7 @@ internal object LyricsLayoutCalculator {
         LyricScriptFont.NOTO_SANS_GEORGIAN -> georgianFontFamily
     }
 
-    private fun isCjk(c: Char): Boolean {
+    internal fun isCjk(c: Char): Boolean {
         val block = Character.UnicodeBlock.of(c)
         return block == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
             block == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||

@@ -49,7 +49,22 @@ class RemoteLyricsAdapterTest {
         )
         val plain = synced.copy(payload = RemoteLyricsPayload(plainLyrics = "사랑\nhello"), quality = RemoteLyricsQuality.PLAIN)
 
-        assertEquals("sarang", RemoteLyricsAdapter.render(synced, 5_000).lines.single().words.single().romanized)
+        assertEquals("sarang", RemoteLyricsAdapter.render(synced, 5_000).lines.single().words.joinToString("") { it.romanized.orEmpty() })
         assertEquals("sarang\nhello", RemoteLyricsAdapter.render(plain, 5_000).plainRomanized)
+    }
+
+    @Test fun lineTimedTextIsSplitSoItCanWrap() {
+        val lrc = RemoteLyricsSelection(
+            LyricsSourceDescriptor("example", "Example", 1, emptySet()),
+            RemoteLyricsPayload(syncedLyrics = "[00:01.00]a long line here\n[00:03.00]君と歩いた"),
+            RemoteLyricsQuality.LINE_SYNCED,
+        )
+
+        val lines = RemoteLyricsAdapter.render(lrc, 5_000).lines
+
+        assertEquals(listOf("a", "long", "line", "here"), lines[0].words.map { it.text })
+        assertEquals(listOf(false, false, false, false), lines[0].words.map { it.attached })
+        assertEquals(listOf("君", "と", "歩", "い", "た"), lines[1].words.map { it.text })
+        assertEquals(listOf(false, true, true, true, true), lines[1].words.map { it.attached })
     }
 }

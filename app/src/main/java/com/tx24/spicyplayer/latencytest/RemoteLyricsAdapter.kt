@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.latencytest
 
+import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutCalculator
 import com.tx24.spicyplayer.lyrics.spicy.parser.TtmlLyricsParser
 import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationService
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
@@ -31,7 +32,11 @@ internal object RemoteLyricsAdapter {
                 )
             }.takeIf(List<TimedLine>::isNotEmpty)
         }
-        val unromanized = ttmlLines ?: parseLrc(payload.syncedLyrics, durationMs)
+        val unromanized = (ttmlLines ?: parseLrc(payload.syncedLyrics, durationMs)).let { parsed ->
+            // Word-synced text is already split per syllable; line-timed text can arrive as one
+            // word per line, which the layout (it wraps between words only) can never wrap.
+            if (selection.quality == RemoteLyricsQuality.WORD_SYNCED) parsed else parsed.map(::wrappable)
+        }
         val plain = if (unromanized.isEmpty()) payload.plainLyrics?.takeIf(String::isNotBlank) else null
         require(unromanized.isNotEmpty() || plain != null) { "Selected lyrics contain no displayable text" }
         // On-device romanization fills only the words the source left unromanized.
@@ -61,6 +66,20 @@ internal object RemoteLyricsAdapter {
             },
         )
     }
+
+    /** Splits at spaces, and CJK per character (glued), so long line-timed lines can wrap. */
+    internal fun wrappable(line: TimedLine): TimedLine = line.copy(words = line.words.flatMap { word ->
+        val pieces = word.text.split(Regex("\\s+")).filter(String::isNotEmpty).flatMapIndexed { tokenIdx, token ->
+            val runs = mutableListOf<String>()
+            for (c in token) {
+                if (LyricsLayoutCalculator.isCjk(c) || runs.isEmpty() || LyricsLayoutCalculator.isCjk(runs.last().last())) runs += c.toString()
+                else runs[runs.lastIndex] += c
+            }
+            runs.mapIndexed { runIdx, run -> run to if (runIdx > 0) true else tokenIdx == 0 && word.attached }
+        }
+        if (pieces.size <= 1) listOf(word)
+        else pieces.map { (text, attached) -> TimedWord(text, word.startMs, word.endMs, attached) }
+    })
 
     private fun parseLrc(raw: String?, durationMs: Long): List<TimedLine> {
         val entries = raw.orEmpty().lineSequence().flatMap { line ->
