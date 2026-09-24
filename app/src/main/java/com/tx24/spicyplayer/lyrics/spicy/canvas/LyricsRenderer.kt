@@ -383,7 +383,7 @@ private fun DrawScope.drawStandardWord(
     val glowOpacity = (wordAnim.glow * 0.35f).coerceIn(0f, 1f)
     val shadow = when {
         !lineAnim.suppressShadows && glowOpacity > 0.02f ->
-            Shadow(color = Color.White.copy(alpha = glowOpacity * lineAnim.opacity), blurRadius = glowBlur * density)
+            Shadow(color = Color.White.copy(alpha = glowOpacity * lineAnim.opacity), blurRadius = glowBlur)
         else -> null
     }
 
