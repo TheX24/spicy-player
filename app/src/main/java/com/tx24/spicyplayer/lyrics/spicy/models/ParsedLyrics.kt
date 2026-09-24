@@ -4,7 +4,30 @@ package com.tx24.spicyplayer.lyrics.spicy.models
 data class LyricsFooter(
     val songwriters: List<String> = emptyList(),
     val provenance: LyricsProvenance? = null,
-)
+    /** Community sync credits (Spicy Lyrics' "Made by" / "Uploaded by"). */
+    val maker: String? = null,
+    val uploader: String? = null,
+) {
+    /**
+     * The lines shown after the lyrics, mirroring spicy-lyrics' ApplyLyricsCredits and
+     * ApplyIsByCommunity: writers, then the community block, else the lyric source.
+     */
+    fun lines(): List<FooterLine> = buildList {
+        if (songwriters.isNotEmpty()) add(FooterLine("Written by: ${songwriters.joinToString(", ")}", FooterLine.Kind.WRITERS))
+        if (maker != null || uploader != null) {
+            add(FooterLine("These lyrics have been provided by our community", FooterLine.Kind.NOTE))
+            maker?.let { add(FooterLine("Made by @$it", FooterLine.Kind.CONTRIBUTOR)) }
+            uploader?.let { add(FooterLine("${if (maker != null) "Uploaded by" else "Made by"} @$it", FooterLine.Kind.CONTRIBUTOR)) }
+        } else provenance?.let { p ->
+            val contributor = p.contributor?.takeIf(String::isNotBlank)?.let { " • $it" }.orEmpty()
+            add(FooterLine("Lyrics: ${p.provider}$contributor", FooterLine.Kind.NOTE))
+        }
+    }
+}
+
+data class FooterLine(val text: String, val kind: Kind) {
+    enum class Kind { WRITERS, NOTE, CONTRIBUTOR }
+}
 
 data class LyricsProvenance(
     val provider: String,

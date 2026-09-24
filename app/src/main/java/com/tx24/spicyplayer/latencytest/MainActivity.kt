@@ -59,6 +59,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
+import com.tx24.spicyplayer.lyrics.spicy.models.LyricsProvenance
 import com.tx24.spicyplayer.lyrics.spicy.canvas.SpicyLyricsView
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
@@ -417,6 +419,15 @@ private fun LyricsPanel(
                 onSeekWord = onSeek,
                 romanize = romanize,
                 lyricsType = lyrics.lyricsType,
+                footer = remember(lyrics) {
+                    LyricsFooter(
+                        songwriters = lyrics.songwriters,
+                        // "Lyrics: Spicy Lyrics • Apple Music" when a provider syndicates another catalogue.
+                        provenance = LyricsProvenance(lyrics.provider, lyrics.source?.takeIf { it != lyrics.provider }),
+                        maker = lyrics.maker,
+                        uploader = lyrics.uploader,
+                    )
+                },
                 modifier = modifier,
             )
         }

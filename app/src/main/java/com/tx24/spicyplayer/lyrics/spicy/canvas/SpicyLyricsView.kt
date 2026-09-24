@@ -25,6 +25,7 @@ import com.tx24.spicyplayer.lyrics.spicy.animation.LineAnimState
 import com.tx24.spicyplayer.lyrics.spicy.animation.LyricsAnimator
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
+import com.tx24.spicyplayer.lyrics.spicy.models.FooterLine
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
 import com.tx24.spicyplayer.lyrics.spicy.parser.LetterSynthesizer
 import kotlinx.coroutines.Dispatchers
@@ -100,22 +101,17 @@ fun SpicyLyricsView(
         val footerSlot = footerMetrics.contentSlot(false, false, false)
         val footerLayouts = remember(footer, footerMetrics.baseFontSizeSp, footerSlot.widthPx) {
             val constraints = Constraints(maxWidth = footerSlot.widthPx.roundToInt().coerceAtLeast(1))
-            buildList {
-                if (footer.songwriters.isNotEmpty()) {
-                    add(textMeasurer.measure(
-                        AnnotatedString("Written by: ${footer.songwriters.joinToString(", ")}"),
-                        TextStyle(fontSize = (footerMetrics.baseFontSizeSp * 0.47f).sp, fontWeight = FontWeight.Medium),
-                        constraints = constraints,
-                    ) to 0.6f)
+            footer.lines().map { line ->
+                val (size, weight, alpha) = when (line.kind) {
+                    FooterLine.Kind.WRITERS -> Triple(0.47f, FontWeight.Medium, 0.6f)
+                    FooterLine.Kind.CONTRIBUTOR -> Triple(0.42f, FontWeight.Medium, 0.6f)
+                    FooterLine.Kind.NOTE -> Triple(0.38f, FontWeight.Normal, 0.45f)
                 }
-                footer.provenance?.let { provenance ->
-                    val contributor = provenance.contributor?.takeIf { it.isNotBlank() }?.let { " • $it" }.orEmpty()
-                    add(textMeasurer.measure(
-                        AnnotatedString("Lyrics: ${provenance.provider}$contributor"),
-                        TextStyle(fontSize = (footerMetrics.baseFontSizeSp * 0.38f).sp, fontWeight = FontWeight.Normal),
-                        constraints = constraints,
-                    ) to 0.45f)
-                }
+                textMeasurer.measure(
+                    AnnotatedString(line.text),
+                    TextStyle(fontSize = (footerMetrics.baseFontSizeSp * size).sp, fontWeight = weight),
+                    constraints = constraints,
+                ) to alpha
             }
         }
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
