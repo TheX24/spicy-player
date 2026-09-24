@@ -107,11 +107,11 @@ fun SpicyLyricsView(
     val lineLayoutsUpdated by rememberUpdatedState(lineLayouts)
     val onFrameTickUpdated by rememberUpdatedState(onFrameTick)
 
-    val scrollManager = remember(documentId) { ScrollManager().also { it.reset() } }
     val scrollPolicy = remember(documentId) { ScrollPolicyController() }
     // Read by the drag handler, written by the frame loop.
     val contentHeightForDrag = remember(documentId) { FloatArray(1) }
     val density = LocalDensity.current
+    val scrollManager = remember(documentId, density.density) { ScrollManager(density = density.density).also { it.reset() } }
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
 

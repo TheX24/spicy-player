@@ -4,8 +4,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import com.tx24.spicyplayer.lyrics.spicy.animation.SpringSimulation
+import androidx.compose.animation.core.CubicBezierEasing
 import kotlin.math.abs
+import kotlin.math.sqrt
 
 /**
  * One scroll position shared by the user and auto-scroll, like the reference's scroll container
@@ -15,9 +16,13 @@ import kotlin.math.abs
  *   [USER_SCROLL_COOLDOWN_MS] and the current line is at least partly on screen.
  * - After resuming it only moves when the current line changes, so a nudge is left alone.
  * - Jumps of over a second in the song snap straight to the line; shorter moves glide.
+ *
+ * Glides copy the reference's `scroll-behavior: smooth`, i.e. Chromium's programmatic smooth
+ * scroll: ease-in-out over sqrt(distance in CSS px) / 60 seconds, at most 0.2s.
  */
 internal class ScrollManager(
-    private val autoSpring: SpringSimulation = SpringSimulation(0f, 1.5f, 1.0f),
+    /** px per CSS px (dp); glide durations are measured in CSS px like the reference. */
+    private val density: Float = 1f,
     private val clockMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
     /** Offset added to the content: 0 puts the first line at the anchor, negative scrolls down. */
@@ -41,8 +46,14 @@ internal class ScrollManager(
     private var holdUntilLineChange = false
     private var snapNext = true
 
+    // Current glide: from glideFrom to glideTo over glideDuration seconds.
+    private var glideFrom = 0f
+    private var glideTo = 0f
+    private var glideElapsed = 0f
+    private var glideDuration = 0f
+
     fun reset() {
-        autoSpring.resetTo(0f)
+        settle(0f)
         animScrollY = 0f
         isUserScrolling = false
         hideLineBlur = false
@@ -99,7 +110,7 @@ internal class ScrollManager(
             // Resume where the user left it; the next line change glides from here.
             hideLineBlur = false
             holdUntilLineChange = true
-            autoSpring.resetTo(y)
+            settle(y)
         }
 
         if (!hideLineBlur && targetY != null) {
@@ -107,10 +118,7 @@ internal class ScrollManager(
                 lastAutoTarget = targetIndex
                 holdUntilLineChange = false
             }
-            if (!holdUntilLineChange) {
-                autoSpring.setGoal(targetY.coerceIn(bottom, top))
-                y = autoSpring.step(dt)
-            }
+            if (!holdUntilLineChange) y = glide(y, targetY.coerceIn(bottom, top), dt)
         }
 
         // Past either end: resist while dragging, spring back once released.
@@ -119,7 +127,7 @@ internal class ScrollManager(
             if (y != bound && velocity == 0f) {
                 y += (bound - y) * (dt * EDGE_RETURN_RATE).coerceAtMost(1f)
                 if (abs(bound - y) < 0.5f) y = bound
-                if (!hideLineBlur) autoSpring.resetTo(y)
+                if (!hideLineBlur) settle(y)
             }
         }
         animScrollY = y
@@ -158,8 +166,31 @@ internal class ScrollManager(
         takeBackControl(targetIndex = null, y = animScrollY)
     }
 
+    /** Steps the glide toward [goal], starting a new one from [y] when the goal moves. */
+    private fun glide(y: Float, goal: Float, dt: Float): Float {
+        if (abs(goal - glideTo) > 0.5f) {
+            glideFrom = y
+            glideTo = goal
+            glideElapsed = 0f
+            val cssPx = abs(goal - y) / density
+            glideDuration = minOf(sqrt(cssPx), MAX_GLIDE_FRAMES) / 60f
+        }
+        if (glideElapsed >= glideDuration) return glideTo
+        glideElapsed += dt
+        val t = (glideElapsed / glideDuration).coerceIn(0f, 1f)
+        return glideFrom + (glideTo - glideFrom) * EASE_IN_OUT.transform(t)
+    }
+
+    /** Stops any glide with the view resting at [y]. */
+    private fun settle(y: Float) {
+        glideFrom = y
+        glideTo = y
+        glideElapsed = 0f
+        glideDuration = 0f
+    }
+
     private fun takeBackControl(targetIndex: Int?, y: Float) {
-        autoSpring.resetTo(y)
+        settle(y)
         velocity = 0f
         hideLineBlur = false
         holdUntilLineChange = false
@@ -176,5 +207,8 @@ internal class ScrollManager(
         const val MIN_FLING_VELOCITY = 10f
         const val OVERSCROLL_PX = 60f
         const val EDGE_RETURN_RATE = 12f
+        /** Chromium caps a delta-based smooth scroll at 12 frames of 1/60s. */
+        const val MAX_GLIDE_FRAMES = 12f
+        val EASE_IN_OUT = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
     }
 }
