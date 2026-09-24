@@ -122,50 +122,52 @@ fun SpicyLyricsView(
             LyricsLayoutMetrics(canvasWidth, density.density, lyricsType, fontSizeScale)
         }
         val footerSlot = footerMetrics.contentSlot(false, false, false)
-        // Weights, opacities and margins from spicy-lyrics' Mixed.css; sizes from its narrow views,
-        // not the desktop page (where the lyrics are huge): NPVLyrics.css for .Credits 0.62em,
-        // .LyricsProvider 0.45em, .SongInfo 0.5em, and the PiP .Maker/.Uploader 0.45.
-        // 1cqw = 1% of the view's width.
-        // Credits scale with the reference's DefaultLyricsSize whatever the lyrics type, so static
-        // lyrics (drawn smaller) still get synced-size credits.
+        // Matched to a Spicy Lyrics screenshot, relative to the lyric size L: "Written by" 0.47L,
+        // the rest ~0.34L (its Mixed.css), all in the lyrics font; gaps ~0.45L above the block
+        // and 0.2-0.3L between rows; the avatar ~1.4x the credit text, right after the name.
+        // CREDIT_SCALE enlarges it all a little for a phone screen. L is the synced lyric size
+        // whatever the lyrics type, so static lyrics (drawn smaller) get the same credits.
         val creditBaseSp = remember(canvasWidth, density.density, fontSizeScale) {
             LyricsLayoutMetrics(canvasWidth, density.density, LyricsType.Syllable, fontSizeScale).baseFontSizeSp
         }
         val footerLayouts = remember(footer, creditBaseSp, footerSlot.widthPx, canvasWidth) {
-            val cqw = canvasWidth / 100f
-            val avatarPx = 24f * density.density
-            val constraints = Constraints(maxWidth = (footerSlot.widthPx - avatarPx).roundToInt().coerceAtLeast(1))
+            val lyricPx = creditBaseSp * density.density
+            val constraints = Constraints(maxWidth = footerSlot.widthPx.roundToInt().coerceAtLeast(1))
             footer.lines().mapIndexed { index, line ->
                 val (size, alpha, margin) = when (line.kind) {
-                    FooterLine.Kind.WRITERS -> Triple(0.62f, 0.6f, 1f * cqw)
-                    FooterLine.Kind.PROVIDER -> Triple(0.45f, 0.5f, 0.75f * cqw)
-                    FooterLine.Kind.NOTE -> Triple(0.5f, 0.5f, 1f * cqw)
-                    FooterLine.Kind.CONTRIBUTOR -> Triple(0.45f, 1f, 0.29f * cqw)
+                    FooterLine.Kind.WRITERS -> Triple(0.47f, 0.7f, 0.25f)
+                    FooterLine.Kind.PROVIDER -> Triple(0.34f, 0.55f, 0.25f)
+                    FooterLine.Kind.NOTE -> Triple(0.35f, 0.65f, 0.3f)
+                    FooterLine.Kind.CONTRIBUTOR -> Triple(0.34f, 1f, 0.2f)
                 }
+                val fontSp = creditBaseSp * size * CREDIT_SCALE
                 val text = if (line.kind == FooterLine.Kind.CONTRIBUTOR && line.label != null && line.name != null) {
-                    // "Made by " at half opacity, then the bold, underlined "@name" (.song-info-profile-section).
+                    // "Made by " dimmer, then the bold, underlined "@name" (.song-info-profile-section).
                     buildAnnotatedString {
-                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.5f))) { append("${line.label} ") }
+                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.6f))) { append("${line.label} ") }
                         withStyle(SpanStyle(
-                            color = Color.White.copy(alpha = 0.55f),
+                            color = Color.White.copy(alpha = 0.75f),
                             fontWeight = FontWeight.Bold,
                             textDecoration = TextDecoration.Underline,
                         )) { append("@${line.name}") }
                     }
                 } else AnnotatedString(line.text)
+                val avatar = if (line.avatarUrl != null) fontSp * density.density * 1.4f else 0f
                 val layout = textMeasurer.measure(
                     text,
-                    TextStyle(fontSize = (creditBaseSp * size).sp, fontWeight = FontWeight.SemiBold),
-                    constraints = constraints,
+                    TextStyle(
+                        fontFamily = LyricsLayoutCalculator.spicyFontFamily,
+                        fontSize = fontSp.sp,
+                        fontWeight = if (line.kind == FooterLine.Kind.NOTE) FontWeight.Bold else FontWeight.SemiBold,
+                    ),
+                    constraints = Constraints(maxWidth = (constraints.maxWidth - avatar).roundToInt().coerceAtLeast(1)),
                 )
-                val avatar = if (line.avatarUrl != null) avatarPx else 0f
                 FooterRow(
                     line, layout, alpha,
-                    // The block starts a few line gaps below the last lyric; then the CSS margins.
-                    marginTop = if (index == 0) footerMetrics.lineGapPx * 3f else margin,
+                    marginTop = lyricPx * (if (index == 0) 0.45f else margin),
                     height = maxOf(layout.size.height.toFloat(), avatar),
                     avatarSize = avatar,
-                    avatarGap = 0.2f * cqw,
+                    avatarGap = 2f * density.density,
                 )
             }
         }
@@ -404,6 +406,9 @@ fun SpicyLyricsView(
         }
     }
 }
+
+/** Scales the credits relative to the reference's proportions, for a phone screen. */
+private const val CREDIT_SCALE = 1.15f
 
 private class FooterRow(
     val line: FooterLine,

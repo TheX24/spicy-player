@@ -21,7 +21,7 @@ import com.tx24.spicyplayer.lyrics.spicy.parser.RtlDetector
 
 internal object LyricsLayoutCalculator {
 
-    private val spicyFontFamily = FontFamily(
+    internal val spicyFontFamily = FontFamily(
         Font(R.font.lyrics_regular, FontWeight.Normal),
         Font(R.font.lyrics_medium, FontWeight.Medium),
         Font(R.font.lyrics_semibold, FontWeight.SemiBold),
