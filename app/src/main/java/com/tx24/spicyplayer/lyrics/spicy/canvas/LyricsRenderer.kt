@@ -95,7 +95,31 @@ private fun DrawScope.drawWipeText(
         startX = 0f,
         endX = w,
     )
-    drawText(layoutResult, brush = brush, shadow = shadow, topLeft = topLeft)
+    val swept = ((localLo + localHi) / 2f).coerceIn(0f, 1f).let { if (rtl) 1f - it else it }
+    val glow = shadow?.dimmedBy(dimAlpha + (brightAlpha - dimAlpha) * swept)
+    drawGlowThenText(layoutResult, topLeft, glow) { drawText(layoutResult, brush = brush, topLeft = topLeft) }
+}
+
+/**
+ * Draws [shadow] as its own pass (invisible text casting a white glow, like the reference's CSS
+ * text-shadow), then the text on top without a shadow, instead of giving the gradient-filled
+ * text the shadow in the same draw.
+ */
+/**
+ * The glow scaled by the text's average alpha: drawn in the same call as the gradient, the
+ * shadow took on the gradient's alpha, so this keeps the glow as strong as it was.
+ */
+private fun Shadow.dimmedBy(alpha: Float): Shadow =
+    copy(color = color.copy(alpha = (color.alpha * alpha).coerceIn(0f, 1f)))
+
+private inline fun DrawScope.drawGlowThenText(
+    layoutResult: TextLayoutResult,
+    topLeft: Offset,
+    shadow: Shadow?,
+    drawBody: () -> Unit,
+) {
+    if (shadow != null) drawText(layoutResult, color = Color.Transparent, shadow = shadow, topLeft = topLeft)
+    drawBody()
 }
 
 /**
@@ -144,7 +168,9 @@ private fun DrawScope.drawVerticalWipeText(
         startY = 0f,
         endY = h,
     )
-    drawText(layoutResult, brush = brush, shadow = shadow, topLeft = topLeft)
+    val swept = ((localLo + localHi) / 2f).coerceIn(0f, 1f)
+    val glow = shadow?.dimmedBy(dimAlpha + (brightAlpha - dimAlpha) * swept)
+    drawGlowThenText(layoutResult, topLeft, glow) { drawText(layoutResult, brush = brush, topLeft = topLeft) }
 }
 
 /**
