@@ -22,6 +22,12 @@ import androidx.compose.ui.graphics.ShaderBrush
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import android.graphics.ColorSpace
+import android.util.Half
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
+import kotlin.math.PI
+import kotlin.math.cos
 import kotlin.math.roundToInt
 
 /**
@@ -46,6 +52,9 @@ uniform shader texCur;
 uniform shader texNext;
 
 const float BLUR_SIZE = 128.0;
+// The reference never sizes its canvas, so WebGL draws into the default 300x150 backbuffer
+// and CSS stretches it over the page.
+const float2 CANVAS_SIZE = float2(300.0, 150.0);
 
 float3 mod289v3(float3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
 float2 mod289v2(float2 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
@@ -82,7 +91,9 @@ float hash(float3 p) {
 }
 
 half4 main(float2 fragCoord) {
-    float2 vTexCoord = fragCoord / uResolution;
+    // WebGL texcoords start at the bottom-left, and the cover is uploaded without flipping,
+    // so the reference shows it upside down (and the warp drifts accordingly). Same here.
+    float2 vTexCoord = float2(fragCoord.x / uResolution.x, 1.0 - fragCoord.y / uResolution.y);
 
     // OUTPUT pass uv-scale, applied up front (warp is pure in uv, so order commutes)
     float2 uv = clamp((vTexCoord - 0.5) / uScale + 0.5, 0.0, 1.0);
@@ -111,8 +122,17 @@ half4 main(float2 fragCoord) {
     color.rgb *= half(vignette);
     half gray = dot(color.rgb, half3(0.299, 0.587, 0.114));
     color.rgb = mix(half3(gray), color.rgb, half(uSaturation));
-    float2 pixelPos = floor(vTexCoord * uResolution);
-    float noise = hash(float3(pixelPos, floor(uTime * 60.0)));
+    // Dither per backbuffer pixel, then bilinearly stretched like the browser's upscale.
+    float frame = floor(uTime * 60.0);
+    float2 grid = vTexCoord * CANVAS_SIZE - 0.5;
+    float2 cell = floor(grid);
+    float2 f = grid - cell;
+    float2 lo = clamp(cell, float2(0.0), CANVAS_SIZE - 1.0);
+    float2 hi = clamp(cell + 1.0, float2(0.0), CANVAS_SIZE - 1.0);
+    float noise = mix(
+        mix(hash(float3(lo.x, lo.y, frame)), hash(float3(hi.x, lo.y, frame)), f.x),
+        mix(hash(float3(lo.x, hi.y, frame)), hash(float3(hi.x, hi.y, frame)), f.x),
+        f.y);
     color.rgb += half3(half((noise - 0.5) * uDithering));
     // WebGL's default canvas backbuffer is 8-bit UNORM: this is where the browser
     // clamps before CSS ever sees the pixels, same as here.
@@ -150,24 +170,24 @@ private val SPICY_OPTIONS = KawarpOptions(
 /** dynamicBackground.ts: after transitionDuration*2 ms, bump to 1000ms. */
 private const val KAWARP_TRANSITION_DURATION_MS = 1000f
 
+/**
+ * Stores the blurred album as half floats, like the reference's half-float FBOs. Written raw
+ * (premultiplied, sRGB-encoded) so nothing is rounded to 8 bits on the way, which bands.
+ */
 @RequiresApi(Build.VERSION_CODES.O)
 private fun floatsToF16Bitmap(pixels: FloatArray, size: Int): Bitmap {
-    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGBA_F16)
-    // Same Color.argb(float...) conversion as before, but built into one IntArray and written
-    // with a single setPixels() JNI call instead of size*size (16,384 at BLUR_SIZE) individual
-    // setPixel() calls — identical output, far less per-pixel call overhead.
-    val colors = IntArray(size * size)
-    var i = 0
-    for (p in colors.indices) {
-        colors[p] = Color.argb(
-            pixels[i + 3].coerceIn(0f, 1f),
-            pixels[i].coerceIn(0f, 1f),
-            pixels[i + 1].coerceIn(0f, 1f),
-            pixels[i + 2].coerceIn(0f, 1f),
-        )
-        i += 4
+    val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGBA_F16, true,
+        ColorSpace.get(ColorSpace.Named.EXTENDED_SRGB))
+    val bytes = ByteBuffer.allocate(size * size * 8).order(ByteOrder.nativeOrder())
+    val halves = bytes.asShortBuffer()
+    for (i in 0 until size * size * 4 step 4) {
+        val a = pixels[i + 3].coerceIn(0f, 1f)
+        halves.put(Half.toHalf(pixels[i].coerceIn(0f, 1f) * a))
+        halves.put(Half.toHalf(pixels[i + 1].coerceIn(0f, 1f) * a))
+        halves.put(Half.toHalf(pixels[i + 2].coerceIn(0f, 1f) * a))
+        halves.put(Half.toHalf(a))
     }
-    bmp.setPixels(colors, 0, size, 0, 0, size, size)
+    bmp.copyPixelsFromBuffer(bytes)
     return bmp
 }
 
@@ -225,9 +245,9 @@ fun KawarpBackground(
         engine.transitionDuration = KAWARP_TRANSITION_DURATION_MS
     }
 
-    // processNewImage(): blur off the UI thread, swap FBOs, start the transition.
-    // Also re-runs on blurIntensity change, matching reblurCurrentImage()'s behavior
-    // when blurPasses changes (though we don't preserve currentAlbum's old blur level).
+    // processNewImage(): blur off the UI thread, swap FBOs, start the transition. The first
+    // cover shows at once; a blur change re-blurs in place (reblurCurrentImage()).
+    var lastCover by remember { mutableStateOf<Bitmap?>(null) }
     LaunchedEffect(coverArtBitmap, blurPasses) {
         val src = coverArtBitmap ?: return@LaunchedEffect
         val blurred = withContext(Dispatchers.Default) {
@@ -240,9 +260,16 @@ fun KawarpBackground(
             )
             floatsToF16Bitmap(out, KawarpBlurCore.BLUR_SIZE)
         }
-        currentAlbum = nextAlbum
-        nextAlbum = blurred
-        engine.startTransition(System.currentTimeMillis())
+        when {
+            nextAlbum === blackAlbum -> { currentAlbum = blurred; nextAlbum = blurred }
+            src === lastCover -> nextAlbum = blurred
+            else -> {
+                currentAlbum = nextAlbum
+                nextAlbum = blurred
+                engine.startTransition(System.currentTimeMillis())
+            }
+        }
+        lastCover = src
     }
 
     LaunchedEffect(animate) {
@@ -261,15 +288,18 @@ fun KawarpBackground(
     // recreating them every frame (as the draw block used to) was pure per-frame allocation.
     val texCur = remember(currentAlbum) {
         BitmapShader(currentAlbum, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            .apply { filterMode = BitmapShader.FILTER_MODE_LINEAR }
     }
     val texNext = remember(nextAlbum) {
         BitmapShader(nextAlbum, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+            .apply { filterMode = BitmapShader.FILTER_MODE_LINEAR }
     }
     val shaderBrush = remember(shader) { ShaderBrush(shader) }
 
     Canvas(modifier = modifier.fillMaxSize()) {
         @Suppress("UNUSED_EXPRESSION") frameTick
-        val blend = engine.blendFactor(System.currentTimeMillis())
+        // render(): the crossfade is eased with a half cosine.
+        val blend = 0.5f - 0.5f * cos(engine.blendFactor(System.currentTimeMillis()) * PI.toFloat())
         shader.setFloatUniform("uResolution", size.width, size.height)
         shader.setFloatUniform("uTime", engine.accumulatedTime)
         shader.setFloatUniform("uBlend", blend)
