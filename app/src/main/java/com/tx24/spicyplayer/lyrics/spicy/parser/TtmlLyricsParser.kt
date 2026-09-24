@@ -395,17 +395,21 @@ object TtmlLyricsParser {
                 leadWords[i] = leadWords[i].copy(romanizedText = romanizedTokens[i])
             }
         }
-        val result = mutableListOf<Line>()
-        // Add the primary lead line.
-        result.add(Line(leadWords, pBegin, endMs = pEnd, agent = agent, role = LineRole.LEAD, groupId = groupId,
-            oppositeAligned = isOppositeAligned))
-        // Add any associated background lines.
-        for (bgGroup in backgroundGroups) {
+        val backgrounds = backgroundGroups.map { bgGroup ->
             val bgStart = bgGroup.firstOrNull()?.startMs ?: pBegin
             val bgEnd = bgGroup.lastOrNull()?.endMs ?: pEnd
-            result.add(Line(bgGroup, bgStart, endMs = bgEnd, agent = agent, role = LineRole.BACKGROUND,
-                groupId = groupId, oppositeAligned = isOppositeAligned))
+            Line(bgGroup, bgStart, endMs = bgEnd, agent = agent, role = LineRole.BACKGROUND,
+                groupId = groupId, oppositeAligned = isOppositeAligned)
         }
+        // Like the reference parser, the lead's window covers its background vocals: a line
+        // whose "(ooh)" starts first goes active, and is scrolled to, when the "(ooh)" does.
+        // It also keeps the lead ahead of its background lines when sorting by start time.
+        val leadStart = (backgrounds.map { it.startMs } + pBegin).min()
+        val leadEnd = (backgrounds.map { it.endMs } + pEnd).max()
+        val result = mutableListOf<Line>()
+        result.add(Line(leadWords, leadStart, endMs = leadEnd, agent = agent, role = LineRole.LEAD, groupId = groupId,
+            oppositeAligned = isOppositeAligned))
+        result.addAll(backgrounds)
 
         return ParagraphResult(result, sawTimedSpan, sawParagraphTiming)
     }

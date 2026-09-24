@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.lyrics.spicy.animation
 
+import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutCalculator
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
@@ -274,7 +275,7 @@ class LyricsAnimator(
                 })
                 // Line-mode active line scales to 1.05 (CSS: data-lyrics-type="Line" .line.Active).
                 lyricsType == LyricsType.Line && !line.isSongwriter ->
-                    animateTweenScale(lineIdx, if (isActive) 1.05f else 1f)
+                    animateTweenScale(lineIdx, if (isActive) LyricsLayoutCalculator.ACTIVE_LINE_SCALE else 1f)
                 else -> 1f
             }
 

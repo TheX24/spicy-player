@@ -34,6 +34,18 @@ class SpicyLyricsTtmlConverterTest {
         assertEquals(true, lines[3].oppositeAligned)
     }
 
+    @Test fun leadLineCoversItsBackgroundVocals() {
+        val ttml = """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+            <p begin="2.000" end="3.000"><span begin="2.000" end="3.000">A</span><span ttm:role="x-bg"><span begin="1.500" end="3.500">(oh)</span></span></p>
+        </div></body></tt>"""
+
+        val lines = TtmlLyricsParser.parse(ttml.byteInputStream()).lines
+
+        assertEquals(listOf(LineRole.LEAD, LineRole.BACKGROUND), lines.map { it.role })
+        assertEquals(1_500L, lines[0].startMs)
+        assertEquals(3_500L, lines[0].endMs)
+    }
+
     @Test fun preservesSyllableAttachments() {
         val body = JsonParser.parseString("""{"Content":[{"Lead":{"Syllables":[
             {"Text":"Hel","StartTime":1,"EndTime":1.4,"IsPartOfWord":true},

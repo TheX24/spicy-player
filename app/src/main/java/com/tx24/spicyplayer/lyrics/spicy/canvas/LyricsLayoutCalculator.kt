@@ -21,6 +21,8 @@ import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import com.tx24.spicyplayer.lyrics.spicy.parser.RtlDetector
 
 internal object LyricsLayoutCalculator {
+    /** Scale of the active line in line-synced lyrics (reference: data-lyrics-type="Line" .line.Active). */
+    internal const val ACTIVE_LINE_SCALE = 1.05f
 
     internal val spicyFontFamily = FontFamily(
         Font(R.font.lyrics_regular, FontWeight.Normal),
@@ -157,7 +159,11 @@ internal object LyricsLayoutCalculator {
             val lineIsRtl = RtlDetector.isRtl(line.words.joinToString(" ") { displayText(it, romanize) })
             val lineFontFamily = fontFamilyFor(line.words.joinToString(" ") { displayText(it, romanize) })
             val contentSlot = metrics.contentSlot(hasDuet, lineIsRtl, line.oppositeAligned)
-            val lineMaxWidth = contentSlot.widthPx
+            // An active line-synced line grows 1.05x away from its aligned edge. The reference
+            // wraps it inside a 5cqw padding that the growth fills; here it must wrap narrower
+            // so the enlarged line still ends at the margin instead of running past it.
+            val lineMaxWidth = if (lyricsType == LyricsType.Line) contentSlot.widthPx / ACTIVE_LINE_SCALE
+                else contentSlot.widthPx
             val gapStyle = TextStyle(
                 fontFamily = lineFontFamily,
                 fontSize = fontSize,
