@@ -231,6 +231,25 @@ internal fun DrawScope.drawInterludeGroup(
     }
 }
 
+/**
+ * Where a syllable scales from, as a fraction of its width (reference Mixed.css): the first
+ * syllable of a split word grows from its right edge, middle ones from their centre, the last
+ * from its left edge, so a split word spreads outward from inside. Whole words use the centre.
+ * Mirrored for RTL.
+ */
+private fun scaleAnchor(gluedBefore: Boolean, gluedAfter: Boolean, rtl: Boolean): Float {
+    val ltr = when {
+        gluedAfter && !gluedBefore -> 1f
+        gluedBefore && !gluedAfter -> 0f
+        else -> 0.5f
+    }
+    return if (rtl) 1f - ltr else ltr
+}
+
+/** The reference's --DefaultLyricsSize in px: a background line's text is 0.75 of it. */
+private fun lyricSizePx(layout: TextLayoutResult, isBackground: Boolean): Float =
+    with(layout.layoutInput) { with(density) { style.fontSize.toPx() } } / (if (isBackground) 0.75f else 1f)
+
 /** Word/syllable-synced karaoke line. */
 internal fun DrawScope.drawStandardLine(
     layout: LineLayout,
@@ -241,8 +260,14 @@ internal fun DrawScope.drawStandardLine(
     config: RenderConfig,
 ) {
     val rtl = layout.isRtl
+    val sourceWords = layout.line.words
     layout.words.forEach { wLayout ->
         val wordAnim = lineAnim.wordStates.getOrNull(wLayout.sourceWordIndex) ?: return@forEach
+        val anchor = scaleAnchor(
+            gluedBefore = wLayout.sourceWordIndex > 0 && sourceWords.getOrNull(wLayout.sourceWordIndex)?.isPartOfWord == true,
+            gluedAfter = sourceWords.getOrNull(wLayout.sourceWordIndex + 1)?.isPartOfWord == true,
+            rtl = rtl,
+        )
         val xPos = lineStartX + wLayout.relativeOffset.x
         val yPos = dynamicY + wLayout.relativeOffset.y
         val textWidth = wLayout.textLayoutResult.size.width.toFloat()
@@ -251,9 +276,9 @@ internal fun DrawScope.drawStandardLine(
         val paintPlan = lyricPaintPlan(lineAnim.state, lineAnim.isBackground, lineAnim.opacity, lineAnim.blur, config)
 
         if (wordAnim.isLetterGroup) {
-            drawSyllabicLetterFragment(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, config, paintPlan, rtl)
+            drawSyllabicLetterFragment(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, config, paintPlan, rtl, anchor)
         } else {
-            drawStandardWord(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, config, paintPlan, rtl)
+            drawStandardWord(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, config, paintPlan, rtl, anchor)
         }
     }
 }
@@ -270,6 +295,7 @@ private fun DrawScope.drawSyllabicLetterFragment(
     config: RenderConfig,
     paintPlan: LyricPaintPlan,
     rtl: Boolean,
+    anchor: Float,
 ) {
     val lState = wordAnim.letterStates.getOrNull(wLayout.charIndex) ?: return
 
@@ -281,10 +307,11 @@ private fun DrawScope.drawSyllabicLetterFragment(
     // letter's own center. Recover the word's left edge from this fragment's offset within it.
     // ponytail: single-row word-center pivot; wrapped held words approximate.
     val wordLeftX = xPos - wLayout.startXOffset
-    val wordPivotX = wordLeftX + wLayout.fullWordWidth / 2f
-    // Letter yOffset applied ×2 (reference), on top of the word container's own transform.
-    val lYShift = lState.yOffset * textHeight * 2f
-    val containerYShift = wordAnim.yOffset * textHeight
+    val wordPivotX = wordLeftX + wLayout.fullWordWidth * anchor
+    // Offsets are in lyric font sizes (--DefaultLyricsSize); a letter's is applied ×2.
+    val lyricSize = lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground)
+    val lYShift = lState.yOffset * lyricSize * 2f
+    val containerYShift = wordAnim.yOffset * lyricSize
 
     // Glow shadow tracks the spring in every state (not gated to Active): the reference keeps
     // stepping scale/glow/yOffset toward their Sung targets after EndTime (checkNextLine), so a
@@ -346,6 +373,7 @@ private fun DrawScope.drawStandardWord(
     config: RenderConfig,
     paintPlan: LyricPaintPlan,
     rtl: Boolean,
+    anchor: Float,
 ) {
     // Glow shadow tracks the spring in every state (not gated to Active): the reference keeps
     // stepping scale/glow/yOffset toward their Sung targets after EndTime (checkNextLine), so a
@@ -359,8 +387,8 @@ private fun DrawScope.drawStandardWord(
     }
 
     val wordScale = wordAnim.scale
-    val wordYShift = wordAnim.yOffset * textHeight
-    val pivotX = xPos + textWidth / 2f
+    val wordYShift = wordAnim.yOffset * lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground)
+    val pivotX = xPos + textWidth * anchor
     val pivotY = yPos + textHeight / 2f
 
     // Reference gradient stops are fixed for every state (bright 0.85/0.6bg, dim 0.35/0.3bg);
