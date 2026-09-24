@@ -2,6 +2,7 @@ package com.tx24.spicyplayer.latencytest
 
 import android.content.Context
 import com.google.gson.Gson
+import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.network.data.*
 import com.tx24.spicyplayer.network.data.providers.*
 import com.tx24.spicyplayer.network.data.spotify.AnonymousSpotifyCatalogSearch
@@ -26,7 +27,11 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     private val spotifyResolver = SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(client, gson))
     private val lrclib = Retrofit.Builder()
         .baseUrl(LyricsService.BASE_URL)
-        .client(client)
+        // LRCLIB asks clients to identify themselves; its Cloudflare front answers OkHttp's
+        // default user agent with HTTP 520.
+        .client(client.newBuilder().addInterceptor { chain ->
+            chain.proceed(chain.request().newBuilder().header("User-Agent", LRCLIB_USER_AGENT).build())
+        }.build())
         .addConverterFactory(GsonConverterFactory.create(gson))
         .build()
         .create(LyricsService::class.java)
@@ -117,7 +122,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     private companion object {
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        const val CACHE_VERSION = 7
+        const val CACHE_VERSION = 8
+        val LRCLIB_USER_AGENT = "Spicy Player Next ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
         const val CACHE_DAYS = 3
     }
 

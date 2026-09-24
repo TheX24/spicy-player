@@ -34,6 +34,26 @@ class SpicyLyricsTtmlConverterTest {
         assertEquals(true, lines[3].oppositeAligned)
     }
 
+    @Test fun keepsLineThatIsOnlyBackgroundVocals() {
+        // Industry Baby's first line as the SL API sends it: an empty lead, all background.
+        val body = JsonParser.parseString("""{"Content":[
+            {"Type":"Vocal","OppositeAligned":false,"Lead":{"Syllables":[],"StartTime":4.425,"EndTime":6.42},"Background":[{"Syllables":[
+                {"Text":"D-","IsPartOfWord":true,"StartTime":4.425,"EndTime":4.618},
+                {"Text":"Day","IsPartOfWord":false,"StartTime":4.618,"EndTime":4.987},
+                {"Text":"trip","IsPartOfWord":false,"StartTime":4.987,"EndTime":6.42}],"StartTime":4.425,"EndTime":6.42}]},
+            {"Type":"Vocal","OppositeAligned":false,"Lead":{"Syllables":[{"Text":"Baby","IsPartOfWord":false,"StartTime":6.74,"EndTime":7.1}],"StartTime":6.74,"EndTime":7.1}}
+        ]}""").asJsonObject
+        val ttml = requireNotNull(SpicyLyricsTtmlConverter.convert(body, body.getAsJsonArray("Content")))
+
+        val lines = TtmlLyricsParser.parse(ttml.byteInputStream()).lines
+
+        assertEquals(listOf(LineRole.LEAD, LineRole.BACKGROUND, LineRole.LEAD), lines.map { it.role })
+        assertEquals(emptyList<String>(), lines[0].words.map { it.text })
+        assertEquals(4_425L, lines[0].startMs)
+        assertEquals(listOf("D-", "Day", "trip"), lines[1].words.map { it.text.trim() })
+        assertEquals(lines[0].groupId, lines[1].groupId)
+    }
+
     @Test fun leadLineCoversItsBackgroundVocals() {
         val ttml = """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Word"><body><div>
             <p begin="2.000" end="3.000"><span begin="2.000" end="3.000">A</span><span ttm:role="x-bg"><span begin="1.500" end="3.500">(oh)</span></span></p>

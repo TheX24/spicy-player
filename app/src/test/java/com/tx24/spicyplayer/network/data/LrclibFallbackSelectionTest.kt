@@ -8,7 +8,7 @@ import org.junit.Test
 
 class LrclibFallbackSelectionTest {
     private val source = LyricsSource(object : LyricsService {
-        override suspend fun getSongLyrics(artistName: String, trackName: String, albumName: String, durationSeconds: Int): SongLyricsNetwork = error("unused")
+        override suspend fun getSongLyrics(artistName: String, trackName: String, albumName: String?, durationSeconds: Int?): SongLyricsNetwork = error("unused")
         override suspend fun searchSongLyrics(artistName: String, trackName: String): List<LrclibSearchEntry> = error("unused")
     })
 

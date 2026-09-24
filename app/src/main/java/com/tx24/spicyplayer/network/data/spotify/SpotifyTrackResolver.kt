@@ -12,10 +12,10 @@ class SpotifyTrackResolver(private val catalogSearch: SpotifyCatalogSearch) {
         val candidates = catalogSearch.search(track)
         val result = SpotifyTrackMatcher.resolve(track, candidates)
         if (result is SpotifyTrackResolution.Matched) cached = track to result
-        Log.d("SpotifyMatch", "lookupMs=${android.os.SystemClock.elapsedRealtime() - startedAt} duration=${track.durationMs} candidates=${candidates.size} result=${result.javaClass.simpleName} top=" +
+        Log.d("SpotifyMatch", "track=\"${track.title}\" by \"${track.artist}\" lookupMs=${android.os.SystemClock.elapsedRealtime() - startedAt} duration=${track.durationMs} candidates=${candidates.size} result=${result.javaClass.simpleName} top=" +
             candidates.map { SpotifyTrackMatcher.score(track, it) }
                 .sortedByDescending { it.score }.take(4)
-                .joinToString { "${it.candidate.id}:${it.score}:${it.durationDeltaMs}:${it.hasVersionConflict}" })
+                .joinToString { "${it.candidate.id}(${it.candidate.title} / ${it.candidate.artists.joinToString()}):${it.score}:${it.durationDeltaMs}:${it.hasVersionConflict}" })
         return result
     }
 }

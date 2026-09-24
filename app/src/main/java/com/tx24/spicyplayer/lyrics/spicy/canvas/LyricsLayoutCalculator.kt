@@ -317,7 +317,13 @@ internal object LyricsLayoutCalculator {
                 }
             }
             
-            val totalHeight = if (allRows.isEmpty()) explicitRowHeight else currentRowY + explicitRowHeight
+            // A lead with no words (its line is only background vocals) takes no room, so the
+            // background vocals sit where the line would, like the reference's empty lead element.
+            val totalHeight = when {
+                pieces.isEmpty() && !isBg -> 0f
+                allRows.isEmpty() -> explicitRowHeight
+                else -> currentRowY + explicitRowHeight
+            }
             val totalWidth = maxRowWidth
 
             // Apply alignment and flatten. RTL duet lines mirror the LTR duet convention (primary

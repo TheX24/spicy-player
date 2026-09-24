@@ -13,6 +13,7 @@ import android.os.Looper
 import android.os.SystemClock
 import android.util.Log
 import com.tx24.spicyplayer.network.data.LyricsLookupRequest
+import com.tx24.spicyplayer.network.data.TrackNameCleaner
 import com.tx24.spicyplayer.network.data.RemoteLyricsResolution
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor
 import com.tx24.spicyplayer.network.data.ProviderAttempt
@@ -295,10 +296,15 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     fun loadLyrics(spotifyIdInput: String? = null, settle: Boolean = false, force: Boolean = false) {
         val metadata = controller?.metadata ?: return
         val identity = metadata.lyricsKey()
-        val request = LyricsLookupRequest(
+        val names = TrackNameCleaner.clean(
+            title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
+                ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE).orEmpty(),
             artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST)
                 ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST).orEmpty(),
-            title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE).orEmpty(),
+        )
+        val request = LyricsLookupRequest(
+            artist = names.artist,
+            title = names.title,
             album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
             durationSeconds = (metadata.getLong(MediaMetadata.METADATA_KEY_DURATION) / 1_000L).coerceAtLeast(0L).toInt(),
             spotifyTrackId = spotifyIdInput?.spotifyTrackId()
@@ -365,11 +371,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         if (at < 0) return
         val upcoming = queue.drop(at + 1).take(FETCH_AHEAD).mapNotNull { item ->
             val d = item.description
-            val title = d.title?.toString()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
-            val artist = d.subtitle?.toString()?.takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val names = TrackNameCleaner.clean(d.title?.toString().orEmpty(), d.subtitle?.toString().orEmpty())
+            if (names.title.isBlank() || names.artist.isBlank()) return@mapNotNull null
             LyricsLookupRequest(
-                artist = artist,
-                title = title,
+                artist = names.artist,
+                title = names.title,
                 album = "",
                 durationSeconds = ((d.extras?.getLong(MediaMetadata.METADATA_KEY_DURATION) ?: 0L) / 1_000L).toInt(),
             )
@@ -687,7 +693,8 @@ private fun MediaMetadata?.trackIdentity(): String? = this?.let {
 }
 
 private fun MediaMetadata?.lyricsKey(): String? = this?.let {
-    val title = getString(MediaMetadata.METADATA_KEY_TITLE)?.trim()?.lowercase().orEmpty()
+    val title = (getString(MediaMetadata.METADATA_KEY_TITLE) ?: getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE))
+        ?.trim()?.lowercase().orEmpty()
     val artist = (getString(MediaMetadata.METADATA_KEY_ARTIST)
         ?: getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST))?.trim()?.lowercase().orEmpty()
     if (title.isBlank() && artist.isBlank()) null else "$title\u001f$artist"

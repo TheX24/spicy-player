@@ -278,7 +278,13 @@ fun SpicyLyricsView(
                         // 2. Resolve the reference lead/background overlap policy, then anchor
                         // that one line at viewport center minus 30dp.
                         val decision = scrollPolicy.decide(currentLines, currentTime)
-                        val targetIndex = decision.targetIndex
+                        // A lead with no words of its own (the line is only background vocals)
+                        // has no height; its background vocals stand in for it.
+                        val targetIndex = decision.targetIndex?.let { index ->
+                            val next = currentLayouts.getOrNull(index + 1)
+                            if (currentLayouts[index].line.words.isEmpty() && next != null && next.isBackground &&
+                                next.line.groupId == currentLayouts[index].line.groupId) index + 1 else index
+                        }
                         var targetY: Float? = targetIndex?.let { index ->
                             // An interlude's offset is already the centre of its dots.
                             val half = if (currentLayouts[index].isInterlude) 0f else currentLayouts[index].height / 2f

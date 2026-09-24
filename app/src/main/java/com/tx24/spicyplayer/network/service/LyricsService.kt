@@ -15,8 +15,8 @@ interface LyricsService {
     suspend fun getSongLyrics(
         @Query("artist_name") artistName: String,
         @Query("track_name") trackName: String,
-        @Query("album_name") albumName: String,
-        @Query("duration") durationSeconds: Int,
+        @Query("album_name") albumName: String?,
+        @Query("duration") durationSeconds: Int?,
     ): SongLyricsNetwork
 
     @GET("api/search")

@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.lyrics.spicy.canvas.kawarp
 
+import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.graphics.BitmapShader
 import android.graphics.Color
@@ -173,7 +174,9 @@ private const val KAWARP_TRANSITION_DURATION_MS = 1000f
 /**
  * Stores the blurred album as half floats, like the reference's half-float FBOs. Written raw
  * (premultiplied, sRGB-encoded) so nothing is rounded to 8 bits on the way, which bands.
+ * The ShortBuffer holds the half floats' raw bits, which is what the HalfFloat lint flags.
  */
+@SuppressLint("HalfFloat")
 @RequiresApi(Build.VERSION_CODES.O)
 private fun floatsToF16Bitmap(pixels: FloatArray, size: Int): Bitmap {
     val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.RGBA_F16, true,

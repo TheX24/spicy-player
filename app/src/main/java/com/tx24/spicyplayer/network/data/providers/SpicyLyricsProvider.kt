@@ -257,13 +257,16 @@ internal object SpicyLyricsTtmlConverter {
 
     private fun paragraph(key: String, lead: JsonObject, backgrounds: JsonArray?, agent: String?, opposite: Boolean): String? {
         val leadSpans = spans(lead.getAsJsonArray("Syllables"))
-        if (leadSpans.isEmpty()) return null
-        val start = lead.number("StartTime") ?: leadSpans.first().start
-        val end = lead.number("EndTime") ?: leadSpans.last().end
-        val bg = backgrounds?.mapNotNull { element ->
+        val bgGroups = backgrounds?.mapNotNull { element ->
             val group = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
             spans(group.getAsJsonArray("Syllables")).takeIf(List<TimedText>::isNotEmpty)
-        }.orEmpty().joinToString("") { group ->
+        }.orEmpty()
+        // Like SL's IsLineEmpty, a line is dropped only when its lead and every background group
+        // are empty: a line can be background vocals alone (Industry Baby opens with one).
+        if (leadSpans.isEmpty() && bgGroups.isEmpty()) return null
+        val start = lead.number("StartTime") ?: (leadSpans + bgGroups.flatten()).minOf { it.start }
+        val end = lead.number("EndTime") ?: (leadSpans + bgGroups.flatten()).maxOf { it.end }
+        val bg = bgGroups.joinToString("") { group ->
             "<span ttm:role=\"x-bg\">${group.joinToString("") { it.xmlSpan() }}</span>"
         }
         val agentAttribute = agent?.let { " ttm:agent=\"${xml(it)}\"" }.orEmpty()

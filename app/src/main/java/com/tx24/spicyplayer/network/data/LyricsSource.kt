@@ -35,8 +35,10 @@ class LyricsSource @Inject constructor(
             val response = lyricsService.getSongLyrics(
                 request.artist,
                 request.title,
-                request.album,
-                request.durationSeconds,
+                // A fetch-ahead queue entry has no album or length. LRCLIB rejects duration=0,
+                // so leave unknown fields out instead.
+                request.album.takeIf { it.isNotBlank() },
+                request.durationSeconds.takeIf { it > 0 },
             )
             ProviderResult.Hit(
                 RemoteLyricsPayload(
