@@ -126,7 +126,12 @@ fun SpicyLyricsView(
         // not the desktop page (where the lyrics are huge): NPVLyrics.css for .Credits 0.62em,
         // .LyricsProvider 0.45em, .SongInfo 0.5em, and the PiP .Maker/.Uploader 0.45.
         // 1cqw = 1% of the view's width.
-        val footerLayouts = remember(footer, footerMetrics.baseFontSizeSp, footerSlot.widthPx, canvasWidth) {
+        // Credits scale with the reference's DefaultLyricsSize whatever the lyrics type, so static
+        // lyrics (drawn smaller) still get synced-size credits.
+        val creditBaseSp = remember(canvasWidth, density.density, fontSizeScale) {
+            LyricsLayoutMetrics(canvasWidth, density.density, LyricsType.Syllable, fontSizeScale).baseFontSizeSp
+        }
+        val footerLayouts = remember(footer, creditBaseSp, footerSlot.widthPx, canvasWidth) {
             val cqw = canvasWidth / 100f
             val avatarPx = 24f * density.density
             val constraints = Constraints(maxWidth = (footerSlot.widthPx - avatarPx).roundToInt().coerceAtLeast(1))
@@ -150,7 +155,7 @@ fun SpicyLyricsView(
                 } else AnnotatedString(line.text)
                 val layout = textMeasurer.measure(
                     text,
-                    TextStyle(fontSize = (footerMetrics.baseFontSizeSp * size).sp, fontWeight = FontWeight.SemiBold),
+                    TextStyle(fontSize = (creditBaseSp * size).sp, fontWeight = FontWeight.SemiBold),
                     constraints = constraints,
                 )
                 val avatar = if (line.avatarUrl != null) avatarPx else 0f
