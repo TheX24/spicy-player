@@ -2,456 +2,398 @@ package com.tx24.spicyplayer.lyrics.spicy.parser
 
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.LineRole
-import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
+import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.lyrics.spicy.models.ParsedLyrics
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import org.xmlpull.v1.XmlPullParser
-import org.xmlpull.v1.XmlPullParserException
 import org.xmlpull.v1.XmlPullParserFactory
 import java.io.InputStream
-import java.io.InputStreamReader
+import kotlin.math.abs
+import kotlin.math.pow
+import kotlin.math.roundToLong
 
 /**
- * A parser for TTML (Timed Text Markup Language) lyric files.
- * This parser extracts lyrics, timing information, songwriter metadata, and interludes.
+ * TTML lyrics parser, ported from Spicy Lyrics' client parser (utils/Lyrics/ttml/parser.ts).
+ *
+ * The reference reads the document with fast-xml-parser, so its rules are written against that
+ * library's view of the XML, and this port keeps them:
+ * - Names are matched as written, prefix included (`ttm:role`, `itunes:key`, `xml:id`).
+ * - An element with no attributes and no child elements is plain text there, so an attribute-
+ *   less `<span>` is not a syllable (it only counts towards a line's text) and an attribute-less
+ *   `<p>` is skipped in word-synced lyrics.
+ * - A syllable is one timed `<span>`, whole: its text is never split and its timing never shared.
+ * - A syllable joins the next one when its closing tag touches the next vocal span's opening
+ *   tag and neither side has whitespace between them (nor a comma before).
  */
 object TtmlLyricsParser {
-    /**
-     * Context used during parsing to keep track of nested span timing and metadata.
-     */
-    data class SpanContext(
-        val begin: Long?,
-        val end: Long?,
-        val isBg: Boolean = false,
-        val isRoman: Boolean = false,
-    )
 
-    /** Result of parsing one `<p>`: its lines and whether any inner span carried explicit timing. */
-    private data class ParagraphResult(
-        val lines: List<Line>,
-        val sawTimedSpan: Boolean,
-        val sawParagraphTiming: Boolean,
-    )
-
-    private const val ITUNES_NS = "http://music.apple.com/lyric-ttml-internal"
-    private const val SPICY_NS = "https://spicylyrics.org/ns/ttml"
-
-    private enum class MetaKind { NONE, ROMANIZATION_SPANS, PLAIN_TRANSLATION }
-
-    /** True if an `xml:lang`/`lang` value denotes a romanized (Latin-script) rendering of another script. */
-    private fun isLatinTargetLang(lang: String?): Boolean =
-        lang != null && lang.contains("Latn", ignoreCase = true)
-
-    /**
-     * Parses a TTML input stream into a [ParsedLyrics] object.
-     *
-     * Malformed or truncated TTML yields an empty [ParsedLyrics] instead of
-     * throwing: an uncaught parser exception would cancel the song-change
-     * collector and disable lyrics for the rest of the session.
-     *
-     * @param inputStream The stream containing the TTML content.
-     * @return A [ParsedLyrics] object containing the parsed lines and metadata.
-     */
     fun parse(inputStream: InputStream): ParsedLyrics =
         try {
-            parseInternal(inputStream)
+            parseDocument(readTree(inputStream)) ?: ParsedLyrics(emptyList())
         } catch (e: Exception) {
+            // Malformed TTML shows no lyrics instead of crashing the song-change collector.
             ParsedLyrics(emptyList())
         }
 
-    private fun parseInternal(inputStream: InputStream): ParsedLyrics {
-        // XmlPullParserFactory resolves to the same KXmlParser as android.util.Xml
-        // on device, but is also instantiable in plain JVM unit tests.
+    // --- A minimal XML tree ---------------------------------------------------------------
+
+    private sealed interface Node
+    private class Text(val value: String) : Node
+    private class Element(val name: String, val attrs: Map<String, String>) : Node {
+        val children = mutableListOf<Node>()
+        fun elements(name: String) = children.filterIsInstance<Element>().filter { it.name == name }
+        fun element(name: String) = elements(name).firstOrNull()
+        /** The element's own text, not its children's (fast-xml-parser's `#text`). */
+        val ownText: String get() = children.filterIsInstance<Text>().joinToString("") { it.value }
+        /** fast-xml-parser turns an element without attributes or child elements into a string. */
+        val isPlain: Boolean get() = attrs.isEmpty() && children.none { it is Element }
+        operator fun get(attr: String): String? = attrs[attr]
+    }
+
+    private fun readTree(input: InputStream): Element {
         val parser = XmlPullParserFactory.newInstance().newPullParser()
-        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, true)
-        val reader = inputStream.reader(Charsets.UTF_8)
-        parser.setInput(reader)
-
-        val lines = mutableListOf<Line>()
-        val songwriters = mutableListOf<String>()
-        var eventType = parser.eventType
-        var defaultAgent: String? = null
-        var nextGroupId = 0
-
-        var inSongwriters = false
-        var sawTimedSpan = false
-        var sawParagraphTiming = false
-        // Explicit document timing granularity, if declared on <tt itunes:timing="…">.
-        var declaredTiming: String? = null
-
-        // Transliteration/translation metadata keyed by the owning <p>'s key.
-        val transliterations = mutableMapOf<String, MutableList<String>>()
-        val translations = mutableMapOf<String, StringBuilder>()
-        var currentMetaKey: String? = null
-        // Apple's actual lyric TTML format has no distinct <transliteration> element: BOTH
-        // translations and romanizations are delivered as <translation> blocks, disambiguated
-        // only by xml:lang (e.g. "ja-Latn" = romanized Japanese, "en" = an actual translation).
-        // ROMANIZATION_SPANS reuses the per-span, per-syllable parsing (matched by ordinal
-        // position to leadWords, same as a hypothetical dedicated <transliteration> tag would);
-        // PLAIN_TRANSLATION just concatenates text (reserved, not yet displayed).
-        var metaKind: MetaKind = MetaKind.NONE
-
-        val timingStack = ArrayDeque<Pair<Long, Long?>>()
-        timingStack.addLast(0L to null)
-
-        // Main parsing loop.
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            when (eventType) {
+        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+        parser.setInput(input.reader(Charsets.UTF_8))
+        val stack = ArrayDeque<Element>()
+        var root: Element? = null
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
                 XmlPullParser.START_TAG -> {
-                    when (parser.name) {
-                        "tt" -> {
-                            declaredTiming = parser.getAttributeValue(ITUNES_NS, "timing")
-                                ?: parser.getAttributeValue(null, "timing")
-                        }
-                        "body", "div" -> {
-                            val b = parser.getAttributeValue(null, "begin")?.let { parseTimeMs(it) }
-                                ?: timingStack.last().first
-                            val e = parser.getAttributeValue(null, "end")?.let { parseTimeMs(it) }
-                                ?: timingStack.last().second
-                            timingStack.addLast(b to e)
-                        }
-                        "songwriter" -> inSongwriters = true
-                        // A dedicated <transliteration> element, if one exists in this file.
-                        "transliteration" -> metaKind = MetaKind.ROMANIZATION_SPANS
-                        // Apple's real format: <translation xml:lang="…"> for both actual
-                        // translations AND romanizations, disambiguated by xml:lang.
-                        "translation" -> {
-                            val lang = parser.getAttributeValue("http://www.w3.org/XML/1998/namespace", "lang")
-                                ?: parser.getAttributeValue(null, "lang")
-                            metaKind = if (isLatinTargetLang(lang)) MetaKind.ROMANIZATION_SPANS else MetaKind.PLAIN_TRANSLATION
-                        }
-                        "text" -> {
-                            // Inside a transliteration/translation block, <text for="KEY"> groups syllables.
-                            if (metaKind != MetaKind.NONE) {
-                                currentMetaKey = parser.getAttributeValue(ITUNES_NS, "for")
-                                    ?: parser.getAttributeValue(null, "for")
-                            }
-                        }
-                        "p" -> {
-                            val parentStart = timingStack.last().first
-                            val parentEnd = timingStack.last().second
-                            // Paragraph tags represent a block of lyrics.
-                            val agent = parser.getAttributeValue(null, "agent")
-                                ?: parser.getAttributeValue("http://www.w3.org/ns/ttml#metadata", "agent")
-                            if (defaultAgent == null && agent != null) {
-                                defaultAgent = agent
-                            }
-                            val key = parser.getAttributeValue(ITUNES_NS, "key")
-                                ?: parser.getAttributeValue(null, "key")
-                                ?: parser.getAttributeValue("http://www.w3.org/XML/1998/namespace", "id")
-                            // Parse the paragraph into one or more Line objects.
-                            val result = parseParagraph(
-                                parser, agent, defaultAgent, parentStart, parentEnd, key,
-                                transliterations, translations, nextGroupId++,
-                            )
-                            if (result.sawTimedSpan) sawTimedSpan = true
-                            if (result.sawParagraphTiming) sawParagraphTiming = true
-                            lines.addAll(result.lines)
-                        }
-                        "agent" -> {
-                            val id = parser.getAttributeValue("http://www.w3.org/XML/1998/namespace", "id")
-                                ?: parser.getAttributeValue(null, "id")
-                            if (id == "v1") {
-                                defaultAgent = id
-                            }
-                        }
-                        "span" -> {
-                            // A syllable span inside a <text for="KEY"> romanization block.
-                            if (metaKind == MetaKind.ROMANIZATION_SPANS && currentMetaKey != null) {
-                                val text = readElementText(parser)
-                                if (text.isNotEmpty()) {
-                                    transliterations.getOrPut(currentMetaKey!!) { mutableListOf() }.add(text)
-                                }
-                                // readElementText consumed through this span's END_TAG.
-                                eventType = parser.eventType
-                                continue
-                            }
-                        }
-                    }
+                    val attrs = (0 until parser.attributeCount).associate { parser.getAttributeName(it) to parser.getAttributeValue(it) }
+                    val element = Element(parser.name, attrs)
+                    stack.lastOrNull()?.children?.add(element) ?: run { root = element }
+                    stack.addLast(element)
                 }
-                XmlPullParser.TEXT -> {
-                    when {
-                        inSongwriters -> parser.text?.trim()?.replace(Regex("\\s+"), " ")?.let {
-                            if (it.isNotEmpty()) songwriters.add(it)
-                        }
-                        metaKind == MetaKind.PLAIN_TRANSLATION && currentMetaKey != null -> parser.text?.let {
-                            if (it.isNotBlank()) translations.getOrPut(currentMetaKey!!) { StringBuilder() }.append(it)
-                        }
-                    }
-                }
-                XmlPullParser.END_TAG -> {
-                    when (parser.name) {
-                        "body", "div" -> if (timingStack.size > 1) timingStack.removeLast()
-                        "songwriter" -> inSongwriters = false
-                        "transliteration", "translation" -> metaKind = MetaKind.NONE
-                        "text" -> currentMetaKey = null
-                    }
-                }
+                XmlPullParser.END_TAG -> stack.removeLastOrNull()
+                XmlPullParser.TEXT -> stack.lastOrNull()?.children?.add(Text(parser.text))
             }
-            eventType = parser.next()
+            event = parser.next()
         }
+        return requireNotNull(root) { "Empty document" }
+    }
 
-        lines.sortBy { it.startMs }
+    // --- The reference's helpers ----------------------------------------------------------
 
-        // Determine synchronization granularity. An explicit itunes:timing wins; otherwise a
-        // document whose <p>s have no per-span timing is treated as line-synced.
-        val type = when (declaredTiming?.lowercase()) {
-            "word" -> LyricsType.Syllable
-            "line" -> LyricsType.Line
-            "none" -> LyricsType.Static
-            else -> when {
-                sawTimedSpan -> LyricsType.Syllable
-                sawParagraphTiming -> LyricsType.Line
-                else -> LyricsType.Static
+    private fun isSpanObject(node: Element?) = node != null && node.name == "span" && !node.isPlain
+    /** A span carrying lyrics text: anything with a ttm:role is metadata. */
+    private fun isVocalSpan(node: Element?) = isSpanObject(node) && node!!["ttm:role"] == null
+
+    private val zeroWidth = Regex("[\u200B\u200E\u200F\u2060\uFEFF]")
+    private fun stripZeroWidth(text: String) = text.replace(zeroWidth, "")
+    private fun hasLyricsText(text: String?) = text != null && stripZeroWidth(text).isNotBlank()
+
+    private class TimedSpan(val begin: String, val end: String, val beginS: Double?, val endS: Double?, val text: String)
+    /** One `<text for>` entry: spans mirroring the lead, and those under an x-bg wrapper. */
+    private class TransliterationLine(val spans: MutableList<TimedSpan> = mutableListOf(), val background: MutableList<TimedSpan> = mutableListOf())
+
+    private class Syllable(val text: String, val roman: String?, val partOfWord: Boolean, val start: Double?, val end: Double?)
+    private class RoleTexts(val roman: String?)
+
+    private fun parseDocument(root: Element): ParsedLyrics? {
+        if (root.name != "tt") return null
+        val body = root.element("body") ?: return null
+        val divs = getDivs(body)
+        if (divs.isEmpty()) return null
+
+        val type = when (val timing = root["itunes:timing"]) {
+            null -> inferLyricsType(divs)
+            else -> when (timing.lowercase()) {
+                "none", "static" -> LyricsType.Static
+                "word", "syllable" -> LyricsType.Syllable
+                "line" -> LyricsType.Line
+                else -> return null
             }
         }
 
+        val metadata = root.element("head")?.element("metadata")
+        val songwriters = getSongwriters(metadata)
+        val transliterations = getTransliterations(metadata)
+        val oppositeAgents = metadata?.elements("ttm:agent").orEmpty()
+            .filter { !it.isPlain && (it["xml:id"] == "v2" || it["xml:id"] == "v2000") }
+            .mapNotNull { it["xml:id"] }.toSet()
+
+        val lines = when (type) {
+            LyricsType.Static -> staticLines(divs)
+            LyricsType.Line -> lineSyncedLines(divs, transliterations)
+            // v1 is the main vocal; a declared v2 or v2000 sings from the other side.
+            LyricsType.Syllable -> syllableLines(divs, body, transliterations) { agent -> agent in oppositeAgents }
+        }
+        if (lines.isEmpty()) return null
         return ParsedLyrics(lines = lines, footer = LyricsFooter(songwriters), type = type)
     }
 
-    /** Reads and returns the concatenated text content of the current element, consuming its END_TAG. */
-    private fun readElementText(parser: XmlPullParser): String {
-        val sb = StringBuilder()
-        var depth = 1
-        var evt = parser.next()
-        while (depth > 0) {
-            when (evt) {
-                XmlPullParser.START_TAG -> depth++
-                XmlPullParser.END_TAG -> depth--
-                XmlPullParser.TEXT -> if (depth >= 1) sb.append(parser.text)
-                XmlPullParser.END_DOCUMENT -> depth = 0
-            }
-            if (depth > 0) evt = parser.next()
-        }
-        return sb.toString().trim()
+    /** Divs, tolerating documents that hang `<p>` straight off `<body>`. */
+    private fun getDivs(body: Element): List<Element> {
+        val divs = body.elements("div").filter { !it.isPlain }
+        if (divs.isNotEmpty()) return divs
+        val ps = body.elements("p")
+        if (ps.isEmpty()) return emptyList()
+        return listOf(Element("div", emptyMap()).also { it.children.addAll(ps) })
     }
 
-    /**
-     * Parses a <p> tag and its contents into a list of [Line] objects.
-     * This handles nested <span> tags for background vocals and word-level timing.
-     */
-    private fun parseParagraph(
-        parser: XmlPullParser,
-        agent: String?,
-        defaultAgent: String?,
-        parentStart: Long,
-        parentEnd: Long?,
-        key: String?,
-        transliterations: Map<String, List<String>>,
-        translations: Map<String, StringBuilder>,
-        groupId: Int,
-    ): ParagraphResult {
-        val sawParagraphTiming = parser.getAttributeValue(null, "begin") != null ||
-            parser.getAttributeValue(null, "end") != null
-        val explicitOppositeAligned = parser.getAttributeValue(SPICY_NS, "oppositeAligned")?.toBooleanStrictOrNull()
-        val pBegin = parser.getAttributeValue(null, "begin")?.let { parseTimeMs(it) } ?: parentStart
-        val pEnd = parser.getAttributeValue(null, "end")?.let { parseTimeMs(it) } ?: parentEnd ?: (pBegin + 5000L)
-
-        val leadWords = mutableListOf<Word>()
-        val backgroundGroups = mutableListOf<MutableList<Word>>()
-        var sawTimedSpan = false
-        // Apple's real lyric TTML often carries an extra inline `<span ttm:role="x-roman">` at the
-        // end of each <p>, holding the WHOLE line's romanization as one untimed text blob. Left
-        // unhandled, its text gets tokenized and appended to leadWords like any other span — the
-        // line then displays the original lyric words immediately followed by their romanization,
-        // concatenated into one line. Captured here instead of appended, as a whole-line fallback.
-        val inlineRomanText = StringBuilder()
-
-        // Stack to track nested span timings and metadata.
-        val stack = ArrayDeque<SpanContext>()
-        stack.addLast(SpanContext(pBegin, pEnd, false))
-
-        var previousEndedMidWord = false
-        var currentBgGroup: MutableList<Word>? = null
-        var inBgSpan = false
-        var bgPreviousEndedMidWord = false
-
-        var eventType = parser.next()
-        while (!(eventType == XmlPullParser.END_TAG && parser.name == "p")) {
-            // A document truncated inside <p> can yield END_DOCUMENT forever
-            // instead of throwing; without this check the loop never exits.
-            if (eventType == XmlPullParser.END_DOCUMENT) {
-                throw XmlPullParserException("Unexpected end of document inside <p>")
-            }
-            when (eventType) {
-                XmlPullParser.START_TAG -> {
-                    // Inherit timing from parent if not specified.
-                    val explicitBegin = parser.getAttributeValue(null, "begin")
-                    if (explicitBegin != null) sawTimedSpan = true
-                    val b = explicitBegin?.let { parseTimeMs(it) } ?: stack.last().begin
-                    val e = parser.getAttributeValue(null, "end")?.let { parseTimeMs(it) }
-                        ?: stack.last().end
-
-                    // Check if this span represents background vocals.
-                    val role = (0 until parser.attributeCount).firstNotNullOfOrNull { i ->
-                        val attrName = parser.getAttributeName(i)
-                        if (attrName == "role" || attrName.endsWith(":role")) {
-                            parser.getAttributeValue(i)
-                        } else null
-                    }
-                    val isBg = role == "x-bg" || stack.last().isBg
-                    val isRoman = role == "x-roman" || stack.last().isRoman
-
-                    if (isBg && currentBgGroup == null) {
-                        currentBgGroup = mutableListOf()
-                        bgPreviousEndedMidWord = false
-                    }
-                    inBgSpan = isBg
-
-                    stack.addLast(SpanContext(b, e, isBg, isRoman))
-                }
-                XmlPullParser.TEXT -> {
-                    val rawText = parser.text
-                    if (rawText != null) {
-                        val ctx = stack.last()
-                        if (ctx.isRoman) {
-                            inlineRomanText.append(rawText)
-                        } else {
-                        val isBgToken = ctx.isBg || inBgSpan
-
-                        if (rawText.isBlank()) {
-                            // Just whitespace or empty: clear the mid-word flags
-                            if (isBgToken) bgPreviousEndedMidWord = false else previousEndedMidWord = false
-                        } else {
-                            val startsWithSpace = rawText.first().isWhitespace()
-                            val endsWithSpace = rawText.last().isWhitespace()
-                            var trimmed = rawText.trim()
-
-                            // Background tokens typically have parentheses, which we strip for cleaner UI.
-                            if (isBgToken) {
-                                trimmed = trimmed.removePrefix("(").removeSuffix(")")
-                            }
-
-                            if (trimmed.isNotEmpty()) {
-                                // Split into words and sub-tokens (syllables).
-                                val spaceTokens = trimmed.split("\\s+".toRegex()).filter { it.isNotEmpty() }
-                                val wordsToAdd = mutableListOf<Pair<String, Boolean>>()
-                                
-                                for (i in spaceTokens.indices) {
-                                    val st = spaceTokens[i]
-                                    val subTokens = st.split(Regex("(?<=-)")).filter { it.isNotEmpty() }
-                                    for (j in subTokens.indices) {
-                                        val isAttached = if (i == 0 && j == 0) {
-                                            // Attach only if last text didn't end with space AND this text didn't start with space
-                                            val prevEndMid = if (isBgToken) bgPreviousEndedMidWord else previousEndedMidWord
-                                            prevEndMid && !startsWithSpace
-                                        } else {
-                                            j > 0 // Syllable join
-                                        }
-                                        wordsToAdd.add(Pair(subTokens[j], isAttached))
-                                    }
-                                }
-                                
-                                val start = ctx.begin ?: pBegin
-                                val end = ctx.end ?: (start + 1000L)
-                                val duration = (end - start).coerceAtLeast(0)
-                                val chunkDuration = if (wordsToAdd.isNotEmpty()) duration / wordsToAdd.size else duration
-
-                                wordsToAdd.forEachIndexed { index, pair ->
-                                    val (token, isAttached) = pair
-                                    val wordStart = start + (index * chunkDuration)
-                                    val wordEnd = start + ((index + 1) * chunkDuration)
-
-                                    // Letter emphasis is synthesized later by LetterSynthesizer using
-                                    // the active RenderConfig; the parser only produces plain word tokens.
-                                    val word = Word(token, wordStart, wordEnd, isPartOfWord = isAttached)
-                                    if (isBgToken) currentBgGroup?.add(word) else leadWords.add(word)
-                                }
-                            }
-                            // If text ended with a space, then the next span shouldn't be attached
-                            if (isBgToken) bgPreviousEndedMidWord = !endsWithSpace else previousEndedMidWord = !endsWithSpace
-                        }
-                        }
-                    }
-                }
-                XmlPullParser.END_TAG -> {
-                    // Close the current span context.
-                    if (stack.isNotEmpty()) {
-                        val popped = stack.removeLast()
-                        if (popped.isBg && (stack.isEmpty() || !stack.last().isBg)) {
-                            // If we finished a background span block, save the group.
-                            currentBgGroup?.let { if (it.isNotEmpty()) backgroundGroups.add(it) }
-                            currentBgGroup = null
-                            inBgSpan = stack.isNotEmpty() && stack.last().isBg
-                        }
-                    }
-                }
-            }
-            eventType = parser.next()
+    private fun inferLyricsType(divs: List<Element>): LyricsType {
+        var sawTiming = false
+        for (p in divs.flatMap { it.elements("p") }) {
+            if (p.isPlain) continue
+            val timedVocalSpans = p.elements("span").count { isVocalSpan(it) && !it["begin"].isNullOrEmpty() }
+            if (timedVocalSpans > 1) return LyricsType.Syllable
+            if (timedVocalSpans == 1) sawTiming = true
+            if (!p["begin"].isNullOrEmpty()) sawTiming = true
         }
-
-        // Compare agent to default agent to determine alignment.
-        val isOppositeAligned = explicitOppositeAligned ?: (agent != null && defaultAgent != null && agent != defaultAgent)
-
-        // Apply TTML-supplied romanization to the lead words, matched by ordinal position.
-        // Only applied when the counts line up exactly: a partial match would leave some words
-        // romanized and others not, producing a garbled line mixing scripts. When the counts
-        // disagree, leave every word's romanizedText null so RomanizationService's on-device
-        // fallback romanizes the whole line uniformly instead.
-        val romanizedTokens = key?.let { transliterations[it] }
-        if (romanizedTokens != null && romanizedTokens.size == leadWords.size) {
-            for (i in leadWords.indices) {
-                leadWords[i] = leadWords[i].copy(romanizedText = romanizedTokens[i])
-            }
-        }
-        val backgrounds = backgroundGroups.map { bgGroup ->
-            val bgStart = bgGroup.firstOrNull()?.startMs ?: pBegin
-            val bgEnd = bgGroup.lastOrNull()?.endMs ?: pEnd
-            Line(bgGroup, bgStart, endMs = bgEnd, agent = agent, role = LineRole.BACKGROUND,
-                groupId = groupId, oppositeAligned = isOppositeAligned)
-        }
-        // Like the reference parser, the lead's window covers its background vocals: a line
-        // whose "(ooh)" starts first goes active, and is scrolled to, when the "(ooh)" does.
-        // It also keeps the lead ahead of its background lines when sorting by start time.
-        val leadStart = (backgrounds.map { it.startMs } + pBegin).min()
-        val leadEnd = (backgrounds.map { it.endMs } + pEnd).max()
-        val result = mutableListOf<Line>()
-        result.add(Line(leadWords, leadStart, endMs = leadEnd, agent = agent, role = LineRole.LEAD, groupId = groupId,
-            oppositeAligned = isOppositeAligned))
-        result.addAll(backgrounds)
-
-        return ParagraphResult(result, sawTimedSpan, sawParagraphTiming)
+        return if (sawTiming) LyricsType.Line else LyricsType.Static
     }
 
-    /**
-     * Parses a TTML time format string into milliseconds.
-     * Supports mm:ss.ms and hh:mm:ss.ms formats.
-     */
-    private fun parseTimeMs(time: String?): Long {
-        if (time == null) return 0L
-        val trimmed = time.trim().removeSuffix("s")
-        val parts = trimmed.split(":")
-        try {
-            return when (parts.size) {
-                1 -> {
-                    // ss.ms or ss
-                    val secParts = parts[0].replace(',', '.').split(".")
-                    val sec = secParts[0].toLong()
-                    val ms = if (secParts.size > 1) secParts[1].padEnd(3, '0').take(3).toLong() else 0L
-                    sec * 1000 + ms
+    private fun staticLines(divs: List<Element>): List<Line> = divs
+        .filter { it["itunes:songPart"] != "Instrumental" && it["itunes:songPart"] != "Outro" }
+        .flatMap { it.elements("p") }
+        .mapNotNull { p ->
+            val text = getLineText(p).orEmpty()
+            // Static lyrics only take the inline x-roman span, never iTunesMetadata.
+            val roman = inlineRoleTexts(p).roman?.trim().orEmpty()
+            if (!hasLyricsText(text) && !hasLyricsText(roman)) return@mapNotNull null
+            Line(listOf(Word(display(text), 0L, 0L, romanizedText = roman.ifEmpty { null })), 0L, 0L)
+        }
+
+    private fun lineSyncedLines(divs: List<Element>, transliterations: Map<String, TransliterationLine>?): List<Line> = divs
+        .filter { it["itunes:songPart"] != "Instrumental" }
+        .flatMap { it.elements("p") }
+        .mapNotNull { p ->
+            val vocalSpans = p.elements("span").filter(::isVocalSpan)
+            val start = convertTimeToSeconds(p["begin"] ?: vocalSpans.firstOrNull()?.get("begin"))
+            val end = convertTimeToSeconds(p["end"] ?: vocalSpans.lastOrNull()?.get("end"))
+            val text = getLineText(p)
+            val itm = p["itunes:key"]?.let { transliterations?.get(it) }?.spans
+            val roman = (if (!itm.isNullOrEmpty()) itm.joinToString("") { it.text } else inlineRoleTexts(p).roman)
+                ?.trim()?.takeIf(String::isNotEmpty)
+            if (!hasLyricsText(text) && !hasLyricsText(roman)) return@mapNotNull null
+            val startMs = ms(start) ?: 0L
+            val endMs = ms(end) ?: startMs
+            // Line-synced lines are never duet-aligned from TTML; our own converter says so explicitly.
+            val opposite = p["spicy:oppositeAligned"]?.toBooleanStrictOrNull() ?: false
+            Line(listOf(Word(display(text.orEmpty()), startMs, endMs, romanizedText = roman)), startMs, endMs,
+                agent = p["ttm:agent"], oppositeAligned = opposite)
+        }
+
+    private fun syllableLines(
+        divs: List<Element>,
+        body: Element,
+        transliterations: Map<String, TransliterationLine>?,
+        isOppositeAgent: (String?) -> Boolean,
+    ): List<Line> {
+        val lines = mutableListOf<Line>()
+        var groupId = 0
+        for (div in divs) {
+            if (div["itunes:songPart"] == "Instrumental") continue
+            for (p in div.elements("p")) {
+                if (p.isPlain) continue
+                val agent = p["ttm:agent"]?.ifEmpty { null } ?: div["ttm:agent"]?.ifEmpty { null } ?: body["ttm:agent"]
+                val opposite = p["spicy:oppositeAligned"]?.toBooleanStrictOrNull() ?: isOppositeAgent(agent)
+                val lineEntry = p["itunes:key"]?.let { transliterations?.get(it) }
+                val pSpans = p.elements("span")
+
+                val lead = buildSyllables(p, pSpans, lineEntry?.spans, stripParentheses = false).toMutableList()
+                val leadRoman = inlineRoleTexts(p).roman?.trim().orEmpty()
+                // A line-timed <p> in a word-timed document keeps its text as one syllable.
+                if (lead.isEmpty()) {
+                    val fallback = getLineText(p).orEmpty().trim()
+                    if (fallback.isNotEmpty() || leadRoman.isNotEmpty()) {
+                        lead += Syllable(fallback, leadRoman.ifEmpty { null }, false,
+                            convertTimeToSeconds(p["begin"]), convertTimeToSeconds(p["end"]))
+                    }
                 }
-                2 -> {
-                    // mm:ss.ms
-                    val min = parts[0].toLong()
-                    val secParts = parts[1].replace(',', '.').split(".")
-                    val sec = secParts[0].toLong()
-                    val ms = if (secParts.size > 1) secParts[1].padEnd(3, '0').take(3).toLong() else 0L
-                    (min * 60 + sec) * 1000 + ms
+                var leadStart = convertTimeToSeconds(p["begin"]) ?: lead.firstOrNull()?.start
+                var leadEnd = convertTimeToSeconds(p["end"]) ?: lead.lastOrNull()?.end
+
+                val backgrounds = pSpans.filter { isSpanObject(it) && it["ttm:role"] == "x-bg" }.mapNotNull { bgSpan ->
+                    val bgChildren = bgSpan.elements("span")
+                    val bgVocal = bgChildren.filter(::isVocalSpan)
+                    val bgEntry = bgSpan["itunes:key"]?.let { transliterations?.get(it) }
+                    val syllables = buildSyllables(bgSpan, bgChildren, pickBackgroundTransliterations(bgEntry, lineEntry),
+                        stripParentheses = true)
+                    if (syllables.none { hasLyricsText(it.text) || hasLyricsText(it.roman) }) return@mapNotNull null
+                    val start = convertTimeToSeconds(bgVocal.firstOrNull()?.get("begin"))
+                        ?: convertTimeToSeconds(bgSpan["begin"]) ?: syllables.first().start
+                    val end = convertTimeToSeconds(bgVocal.lastOrNull()?.get("end"))
+                        ?: convertTimeToSeconds(bgSpan["end"]) ?: syllables.last().end
+                    // Background vocals can start before, or run past, the lead line; the lead's
+                    // window covers them (so an early "(ooh)" makes its line active).
+                    if (end != null && (leadEnd == null || end > leadEnd!!)) leadEnd = end
+                    if (start != null && (leadStart == null || start < leadStart!!)) leadStart = start
+                    Triple(syllables, start, end)
                 }
-                3 -> {
-                    // hh:mm:ss.ms
-                    val hrs = parts[0].toLong()
-                    val min = parts[1].toLong()
-                    val secParts = parts[2].replace(',', '.').split(".")
-                    val sec = secParts[0].toLong()
-                    val ms = if (secParts.size > 1) secParts[1].padEnd(3, '0').take(3).toLong() else 0L
-                    (hrs * 3600 + min * 60 + sec) * 1000 + ms
+
+                val empty = lead.none { hasLyricsText(it.text) || hasLyricsText(it.roman) } && backgrounds.isEmpty()
+                if (empty) continue
+
+                val id = groupId++
+                val leadStartMs = ms(leadStart) ?: 0L
+                lines += Line(toWords(lead, leadStartMs), leadStartMs, ms(leadEnd) ?: leadStartMs,
+                    agent = agent, role = LineRole.LEAD, groupId = id, oppositeAligned = opposite)
+                backgrounds.forEach { (syllables, start, end) ->
+                    val startMs = ms(start) ?: leadStartMs
+                    lines += Line(toWords(syllables, startMs), startMs, ms(end) ?: startMs,
+                        agent = agent, role = LineRole.BACKGROUND, groupId = id, oppositeAligned = opposite)
                 }
-                else -> 0L
             }
-        } catch (e: Exception) {
-            return 0L
+        }
+        return lines
+    }
+
+    /** The reference marks a syllable that continues into the next; our words mark the one glued to the previous. */
+    private fun toWords(syllables: List<Syllable>, lineStartMs: Long): List<Word> {
+        var previousEnd = lineStartMs
+        return syllables.mapIndexed { i, s ->
+            val start = ms(s.start) ?: previousEnd
+            val end = ms(s.end) ?: start
+            previousEnd = end
+            Word(display(s.text), start, end, isPartOfWord = i > 0 && syllables[i - 1].partOfWord,
+                romanizedText = s.roman?.let(::display))
         }
     }
+
+    private fun buildSyllables(
+        parent: Element,
+        siblings: List<Element>,
+        transliterations: List<TimedSpan>?,
+        stripParentheses: Boolean,
+    ): List<Syllable> {
+        fun clean(value: String) = if (stripParentheses) value.trim().replace(Regex("[()]"), "").trim() else value.trim()
+        return siblings.mapIndexedNotNull { index, node ->
+            if (!isVocalSpan(node)) return@mapIndexedNotNull null
+            val rawText = node.ownText
+            val text = clean(rawText)
+            if (text.isEmpty()) return@mapIndexedNotNull null
+
+            // Only a following *vocal* span, with no text at all between the tags, continues a word.
+            val next = siblings.getOrNull(index + 1)
+            val touching = node["begin"].isNullOrEmpty().not() && node["end"].isNullOrEmpty().not() &&
+                parent.children.getOrNull(parent.children.indexOf(node) + 1) is Element
+            val partOfWord = touching && isVocalSpan(next) &&
+                !next!!.ownText.firstOrNull().isWs() &&
+                !rawText.trim().endsWith(',') && !rawText.lastOrNull().isWs()
+
+            val roman = findTransliteratedText(transliterations, node["begin"], node["end"])?.let { clean(it.text) }
+            Syllable(text, roman?.ifEmpty { null }, partOfWord,
+                convertTimeToSeconds(node["begin"]), convertTimeToSeconds(node["end"]))
+        }
+    }
+
+    private fun Char?.isWs() = this != null && isWhitespace()
+
+    /** A line's text: its spans' text (space-joined where they don't carry spacing), else its own. */
+    private fun getLineText(p: Element): String? {
+        if (p.isPlain) return p.ownText
+        val texts = p.elements("span")
+            .filter { it.isPlain || isVocalSpan(it) }
+            .map { it.ownText }
+            .filter(String::isNotEmpty)
+        if (texts.isNotEmpty()) {
+            return texts.reduce { acc, cur ->
+                val needsSpace = !acc.last().isWhitespace() && !cur.first().isWhitespace()
+                acc + (if (needsSpace) " " else "") + cur
+            }
+        }
+        return p.ownText.takeIf { p.children.any { it is Text } }
+    }
+
+    private fun inlineRoleTexts(p: Element): RoleTexts =
+        RoleTexts(p.elements("span").firstOrNull { isSpanObject(it) && it["ttm:role"] == "x-roman" }?.ownText)
+
+    private fun getSongwriters(metadata: Element?): List<String> {
+        val itm = metadata?.elements("iTunesMetadata").orEmpty()
+        val entry = itm.firstOrNull { it.element("songwriters") != null } ?: itm.firstOrNull()
+        return entry?.element("songwriters")?.elements("songwriter").orEmpty()
+            .map { it.ownText.trim() }.filter(String::isNotEmpty)
+    }
+
+    private fun getTransliterations(metadata: Element?): Map<String, TransliterationLine>? {
+        val map = linkedMapOf<String, TransliterationLine>()
+        for (itm in metadata?.elements("iTunesMetadata").orEmpty()) {
+            for (block in itm.element("transliterations")?.elements("transliteration").orEmpty()) {
+                for (entry in block.elements("text")) {
+                    val key = entry["for"] ?: continue
+                    val line = TransliterationLine()
+                    collectTransliterationSpans(entry.elements("span"), line.spans, line.background)
+                    if (line.spans.isEmpty() && line.background.isEmpty()) continue
+                    map[key]?.let { it.spans += line.spans; it.background += line.background } ?: run { map[key] = line }
+                }
+            }
+        }
+        return map.ifEmpty { null }
+    }
+
+    /** Timed spans are leaves; wrappers are descended into, x-bg ones into the background list. */
+    private fun collectTransliterationSpans(nodes: List<Element>, out: MutableList<TimedSpan>, background: MutableList<TimedSpan>) {
+        for (node in nodes) {
+            if (!isSpanObject(node)) continue
+            val children = node.elements("span")
+            if (children.isNotEmpty()) {
+                collectTransliterationSpans(children, if (node["ttm:role"] == "x-bg") background else out, background)
+                continue
+            }
+            val begin = node["begin"] ?: continue
+            val end = node["end"] ?: continue
+            out += TimedSpan(begin, end, convertTimeToSeconds(begin), convertTimeToSeconds(end), node.ownText)
+        }
+    }
+
+    /** A dedicated entry for the x-bg span, else an x-bg wrapper in the line's entry, else the lead spans. */
+    private fun pickBackgroundTransliterations(bgEntry: TransliterationLine?, lineEntry: TransliterationLine?): List<TimedSpan>? {
+        for (entry in listOfNotNull(bgEntry, lineEntry)) {
+            if (entry.background.isNotEmpty()) return entry.background
+            if (entry.spans.isNotEmpty()) return entry.spans
+        }
+        return null
+    }
+
+    /** Matched by timing, written the same or within 2ms ("10.5s" vs "00:00:10.500"). */
+    private fun findTransliteratedText(spans: List<TimedSpan>?, begin: String?, end: String?): TimedSpan? {
+        if (spans.isNullOrEmpty() || begin.isNullOrEmpty() || end.isNullOrEmpty()) return null
+        spans.firstOrNull { it.begin == begin && it.end == end }?.let { return it }
+        val b = convertTimeToSeconds(begin) ?: return null
+        val e = convertTimeToSeconds(end) ?: return null
+        return spans.firstOrNull {
+            it.beginS != null && it.endS != null && abs(it.beginS - b) <= 0.002 && abs(it.endS - e) <= 0.002
+        }
+    }
+
+    private val offsetTime = Regex("^([+-]?(?:[0-9]+\\.?[0-9]*|\\.[0-9]+))(ms|h|m|s|f|t)?$")
+
+    /** Clock time `[hh:]mm:ss[.fraction]` (a 4th part, SMPTE frames, dropped) or offset time `12.5s`/`300ms`/`2m`/`1.5h`. */
+    internal fun convertTimeToSeconds(value: String?): Double? {
+        val time = value?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        fun finite(s: Double) = s.takeIf { it.isFinite() && it >= 0 }
+        if (':' in time) {
+            val parts = time.split(':')
+            if (parts.size !in 2..4) return null
+            val reversed = parts.reversed()
+            val offset = if (parts.size == 4) 1 else 0
+            var seconds = 0.0
+            for (i in offset until reversed.size) {
+                val part = leadingFloat(reversed[i]) ?: return null
+                seconds += part * 60.0.pow(i - offset)
+            }
+            return finite(seconds)
+        }
+        val match = offsetTime.find(time) ?: return null
+        val number = match.groupValues[1].toDoubleOrNull() ?: return null
+        return when (match.groupValues[2]) {
+            "ms" -> finite(number / 1000)
+            "h" -> finite(number * 3600)
+            "m" -> finite(number * 60)
+            "s", "" -> finite(number)
+            else -> null // frames and ticks need a frame/tick rate
+        }
+    }
+
+    /** JavaScript parseFloat: the longest leading number, ignoring what follows. */
+    private fun leadingFloat(s: String): Double? =
+        Regex("^\\s*[+-]?(?:[0-9]+\\.?[0-9]*|\\.[0-9]+)(?:[eE][+-]?[0-9]+)?").find(s)?.value?.trim()?.toDoubleOrNull()
+
+    private fun ms(seconds: Double?): Long? = seconds?.let { (it * 1000).roundToLong() }
+
+    /** The reference strips these when rendering; nothing else reads the word text. */
+    private fun display(text: String) = stripZeroWidth(text).trim()
 }

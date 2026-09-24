@@ -35,7 +35,7 @@ class SpicyLyricsTtmlConverterTest {
     }
 
     @Test fun leadLineCoversItsBackgroundVocals() {
-        val ttml = """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata"><body><div>
+        val ttml = """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Word"><body><div>
             <p begin="2.000" end="3.000"><span begin="2.000" end="3.000">A</span><span ttm:role="x-bg"><span begin="1.500" end="3.500">(oh)</span></span></p>
         </div></body></tt>"""
 

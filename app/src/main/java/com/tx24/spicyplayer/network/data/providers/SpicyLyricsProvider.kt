@@ -218,7 +218,7 @@ internal object SpicyLyricsTtmlConverter {
                 }
                 wordTimed = true
                 paragraph(key, lead, item.getAsJsonArray("Background"), agent, opposite)?.let(::add) ?: return@forEach
-                transliteration(lead.getAsJsonArray("Syllables"))?.let {
+                transliteration(lead.getAsJsonArray("Syllables"), item.getAsJsonArray("Background"))?.let {
                     transliterations.append("<text for=\"$key\">$it</text>")
                 }
             }
@@ -228,16 +228,23 @@ internal object SpicyLyricsTtmlConverter {
             ?.mapNotNull { it.takeIf { value -> value.isJsonPrimitive }?.asString }
             .orEmpty()
             .joinToString("") { "<songwriter>${xml(it)}</songwriter>" }
-        return """<?xml version="1.0" encoding="UTF-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:spicy="https://spicylyrics.org/ns/ttml" itunes:timing="${if (wordTimed) "word" else "line"}"><head><metadata><songwriters>$writers</songwriters>${if (transliterations.isEmpty()) "" else "<transliterations><transliteration>$transliterations</transliteration></transliterations>"}</metadata></head><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
+        return """<?xml version="1.0" encoding="UTF-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:spicy="https://spicylyrics.org/ns/ttml" itunes:timing="${if (wordTimed) "Word" else "Line"}"><head><metadata><iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>$writers</songwriters>${if (transliterations.isEmpty()) "" else "<transliterations><transliteration>$transliterations</transliteration></transliterations>"}</iTunesMetadata></metadata></head><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
     }
 
-    /** SL's per-syllable romanization, only when every lead syllable has one (the parser matches by position). */
-    private fun transliteration(syllables: JsonArray?): String? {
-        val texts = syllables?.map { element ->
-            element.takeIf { it.isJsonObject }?.asJsonObject?.string("TransliteratedText")?.trim()
-                ?.takeIf(String::isNotEmpty) ?: return null
-        }
-        return texts?.takeIf(List<String>::isNotEmpty)?.joinToString("") { "<span>${xml(it)}</span>" }
+    /** SL's per-syllable romanization as Apple-style spans; the parser matches them to syllables by timing. */
+    private fun transliteration(lead: JsonArray?, backgrounds: JsonArray?): String? {
+        fun romanSpans(syllables: JsonArray?) = syllables?.mapNotNull { element ->
+            val syllable = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+            val roman = syllable.string("TransliteratedText")?.trim()?.takeIf(String::isNotEmpty) ?: return@mapNotNull null
+            val start = syllable.number("StartTime") ?: return@mapNotNull null
+            val end = syllable.number("EndTime") ?: return@mapNotNull null
+            "<span begin=\"${seconds(start)}\" end=\"${seconds(end)}\">${xml(roman)}</span>"
+        }.orEmpty()
+        val leadSpans = romanSpans(lead).joinToString("")
+        val bgSpans = backgrounds?.mapNotNull { it.takeIf { value -> value.isJsonObject }?.asJsonObject }.orEmpty()
+            .flatMap { romanSpans(it.getAsJsonArray("Syllables")) }.joinToString("")
+        val all = leadSpans + if (bgSpans.isEmpty()) "" else "<span ttm:role=\"x-bg\">$bgSpans</span>"
+        return all.ifEmpty { null }
     }
 
     private fun lineParagraph(key: String, item: JsonObject, agent: String?, opposite: Boolean): String? {
