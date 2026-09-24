@@ -23,12 +23,16 @@ internal class ScrollPolicyController {
     }
 
     fun decide(lines: List<Line>, timeMs: Long, explicitSeek: Boolean = false): ScrollDecision {
-        val target = selectTargetIndex(lines, timeMs)
         val replayToZero = initialized && timeMs <= 100L && lastTimeMs > 1_000L
         val largeSeek = initialized && abs(timeMs - lastTimeMs) > 1_000L
+        val jumped = !initialized || explicitSeek || replayToZero || largeSeek
+        // Between lines the view stays on the last target, like the reference; only a jump into
+        // a gap needs somewhere to land.
+        val target = selectTargetIndex(lines, timeMs)
+            ?: if (jumped) lastStartedIndex(lines, timeMs) else lastTargetIndex
         val motion = when {
             target == null -> ScrollMotion.NONE
-            !initialized || explicitSeek || replayToZero || largeSeek -> ScrollMotion.SNAP
+            jumped -> ScrollMotion.SNAP
             target != lastTargetIndex -> ScrollMotion.SMOOTH
             else -> ScrollMotion.NONE
         }
@@ -39,45 +43,65 @@ internal class ScrollPolicyController {
     }
 
     companion object {
+        /** Reference PIN_LOOKAHEAD: how many real lines ahead the anchor line is checked against. */
+        private const val PIN_LOOKAHEAD = 2
+
+        /**
+         * The line to keep centred, ported from the reference's GetScrollLine
+         * (ScrollToActiveLine.ts). Null when no line is active: the view then stays put.
+         *
+         * - Background lines belong to the lead line above them.
+         * - A background line still active under a later active line is the tail of a line
+         *   already passed, so it is ignored rather than dragging the view back up.
+         * - The top active line keeps the view as long as it (and its background lines) ends
+         *   before the line [PIN_LOOKAHEAD] real lines further down starts; otherwise the first
+         *   active line if the active ones are adjacent, else the last.
+         *
+         * One addition: once an interlude's dots start closing, the line after it is the target,
+         * so the scroll and the closing gap move together.
+         */
         fun selectTargetIndex(lines: List<Line>, timeMs: Long): Int? {
             if (lines.isEmpty()) return null
             val active = lines.indices.filter { timeMs in lines[it].startMs..lines[it].endMs }
-            val activeInterlude = active.firstOrNull { lines[it].role == LineRole.INTERLUDE }
-            if (activeInterlude != null) {
-                // Once the dots start closing, aim at the line after them, so the scroll and the
-                // closing gap move together in one glide instead of chasing the shrinking dots.
-                val interlude = lines[activeInterlude]
-                if (timeMs <= interlude.endMs - LyricsAnimator.PRE_HIDDEN_DOT_LINE_MS) return activeInterlude
-                val next = (activeInterlude + 1 until lines.size).firstOrNull { lines[it].role == LineRole.LEAD }
-                if (next != null) return next
-            }
+            if (active.isEmpty()) return null
 
-            val leadIndices = active.mapNotNull { index ->
-                val line = lines[index]
-                when (line.role) {
-                    LineRole.LEAD -> index
-                    LineRole.BACKGROUND -> lines.indexOfFirst {
-                        it.role == LineRole.LEAD && it.groupId == line.groupId
-                    }.takeIf { it >= 0 }
-                    LineRole.INTERLUDE -> null
-                }
-            }.distinct().sorted()
-
-            return when {
-                leadIndices.isEmpty() -> lines.indexOfLast {
-                    it.role == LineRole.LEAD && it.startMs <= timeMs
-                }.takeIf { it >= 0 } ?: lines.indexOfFirst { it.role != LineRole.BACKGROUND }.takeIf { it >= 0 }
-                leadIndices.size == 1 -> leadIndices.first()
-                else -> {
-                    val first = leadIndices.first()
-                    val last = leadIndices.last()
-                    val lookahead = lines.asSequence().drop(last + 1)
-                        .filter { it.role == LineRole.LEAD }.take(2).lastOrNull()
-                    if (lookahead != null && lines[last].endMs <= lookahead.startMs) last
-                    else if (last - first <= 1) first else last
+            active.firstOrNull { lines[it].role == LineRole.INTERLUDE }?.let { index ->
+                val interlude = lines[index]
+                if (timeMs > interlude.endMs - LyricsAnimator.PRE_HIDDEN_DOT_LINE_MS) {
+                    val next = (index + 1 until lines.size).firstOrNull { lines[it].role == LineRole.LEAD }
+                    if (next != null) return next
                 }
             }
+
+            fun isBg(i: Int) = lines[i].role == LineRole.BACKGROUND
+            fun leadOf(i: Int): Int {
+                var j = i
+                while (j > 0 && isBg(j)) j--
+                return j
+            }
+
+            val frontLead = active.maxOf(::leadOf)
+            val activeLeads = active
+                .filterNot { isBg(it) && leadOf(it) < frontLead }
+                .map(::leadOf)
+                .distinct()
+
+            val anchor = activeLeads.first()
+            val lookahead = (anchor + 1 until lines.size).filterNot(::isBg).drop(PIN_LOOKAHEAD - 1).firstOrNull()
+            var groupEnd = lines[anchor].endMs
+            var k = anchor + 1
+            while (k < lines.size && isBg(k)) groupEnd = maxOf(groupEnd, lines[k++].endMs)
+            if (lookahead == null || groupEnd <= lines[lookahead].startMs) return anchor
+
+            val first = activeLeads.first()
+            val last = activeLeads.last()
+            return if (last - first <= 1) first else last
         }
+
+        /** The last line that has started: where a seek into a gap between lines lands. */
+        fun lastStartedIndex(lines: List<Line>, timeMs: Long): Int? =
+            lines.indexOfLast { it.role != LineRole.BACKGROUND && it.startMs <= timeMs }.takeIf { it >= 0 }
+                ?: lines.indexOfFirst { it.role != LineRole.BACKGROUND }.takeIf { it >= 0 }
 
         fun flingDecayMultiplier(deltaTimeSeconds: Float): Float =
             exp(ln(0.95f) * deltaTimeSeconds.coerceAtLeast(0f) * 60f)
