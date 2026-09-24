@@ -181,6 +181,14 @@ class LyricsAnimator(
     private val cachedLineGradient = mutableMapOf<Int, Float>()
     private val cachedLineGlow = mutableMapOf<Int, Float>()
 
+    /**
+     * The lines the word caches were built from. Lines get rebuilt (romanization switched on,
+     * letters re-synthesized) with different words and letter counts, so the per-word caches and
+     * springs are dropped then. Otherwise an upcoming line kept its old letter states and drew
+     * only the first letter or two of a held word until the line became active.
+     */
+    private var cachedFor: List<Line>? = null
+
     /** Blur is recomputed only when the active line index changes (reference Blurring_LastLine). */
     private var blurringLastLine: Int = -1
     private var blurAmounts = FloatArray(0)
@@ -223,6 +231,14 @@ class LyricsAnimator(
                     state = ElementState.NotSung,
                 )
             }
+        }
+
+        if (lines !== cachedFor) {
+            cachedFor = lines
+            cachedWordStates.clear()
+            wordSpringsMap.clear()
+            letterSpringsMap.clear()
+            dotSpringsMap.clear()
         }
 
         val processedPosition = currentTimeMs.toDouble() -
