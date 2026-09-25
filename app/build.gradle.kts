@@ -10,7 +10,7 @@ android {
 
     fun localClientKey(): String {
         val dotEnv = rootProject.file(".env")
-        if (!dotEnv.isFile) return ""
+        if (!dotEnv.isFile) return System.getenv("SPICY_LYRICS_CLIENT_KEY").orEmpty()
         return dotEnv.useLines { lines ->
             lines.map(String::trim)
                 .firstOrNull { it.startsWith("SPICY_LYRICS_CLIENT_KEY=") }
@@ -25,8 +25,25 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         // A publishable (sl_pk_) key, made to ship in clients: SL rate-limits it per viewer IP.
-        val key = localClientKey().replace("\\", "\\\\").replace("\"", "\\\"")
+        val clientKey = localClientKey()
+        require(clientKey.isBlank() || clientKey.startsWith("sl_pk_")) {
+            "SPICY_LYRICS_CLIENT_KEY must be a publishable sl_pk_ key"
+        }
+        val key = clientKey.replace("\\", "\\\\").replace("\"", "\\\"")
         buildConfigField("String", "SPICY_LYRICS_CLIENT_KEY", "\"$key\"")
+    }
+
+    val releaseStore = System.getenv("ANDROID_RELEASE_KEYSTORE")
+    if (!releaseStore.isNullOrBlank()) {
+        signingConfigs {
+            create("release") {
+                storeFile = file(releaseStore)
+                storePassword = System.getenv("ANDROID_RELEASE_STORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_RELEASE_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_RELEASE_KEY_PASSWORD")
+            }
+        }
+        buildTypes.getByName("release").signingConfig = signingConfigs.getByName("release")
     }
 
     // Android logging/clock calls are no-ops in JVM tests, so provider code runs there unchanged.

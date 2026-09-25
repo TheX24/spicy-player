@@ -14,6 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Spicy Player Next"
+rootProject.name = "Spicy Player"
 include(":app")
-

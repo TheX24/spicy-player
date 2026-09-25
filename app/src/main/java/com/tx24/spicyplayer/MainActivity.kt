@@ -328,7 +328,7 @@ private fun PermissionScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Text("MediaSession access required", style = MaterialTheme.typography.titleLarge)
-                Text("Enable notification access so this test app can see and control the active player session.")
+                Text("Allow notification access so Spicy Player can find the music app currently playing and use its playback controls. Android groups media-session access under this permission. You can revoke it in system settings.")
                 Button(onClick = openNotificationAccess) { Text("Open notification access") }
                 Button(onClick = refresh) { Text("Refresh") }
             }

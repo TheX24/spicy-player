@@ -29,7 +29,7 @@ Read these only when the task calls for them:
 
 - `docs/architecture.md`: before working inside a layer (session tracking, backend, sources, normalisation, rendering, UI).
 - `docs/settings.md`: before adding or changing a setting.
-- `docs/releases.md`: when asked to make a release. Releases are debug-APK GitHub pre-releases, and they double as the changelog.
+- `docs/releases.md`: when asked to make a release. Tagged builds produce signed APK GitHub prereleases, and they double as the changelog.
 
 ## Architecture
 
