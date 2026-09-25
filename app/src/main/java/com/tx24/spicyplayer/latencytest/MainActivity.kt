@@ -12,16 +12,17 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.Image
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.FastForward
 import androidx.compose.material.icons.rounded.FastRewind
@@ -37,6 +38,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -56,13 +58,20 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsCredit
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsProvenance
+import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutMetrics
 import com.tx24.spicyplayer.lyrics.spicy.canvas.SpicyLyricsView
+import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
+import com.tx24.spicyplayer.ui.nowplaying.CompactHeaderMetrics
+import com.tx24.spicyplayer.ui.nowplaying.CompactNowPlayingHeader
+import com.tx24.spicyplayer.ui.nowplaying.NowPlayingInfo
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import com.tx24.spicyplayer.lyrics.spicy.models.buildDisplayTimeline
@@ -132,26 +141,20 @@ private fun LatencyTestApp(
                 isPlaying = state.isPlaying,
                 modifier = Modifier.fillMaxSize(),
             )
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+            val pageWidth = constraints.maxWidth.toFloat()
+            val pageHeight = constraints.maxHeight.toFloat()
+            val density = LocalDensity.current.density
+            val headerMetrics = remember(pageWidth, pageHeight, density) {
+                CompactHeaderMetrics(
+                    pageWidthPx = pageWidth,
+                    pageHeightPx = pageHeight,
+                    density = density,
+                    lyricFontSizeSp = LyricsLayoutMetrics(pageWidth, density, LyricsType.Syllable, 1f).baseFontSizeSp,
+                )
+            }
             Column(Modifier.fillMaxSize()) {
-                Surface(color = MaterialTheme.colorScheme.surface.copy(alpha = 0.72f)) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(18.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(14.dp),
-                    ) {
-                        state.artwork?.let { artwork ->
-                            Image(
-                                bitmap = artwork.asImageBitmap(),
-                                contentDescription = null,
-                                modifier = Modifier.size(54.dp),
-                            )
-                        }
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(state.title, style = MaterialTheme.typography.titleLarge, maxLines = 1)
-                            Text(state.artist, style = MaterialTheme.typography.bodyMedium, maxLines = 1)
-                        }
-                    }
-                }
+                Spacer(Modifier.height(with(LocalDensity.current) { headerMetrics.lyricsTopPx.toDp() }))
 
                 LyricsPanel(
                     lyrics = state.lyrics,
@@ -203,6 +206,25 @@ private fun LatencyTestApp(
                             )
                             ControlButton(Icons.Rounded.FastForward, "Forward 5 seconds", enabled = state.canSeek, onClick = { viewModel.seekBy(5_000L) })
                             ControlButton(Icons.Rounded.SkipNext, "Next", onClick = viewModel::skipNext)
+                        }
+                        // The player's own buttons (shuffle, repeat, like, ...), as the system media controls show them.
+                        if (state.customActions.isNotEmpty()) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceEvenly,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                state.customActions.forEach { custom ->
+                                    IconButton(onClick = { viewModel.sendCustomAction(custom.action) }) {
+                                        val icon = custom.icon
+                                        if (icon != null) {
+                                            Icon(icon.asImageBitmap(), contentDescription = custom.name, tint = Color.White)
+                                        } else {
+                                            Text(custom.name.take(3), style = MaterialTheme.typography.labelSmall)
+                                        }
+                                    }
+                                }
+                            }
                         }
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -349,6 +371,11 @@ private fun LatencyTestApp(
         }
                     }
                 }
+            }
+            CompactNowPlayingHeader(
+                info = NowPlayingInfo(state.title, state.artist, state.artwork, state.artworkUri, state.trackDirection),
+                metrics = headerMetrics,
+            )
             }
         }
     }
