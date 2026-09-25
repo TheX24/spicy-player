@@ -1,4 +1,4 @@
-package com.tx24.spicyplayer.latencytest
+package com.tx24.spicyplayer.lyrics
 
 import android.content.Context
 import com.google.gson.Gson

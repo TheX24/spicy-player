@@ -1,4 +1,4 @@
-package com.tx24.spicyplayer.latencytest
+package com.tx24.spicyplayer.lyrics
 
 import com.tx24.spicyplayer.network.data.LyricsAttribution
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor

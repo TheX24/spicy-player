@@ -1,45 +1,48 @@
-package com.tx24.spicyplayer.latencytest
+package com.tx24.spicyplayer.playback
 
 import android.app.Application
-import android.graphics.Bitmap
 import android.content.ComponentName
+import android.graphics.Bitmap
 import android.media.MediaMetadata
 import android.media.session.MediaController
-import android.media.session.MediaSessionManager
 import android.media.session.MediaSession
+import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.provider.Settings
 import android.util.Log
+import androidx.core.content.res.ResourcesCompat
+import androidx.core.graphics.drawable.toBitmap
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
+import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.lyrics.LyricsState
+import com.tx24.spicyplayer.lyrics.NextLyricsBackend
+import com.tx24.spicyplayer.lyrics.RemoteLyricsAdapter
 import com.tx24.spicyplayer.network.data.LyricsLookupRequest
-import com.tx24.spicyplayer.network.data.TrackNameCleaner
-import com.tx24.spicyplayer.network.data.RemoteLyricsResolution
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor
 import com.tx24.spicyplayer.network.data.ProviderAttempt
 import com.tx24.spicyplayer.network.data.ProviderAttemptOutcome
 import com.tx24.spicyplayer.network.data.ProviderResult
+import com.tx24.spicyplayer.network.data.RemoteLyricsResolution
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
-import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.res.ResourcesCompat
-import androidx.core.graphics.drawable.toBitmap
+import com.tx24.spicyplayer.network.data.TrackNameCleaner
 import com.tx24.spicyplayer.ui.nowplaying.SessionCustomAction
 import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
-import com.tx24.spicyplayer.BuildConfig
-import androidx.lifecycle.AndroidViewModel
-import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.Job
+import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.security.MessageDigest
-import java.util.concurrent.ConcurrentHashMap
 
 /** How long a track must stay current before its lyrics are fetched; skipping past it costs no requests. */
 private const val TRACK_SETTLE_MS = 700L
@@ -143,8 +146,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     fun refresh() {
         refreshOutputRoute()
-        val granted = NotificationManagerCompat.getEnabledListenerPackages(getApplication())
-            .contains(getApplication<Application>().packageName)
+        // The grant is per listener class, not per app: after the class moves, the package can
+        // still be listed while this component is not, and every session read is refused.
+        val granted = Settings.Secure.getString(getApplication<Application>().contentResolver, "enabled_notification_listeners")
+            .orEmpty().split(':')
+            .any { ComponentName.unflattenFromString(it) == listenerComponent }
         mutableState.value = mutableState.value.copy(accessGranted = granted)
         if (!granted) {
             stopObservingSessions()

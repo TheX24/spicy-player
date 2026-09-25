@@ -59,6 +59,8 @@ dependencies {
     implementation("androidx.compose.material3:material3")
     implementation("androidx.core:core-ktx:1.10.1")
     implementation("androidx.compose.material:material-icons-extended")
+    // Backdrop blur for SL's glass controls (real blur on Android 12+, a tint below).
+    implementation("dev.chrisbanes.haze:haze:1.5.1")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.6.1")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.1")
     implementation("com.google.code.gson:gson:2.10.1")

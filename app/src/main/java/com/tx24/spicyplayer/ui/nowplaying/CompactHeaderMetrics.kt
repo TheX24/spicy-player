@@ -58,7 +58,16 @@ data class CompactHeaderMetrics(
      * `clamp(3rem, 7cqw, 4rem)`; scaling them by our lyric size over that keeps SL's ratio of
      * header text to lyrics at this page width (same rule as the renderer's blur and glow).
      */
-    val scale = lyricFontSizeSp / (pageWidthDp * 0.07f).coerceIn(SL_COMPACT_LYRICS_MIN_PX, SL_COMPACT_LYRICS_MAX_PX) * TEXT_BOOST
+    /** Our lyric size over SL's compact one (`clamp(3rem, 7cqw, 4rem)`): CSS px to dp next to the lyrics. */
+    val lyricsScale = lyricFontSizeSp / (pageWidthDp * 0.07f).coerceIn(SL_COMPACT_LYRICS_MIN_PX, SL_COMPACT_LYRICS_MAX_PX)
+    val scale = lyricsScale * TEXT_BOOST
+
+    /**
+     * Where the active line's top sits below the top of the lyrics. Compact mode scrolls "Top",
+     * not "Center" (`GetScrollType`): `scrollLyricsToIndex(i, "start", _, -85)` leaves the line's
+     * top 85px down the lyrics viewport.
+     */
+    val activeLineTopPx = 85f * lyricsScale * density
 
     /** `.SongName { font-size: 2.5rem; line-height: 3rem }`, in sp. */
     val titleSizeSp = 40f * scale

@@ -1,6 +1,6 @@
 package com.tx24.spicyplayer.lyrics.spicy.models
 
-import com.tx24.spicyplayer.latencytest.RemoteLyricsAdapter
+import com.tx24.spicyplayer.lyrics.RemoteLyricsAdapter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test

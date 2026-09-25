@@ -16,4 +16,3 @@ Both builds read `SPICY_LYRICS_CLIENT_KEY` from a local `.env` file (ignored by 
 - The external-player app does not include the original player's Room library or persistent lyrics cache. Source preferences and manual Spotify-ID overrides are persisted locally.
 - Spotify-ID matching and manual override are available through Options. A missing or unsafe match does not silently substitute a different recording.
 - Play, pause, seek, and skip depend on the selected app's MediaSession capabilities and account restrictions. The acknowledgement number measures session callbacks, not audible response time.
-- The internal prototype package name remains `latencytest` for now; the installed app ID and app label are Spicy Player Next.
