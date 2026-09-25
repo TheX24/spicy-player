@@ -1,0 +1,27 @@
+package com.tx24.spicyplayer.ui.nowplaying
+
+import android.graphics.Bitmap
+
+/**
+ * What the song header shows. Kept apart from the player's view-model state so the header only
+ * depends on this and survives the rework of the playback layer.
+ *
+ * @param artists the session's artist string as published; SL joins several with ", ".
+ * @param direction which way the player moved to reach this track, for the cover change.
+ */
+data class NowPlayingInfo(
+    val title: String,
+    val artists: String,
+    val artwork: Bitmap? = null,
+    val artworkUri: String? = null,
+    val direction: TrackDirection = TrackDirection.Forward,
+)
+
+/** Whether a track change went on through the queue or back to an earlier track. */
+enum class TrackDirection { Forward, Backward }
+
+/**
+ * One of the player's own buttons, published in its PlaybackState: shuffle, repeat, like and the
+ * like, as the system media controls show them. Players swap the icon to show the state.
+ */
+data class SessionCustomAction(val action: String, val name: String, val icon: Bitmap?)

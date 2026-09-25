@@ -21,6 +21,10 @@ import com.tx24.spicyplayer.network.data.ProviderAttemptOutcome
 import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.content.res.ResourcesCompat
+import androidx.core.graphics.drawable.toBitmap
+import com.tx24.spicyplayer.ui.nowplaying.SessionCustomAction
+import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
 import com.tx24.spicyplayer.BuildConfig
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -43,6 +47,9 @@ private const val TRACK_SETTLE_MS = 700L
 /** Upcoming queue entries whose lyrics are fetched ahead, like mild-lyrics' default. */
 private const val FETCH_AHEAD = 3
 
+/** How long after our own skip a track change is still taken to be its result. */
+private const val SKIP_DIRECTION_WINDOW_MS = 3_000L
+
 data class PlayerUiState(
     val accessGranted: Boolean = false,
     val sourcePackage: String? = null,
@@ -54,6 +61,8 @@ data class PlayerUiState(
     val canSeek: Boolean = false,
     val outputLabel: String = "Detecting output",
     val lyricDelayMs: Int = 0,
+    val trackDirection: TrackDirection = TrackDirection.Forward,
+    val customActions: List<SessionCustomAction> = emptyList(),
     val clockDriftMs: Long? = null,
     val matchInfo: String? = null,
     val detectedSpotifyId: String? = null,
@@ -95,6 +104,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     val state: StateFlow<PlayerUiState> = mutableState.asStateFlow()
 
     private var controller: MediaController? = null
+    // Which way our own skip buttons last moved, so the next track change can say so.
+    private var pendingSkip: Pair<TrackDirection, Long>? = null
+    private var lastQueueIndex = -1
+    private val actionIcons = HashMap<Pair<String, Int>, Bitmap?>()
     private val observedSessions = mutableMapOf<MediaSession.Token, MediaController>()
     private val observedCallbacks = mutableMapOf<MediaSession.Token, MediaController.Callback>()
     private var lyricsJob: Job? = null
@@ -171,8 +184,22 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         mutableState.value = mutableState.value.copy(isPlaying = expectPlaying)
     }
 
-    fun skipNext() = commandForTrackChange { skipToNext() }
-    fun skipPrevious() = commandForTrackChange { skipToPrevious() }
+    fun skipNext() {
+        pendingSkip = TrackDirection.Forward to SystemClock.elapsedRealtime()
+        commandForTrackChange { skipToNext() }
+    }
+
+    fun skipPrevious() {
+        pendingSkip = TrackDirection.Backward to SystemClock.elapsedRealtime()
+        commandForTrackChange { skipToPrevious() }
+    }
+
+    /** Presses one of the player's own buttons (see [PlayerUiState.customActions]). */
+    fun sendCustomAction(action: String) {
+        val active = controller ?: return
+        val extras = active.playbackState?.customActions?.firstOrNull { it.action == action }?.extras
+        active.transportControls.sendCustomAction(action, extras)
+    }
 
     fun seekBy(deltaMs: Long) {
         val target = (currentPositionMs() + deltaMs)
@@ -447,6 +474,16 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         )
     }
 
+    /** A custom action's icon, which lives in the player's own resources. */
+    private fun actionIcon(packageName: String, iconRes: Int): Bitmap? = actionIcons.getOrPut(packageName to iconRes) {
+        try {
+            val resources = getApplication<Application>().packageManager.getResourcesForApplication(packageName)
+            ResourcesCompat.getDrawable(resources, iconRes, null)?.toBitmap()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
     private fun commandForTrackChange(command: MediaController.TransportControls.() -> Unit) {
         val active = controller ?: return
         pendingCommand = PendingCommand.Track(active.metadata.trackIdentity(), SystemClock.elapsedRealtime())
@@ -541,6 +578,16 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             ?.let { SystemClock.elapsedRealtime() - it.issuedAtMs }
         if (latency != null) pendingCommand = null
 
+        val queueIndex = active.queue.orEmpty().indexOfFirst { it.queueId == playback?.activeQueueItemId }
+        val direction = if (trackChanged) {
+            // Our own skip says it outright; otherwise a lower queue position means we went back.
+            pendingSkip?.takeIf { SystemClock.elapsedRealtime() - it.second < SKIP_DIRECTION_WINDOW_MS }?.first
+                ?: if (queueIndex >= 0 && lastQueueIndex >= 0 && queueIndex < lastQueueIndex) {
+                    TrackDirection.Backward
+                } else TrackDirection.Forward
+        } else mutableState.value.trackDirection
+        if (trackChanged) pendingSkip = null
+        if (queueIndex >= 0) lastQueueIndex = queueIndex
         if (trackChanged) currentTrackIdentity = trackIdentity
         val lyricsKey = metadata.lyricsKey()
         val lyricsChanged = lyricsKey != currentLyricsKey
@@ -573,6 +620,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             lookupStatus = if (lyricsChanged) null else mutableState.value.lookupStatus,
             lastCommandLatencyMs = latency ?: mutableState.value.lastCommandLatencyMs,
             status = if (waitingForSeek || preserveStatus) mutableState.value.status else null,
+            trackDirection = direction,
+            customActions = playback?.customActions.orEmpty().map { custom ->
+                SessionCustomAction(custom.action, custom.name.toString(), actionIcon(active.packageName, custom.icon))
+            },
             artwork = if (refreshArtwork) {
                 metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                     ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
