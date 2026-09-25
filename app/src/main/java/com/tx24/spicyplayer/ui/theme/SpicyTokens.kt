@@ -111,6 +111,13 @@ object SpicyMotion {
 
     /** `.ViewControls { transition: opacity 0.3s }`. */
     const val CONTROLS_FADE_MS = 300
+
+    /**
+     * The modal and its page slides, the toggle and the menus: `0.22s cubic-bezier(0.23, 1, 0.32, 1)`,
+     * a quick ease-out.
+     */
+    val Modal = CubicBezierEasing(0.23f, 1f, 0.32f, 1f)
+    const val MODAL_MS = 220
 }
 
 /** `--text-*` ramp in SL's font. */

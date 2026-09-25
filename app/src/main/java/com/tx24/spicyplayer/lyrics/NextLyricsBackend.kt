@@ -102,6 +102,11 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         cacheFile(request).delete()
     }
 
+    /** Drops every stored pick; the next lookups ask the sources again. */
+    fun clearCache() {
+        diskCache.deleteRecursively()
+    }
+
     private fun enabledOrder(): List<String> = policy().let { p ->
         p.sourceOrder.filter { it !in p.disabledSourceIds } + p.enabledBlendIds.sorted()
     }

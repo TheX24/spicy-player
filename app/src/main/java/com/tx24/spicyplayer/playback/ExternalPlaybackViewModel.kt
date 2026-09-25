@@ -249,6 +249,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         mutableState.value = mutableState.value.copy(lyricDelayMs = newDelay)
     }
 
+    fun setLyricDelay(delayMs: Int) {
+        adjustLyricDelay(delayMs - mutableState.value.lyricDelayMs)
+    }
+
     fun resetLyricDelay() {
         outputProfiles.saveDelayMs(outputRoute, 0)
         mutableState.value = mutableState.value.copy(lyricDelayMs = 0)
@@ -264,6 +268,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         lookupCache.clear()  // Spicy Lyrics answers depend on the key
         refreshSourcePolicy()
         loadLyrics()
+    }
+
+    /** Forgets every lyric answer, on disk and in memory, and looks the current song up again. */
+    fun clearLyricsCache() {
+        lookupCache.clear()
+        lyricsBackend.clearCache()
+        loadLyrics(force = true)
     }
 
     fun setSourceEnabled(id: String, enabled: Boolean) {
