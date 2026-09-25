@@ -6,9 +6,9 @@ package com.tx24.spicyplayer.ui.nowplaying
  * `#SpicyLyricsPage.CompactMode ...`); SL's `cqh`/`cqw` are percentages of the nearest query
  * container, which is the page for the bar itself and the bar for everything inside it.
  *
- * Two departures from SL, chosen on a phone: the cover sits as far below the top as the lyrics
- * are from the side (SL's 6cqh left a gap), and the song text is centred on the cover and 20%
- * larger (SL's is bottom-aligned and sized for a desktop window).
+ * Departures from SL, chosen on a phone: the cover sits as far below the top as the lyrics are
+ * from the side (SL's 6cqh left a gap), the song text is centred on the cover (SL's is
+ * bottom-aligned), and there is more room between cover and text.
  *
  * Pure arithmetic in pixels so it can move to a shared module later.
  *
@@ -41,8 +41,8 @@ data class CompactHeaderMetrics(
     /** `.Header { --MediaBoxSize: 100cqh }` against the bar: the artwork is as tall as the bar. */
     val artSizePx = barHeightPx
 
-    /** `--CompactNowBarHeaderGap: 8cqh` against the bar. */
-    val gapPx = barHeightPx * 0.08f
+    /** Not SL (`--CompactNowBarHeaderGap: 8cqh`): 13cqh, so the text doesn't crowd the cover. */
+    val gapPx = barHeightPx * 0.13f
 
     /** `.Metadata { left: calc(var(--MediaBoxSize) + var(--CompactNowBarHeaderGap)) }`. */
     val textStartPx = contentStartPx + artSizePx + gapPx
@@ -92,8 +92,8 @@ data class CompactHeaderMetrics(
         /** Content inset of the (non-duet) lyric slot in `LyricsLayoutMetrics.contentSlot`. */
         const val LYRICS_SIDE_INSET = 0.05f
 
-        /** Not SL: header type 20% above SL's sizes, which read small beside the cover on a phone. */
-        const val TEXT_BOOST = 1.2f
+        /** Header type against SL's sizes (1 = SL's). */
+        const val TEXT_BOOST = 1f
 
         /** `.MediaImageContainer { border-radius: 3cqh }`; the square `.MediaBox` is its container. */
         const val ART_CORNER_FRACTION = 0.03f

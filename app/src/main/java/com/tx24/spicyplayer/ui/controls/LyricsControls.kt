@@ -2,7 +2,6 @@ package com.tx24.spicyplayer.ui.controls
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.animation.core.keyframes
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
@@ -108,6 +107,8 @@ class PlaybackControlsState(
  * floating ViewControls (romanize, the player's other actions, settings). Behind them, the lyrics
  * blur and darken towards the bottom, starting [SHADE_REACH] above the controls. While not
  * [interactive] (hidden), touches on the controls are swallowed.
+ *
+ * [shown] (0 hidden .. 1 shown) is their opacity, for the show/hide fade.
  */
 @Composable
 fun LyricsControls(
@@ -118,6 +119,7 @@ fun LyricsControls(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
+    shown: () -> Float = { 1f },
     /** Height of the controls themselves, without the shade above them, in px. */
     onControlsHeight: (Int) -> Unit = {},
 ) {
@@ -128,6 +130,7 @@ fun LyricsControls(
         Box(
             Modifier
                 .matchParentSize()
+                .graphicsLayer { alpha = shown() }
                 .then(
                     backdrop?.let {
                         Modifier.hazeEffect(it) {
@@ -137,18 +140,19 @@ fun LyricsControls(
                             tints = emptyList()
                             fallbackTint = HazeTint(Color.Black.copy(alpha = 0.25f))
                             progressive = HazeProgressive.verticalGradient(
-                                easing = LinearOutSlowInEasing,
+                                easing = ShadeEasing,
                                 startIntensity = 0f,
                                 endIntensity = 1f,
                             )
                         }
                     } ?: Modifier,
                 )
-                .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = SHADE_ALPHA))),
+                .background(ShadeGradient),
         )
         Box(
             Modifier
                 .padding(top = SHADE_REACH)
+                .graphicsLayer { alpha = shown() }
                 .onSizeChanged { onControlsHeight(it.height) }
                 // The controls own their whole area, gaps and margins included: without a pointer
                 // handler here, a touch between two buttons falls through to the lyrics and seeks.
@@ -197,40 +201,63 @@ private fun ControlsColumn(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Timeline(controls, Modifier.padding(horizontal = SIDE_MARGIN))
+        // The transport sits in its own air, the same gap above and below it (plus the glyphs'
+        // touch padding), so the three rows read as separate.
+        Spacer(Modifier.height(ROW_GAP))
         PlaybackRow(controls, shuffle, repeat, Modifier.padding(horizontal = SIDE_MARGIN - SpicySpacing.S2))
-        Spacer(Modifier.height(SpicySpacing.S4))
-        Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+        Spacer(Modifier.height(ROW_GAP))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S4),
+        ) {
             if (romanizeAvailable) {
                 GlassButton(
+                    size = FLOATING_SIZE,
                     onClick = onToggleRomanize,
                     contentDescription = if (romanized) "Show original lyrics" else "Romanize lyrics",
                 ) {
                     // SL shows what a tap switches to: "A" to go back, the kana mark to romanize.
                     if (romanized) {
-                        Image(rememberVectorPainter(SlIcons.DisableRomanization), null, Modifier.size(17.dp))
+                        Image(rememberVectorPainter(SlIcons.DisableRomanization), null, Modifier.size(19.dp))
                     } else {
-                        Image(rememberVectorPainter(SlIcons.EnableRomanization), null, Modifier.size(15.dp))
+                        Image(rememberVectorPainter(SlIcons.EnableRomanization), null, Modifier.size(17.dp))
                     }
                 }
             }
             others.forEach { action ->
-                GlassButton(onClick = { controls.onCustomAction(action.action) }, contentDescription = action.name) {
-                    ActionIcon(action, Modifier.size(20.dp))
+                GlassButton(onClick = { controls.onCustomAction(action.action) }, contentDescription = action.name, size = FLOATING_SIZE) {
+                    ActionIcon(action, Modifier.size(23.dp))
                 }
             }
-            GlassButton(onClick = onOpenSettings, contentDescription = "Settings") {
-                Image(rememberVectorPainter(SlIcons.Settings), null, Modifier.size(20.dp))
+            GlassButton(onClick = onOpenSettings, contentDescription = "Settings", size = FLOATING_SIZE) {
+                Image(rememberVectorPainter(SlIcons.Settings), null, Modifier.size(23.dp))
             }
         }
     }
 }
 
 private val SIDE_MARGIN = 28.dp
+private val ROW_GAP = 24.dp
+/** Not SL (42): the floating buttons grew with the bigger transport so they don't look lost under it. */
+private val FLOATING_SIZE = 48.dp
 private val BOTTOM_MARGIN = 84.dp
 /** How far above the controls the shade starts. */
-private val SHADE_REACH = 96.dp
+private val SHADE_REACH = 180.dp
 private val SHADE_BLUR = 24.dp
-private const val SHADE_ALPHA = 0.25f
+private const val SHADE_ALPHA = 0.3f
+
+/**
+ * The shade's ramp, for both blur and darkening: flat at the top so it has no visible edge where
+ * it starts, steepest in the middle, flat again at full strength.
+ */
+private val ShadeEasing = CubicBezierEasing(0.45f, 0f, 0.35f, 1f)
+
+/** [ShadeEasing] sampled into stops, since a gradient only ramps linearly between stops. */
+private val ShadeGradient = Brush.verticalGradient(
+    *Array(9) { i ->
+        val t = i / 8f
+        t to Color.Black.copy(alpha = SHADE_ALPHA * ShadeEasing.transform(t))
+    },
+)
 
 /** Where a player's custom action goes. Players only give a name, so this reads the name. */
 internal enum class ActionKind { Shuffle, Repeat, Other }
@@ -286,7 +313,8 @@ private fun PlaybackRow(
     }
 }
 
-private val SKIP_WIDTH = 42.dp
+/** Not SL (42): bigger, like Apple Music's transport, which suits a thumb better. */
+private val SKIP_WIDTH = 52.dp
 private val PLAY_WIDTH = SKIP_WIDTH * (9.25f / 12f)
 private val SIDE_WIDTH = SKIP_WIDTH * (7f / 12f)
 
@@ -339,7 +367,7 @@ private fun PressableGlyph(
     val currentOnClick by rememberUpdatedState(onClick)
     Box(
         modifier = Modifier
-            .size(TOUCH_SIZE)
+            .size(width = maxOf(TOUCH_SIZE, width + 12.dp), height = TOUCH_SIZE)
             .semantics {
                 role = Role.Button
                 contentDescription = description

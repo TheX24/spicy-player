@@ -1,0 +1,438 @@
+package com.tx24.spicyplayer.ui.components
+
+import android.os.Build
+import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
+import com.tx24.spicyplayer.ui.theme.SpicyColors
+import com.tx24.spicyplayer.ui.theme.SpicyMotion
+import com.tx24.spicyplayer.ui.theme.SpicyRadii
+import com.tx24.spicyplayer.ui.theme.SpicySpacing
+import com.tx24.spicyplayer.ui.theme.SpicyType
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.HazeStyle
+import dev.chrisbanes.haze.HazeTint
+import dev.chrisbanes.haze.hazeEffect
+
+/*
+ * Spicy Lyrics' pop-ups (`sl-generic-modal`, `Modal.ts` and `generic-modal-polyfill.css` in
+ * Pixel's fork), with the pieces its update and data-migration cards are built from
+ * (`.update-card-wrapper` in `default.css`), so any pop-up here is a [SlModal] filled with
+ * [SlModalMessage], [SlVersionRow], [SlModalNotes] and [SlModalButton]s.
+ */
+
+/**
+ * A centred glass pop-up over a dimmed page. It animates like SL's: the page dims to 45% black,
+ * the glass plate fades in and grows from 0.96, all in 220 ms; closing plays it backwards, and
+ * the pop-up stays composed until that ends.
+ *
+ * @param visible whether it is showing; flip to false to close it.
+ * @param onDismissRequest called by the close button, a tap outside, or back. Null makes the
+ * pop-up one the user has to act on: no close button, and taps outside and back do nothing.
+ * @param title the header's title (`.sl-modal-title`); null leaves the header out, for
+ * pop-ups that carry their own heading like SL's update card.
+ * @param backdrop what the plate blurs; without one the plate is a darker solid.
+ */
+@Composable
+fun SlModal(
+    visible: Boolean,
+    onDismissRequest: (() -> Unit)?,
+    backdrop: HazeState?,
+    modifier: Modifier = Modifier,
+    title: String? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val open = remember { Animatable(0f) }
+    var composed by remember { mutableStateOf(visible) }
+    LaunchedEffect(visible) {
+        if (visible) {
+            composed = true
+            open.animateTo(1f, tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal))
+        } else {
+            open.animateTo(0f, tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal))
+            composed = false
+        }
+    }
+    if (!composed) return
+
+    if (onDismissRequest != null) BackHandler(enabled = visible) { onDismissRequest() }
+
+    BoxWithConstraints(
+        modifier
+            .fillMaxSize()
+            // `.sl-modal-overlay`: rgba(0,0,0,.45), fading with the modal.
+            .drawBehind { drawRect(Color.Black.copy(alpha = OVERLAY_ALPHA * open.value)) }
+            // Takes every touch, so nothing reaches the page; a tap outside the plate dismisses.
+            // The plate consumes its own touches first, which is how this tells them apart.
+            .pointerInput(onDismissRequest) {
+                awaitPointerEventScope {
+                    while (true) {
+                        val event = awaitPointerEvent()
+                        val outside = event.changes.none { it.isConsumed }
+                        event.changes.forEach { it.consume() }
+                        val released = event.changes.all { !it.pressed && it.previousPressed }
+                        if (onDismissRequest != null && outside && released) onDismissRequest()
+                    }
+                }
+            },
+        contentAlignment = Alignment.Center,
+    ) {
+        val shape = RoundedCornerShape(SpicyRadii.Lg)
+        Column(
+            Modifier
+                // `.sl-modal-container { width: 420px; max-height: 90vh }`, inside the screen's margins.
+                .widthIn(max = PLATE_WIDTH)
+                .fillMaxWidth()
+                .padding(horizontal = SpicySpacing.S4)
+                .heightIn(max = maxHeight * 0.9f)
+                .graphicsLayer {
+                    val scale = CLOSED_SCALE + (1f - CLOSED_SCALE) * open.value
+                    scaleX = scale
+                    scaleY = scale
+                    alpha = open.value
+                }
+                .modalShadow()
+                .clip(shape)
+                .then(
+                    backdrop?.let { Modifier.hazeEffect(it, PlateMaterial) }
+                        ?: Modifier.background(SpicyColors.BgElevated),
+                )
+                .background(PLATE_FILL)
+                .plateEdges()
+                // Touches on the plate stay on the plate.
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
+        ) {
+            if (title != null) ModalHeader(title, onDismissRequest)
+            // `.sl-modal-main-section { padding: 20px 24px 24px; overflow-y: auto }`.
+            Column(
+                Modifier
+                    .weight(1f, fill = false)
+                    .verticalScroll(rememberScrollState())
+                    .padding(start = SpicySpacing.S6, end = SpicySpacing.S6, top = SpicySpacing.S5, bottom = SpicySpacing.S6),
+                verticalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+                content = content,
+            )
+        }
+    }
+}
+
+/** `.sl-modal-header`: title, close button, hairline underneath. */
+@Composable
+private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .drawBehind {
+                val px = 1.dp.toPx()
+                drawRect(SpicyColors.Hairline, Offset(0f, size.height - px), Size(size.width, px))
+            }
+            .padding(start = SpicySpacing.S6, end = SpicySpacing.S4, top = SpicySpacing.S5, bottom = SpicySpacing.S4)
+            .heightIn(min = 32.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+    ) {
+        Text(
+            title,
+            modifier = Modifier.weight(1f),
+            style = SpicyType.Title.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.01f).em),
+        )
+        if (onDismissRequest != null) CloseButton(onDismissRequest)
+    }
+}
+
+/** `.sl-modal-close-btn`: an X in secondary text, a tinted pill while held. */
+@Composable
+private fun CloseButton(onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(120), label = "closeScale")
+    Box(
+        Modifier
+            .size(TAP_MIN)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+            .background(if (pressed) SpicyColors.TintBgPressed else Color.Transparent)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .semantics { contentDescription = "Close" }
+            .drawBehind {
+                // SL's close glyph: two strokes corner to corner, 18px across.
+                val half = 9.dp.toPx() * 0.9f
+                val c = center
+                val color = if (pressed) SpicyColors.TextPrimary else SpicyColors.TextSecondary
+                val width = 1.6.dp.toPx()
+                drawLine(color, Offset(c.x - half, c.y - half), Offset(c.x + half, c.y + half), width)
+                drawLine(color, Offset(c.x + half, c.y - half), Offset(c.x - half, c.y + half), width)
+            },
+    )
+}
+
+/**
+ * SL's migration-card message: an icon in a tinted disc, a headline and a description, centred.
+ * [icon] is optional; [title] is `.uc-title`, [description] `.udc-desc`.
+ */
+@Composable
+fun SlModalMessage(
+    title: String,
+    description: String?,
+    icon: (@Composable () -> Unit)? = null,
+) {
+    Column(
+        Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+    ) {
+        if (icon != null) {
+            Box(
+                Modifier
+                    .padding(bottom = 2.dp)
+                    .size(52.dp)
+                    .clip(CircleShape)
+                    .background(SpicyColors.TintBg)
+                    .border(1.dp, SpicyColors.Hairline, CircleShape),
+                contentAlignment = Alignment.Center,
+            ) { icon() }
+        }
+        Text(title, style = SlModalTitleStyle.copy(textAlign = TextAlign.Center))
+        if (description != null) {
+            Text(
+                description,
+                modifier = Modifier.widthIn(max = 352.dp),
+                style = SpicyType.Body.copy(color = SpicyColors.TextSecondary, lineHeight = 1.55.em, textAlign = TextAlign.Center),
+            )
+        }
+    }
+}
+
+/** `.uc-title` and `.uc-subtitle`, left-aligned, for a card-style pop-up with its own heading. */
+@Composable
+fun SlModalHeading(title: String, subtitle: String? = null) {
+    Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S1)) {
+        Text(title, style = SlModalTitleStyle)
+        if (subtitle != null) {
+            Text(subtitle, style = SpicyType.Body.copy(color = SpicyColors.TextSecondary, lineHeight = 1.45.em))
+        }
+    }
+}
+
+/** `.uc-title`: 1.2rem semibold. */
+val SlModalTitleStyle = SpicyType.Title.copy(fontSize = 19.2.sp, fontWeight = FontWeight.SemiBold, lineHeight = 1.3.em, letterSpacing = (-0.015f).em)
+
+/** `.uc-divider`. */
+@Composable
+fun SlModalDivider() {
+    Box(Modifier.padding(vertical = SpicySpacing.S1).fillMaxWidth().height(1.dp).background(SpicyColors.Hairline))
+}
+
+/** `.uc-version-row`: "from -> to" on a tinted strip, the new version brighter. */
+@Composable
+fun SlVersionRow(from: String?, to: String?) {
+    Row(
+        Modifier
+            .padding(top = SpicySpacing.S1, bottom = SpicySpacing.S2)
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(SpicyRadii.Md))
+            .background(SpicyColors.TintBg)
+            .border(1.dp, SpicyColors.Hairline, RoundedCornerShape(SpicyRadii.Md))
+            .padding(horizontal = SpicySpacing.S4, vertical = 14.dp),
+        horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3, Alignment.CenterHorizontally),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        val version = SpicyType.Body.copy(
+            fontSize = 16.8.sp,
+            fontWeight = FontWeight.SemiBold,
+            letterSpacing = (-0.01f).em,
+            fontFeatureSettings = "tnum",
+        )
+        if (from != null) Text(from, style = version.copy(color = SpicyColors.TextSecondary))
+        if (from != null && to != null) Text("->", style = version.copy(color = SpicyColors.TextTertiary))
+        if (to != null) Text(to, style = version)
+    }
+}
+
+/**
+ * `.uc-patch-notes`: a bulleted list in secondary text, or [status] (loading, failed, nothing
+ * new) in its place.
+ */
+@Composable
+fun SlModalNotes(notes: List<String>, status: String? = null) {
+    val text = SpicyType.Body.copy(color = SpicyColors.TextSecondary, lineHeight = 1.5.em)
+    if (status != null || notes.isEmpty()) {
+        Text(status ?: "", style = text)
+        return
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+        notes.forEach { note ->
+            Row {
+                Text("•", style = text, modifier = Modifier.width(20.dp).padding(start = 6.dp))
+                Text(note, style = text, modifier = Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** The update card's buttons: `.btn-primary`, `.btn-secondary`, `.btn-quiet`. */
+enum class SlButtonStyle { Primary, Secondary, Quiet }
+
+/**
+ * An update-card button: rounded 8dp, semibold body text, shrinking to 0.97 while held.
+ * [fill] stretches it across its row, like the migration card's.
+ */
+@Composable
+fun SlModalButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    style: SlButtonStyle = SlButtonStyle.Secondary,
+    fill: Boolean = false,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(120), label = "modalButtonScale")
+    val shape = RoundedCornerShape(SpicyRadii.Sm)
+    val (background, color) = when (style) {
+        SlButtonStyle.Primary -> (if (pressed) Color.White.copy(alpha = 0.8f) else SpicyColors.Accent) to SpicyColors.TextOnFill
+        SlButtonStyle.Secondary -> (if (pressed) SpicyColors.TintBgPressed else SpicyColors.TintBg) to SpicyColors.TextPrimary
+        SlButtonStyle.Quiet -> (if (pressed) SpicyColors.TintBg else Color.Transparent) to
+            (if (pressed) SpicyColors.TextPrimary else SpicyColors.TextSecondary)
+    }
+    Box(
+        modifier
+            .then(if (fill) Modifier.fillMaxWidth() else Modifier)
+            .heightIn(min = 40.dp)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(shape)
+            .background(background)
+            .then(
+                if (style == SlButtonStyle.Secondary) {
+                    Modifier.border(1.dp, if (pressed) SpicyColors.HairlineStrong else SpicyColors.Hairline, shape)
+                } else Modifier,
+            )
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = if (style == SlButtonStyle.Quiet) 14.dp else 18.dp, vertical = 9.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text, style = SpicyType.Body.copy(color = color, fontWeight = FontWeight.SemiBold, letterSpacing = 0.01.em))
+    }
+}
+
+/** `.uc-actions`: buttons end-aligned, wrapping onto a new line when they run out of room. */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun SlModalActions(content: @Composable () -> Unit) {
+    FlowRow(
+        Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2, Alignment.End),
+        verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2),
+    ) { content() }
+}
+
+/** Space between a pop-up's message and its buttons. */
+@Composable
+fun SlModalGap() = Spacer(Modifier.height(SpicySpacing.S2))
+
+/** `.sl-modal::before`: `rgba(22,22,22,.55)` over `blur(40px) saturate(1.5)`. */
+private val PLATE_FILL = Color(22, 22, 22).copy(alpha = 0.55f)
+private val PlateMaterial = HazeStyle(
+    backgroundColor = Color.Black,
+    tints = emptyList(),
+    blurRadius = 40.dp,
+    noiseFactor = 0f,
+    fallbackTint = HazeTint(Color(22, 22, 22).copy(alpha = 0.9f)),
+)
+
+/** `inset 0 1px 0 rgba(255,255,255,.08), inset 0 0 0 1px var(--hairline-strong)`. */
+private fun Modifier.plateEdges(): Modifier = drawBehind {
+    val px = 1.dp.toPx()
+    val radius = CornerRadius(SpicyRadii.Lg.toPx())
+    clipRect(bottom = px * 2f) {
+        drawRoundRect(Color.White.copy(alpha = 0.08f), cornerRadius = radius, topLeft = Offset(0f, px), size = size)
+    }
+    drawRoundRect(
+        SpicyColors.HairlineStrong,
+        topLeft = Offset(px / 2f, px / 2f),
+        size = Size(size.width - px, size.height - px),
+        cornerRadius = CornerRadius(radius.x - px / 2f),
+        style = Stroke(px),
+    )
+}
+
+/**
+ * `0 24px 64px -12px rgba(0,0,0,.45)` as an Android shadow layer: the plate shrunk by the spread,
+ * pushed down, blurred. Hardware canvases only draw shadow layers for shapes from API 28.
+ */
+private fun Modifier.modalShadow(): Modifier = drawBehind {
+    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.P) return@drawBehind
+    val spread = 12.dp.toPx()
+    // A CSS blur length is twice the Gaussian sigma; Skia's sigma = radius * 0.57735 + 0.5.
+    val radius = ((32.dp.toPx() - 0.5f) / 0.57735f).coerceAtLeast(0.1f)
+    val corner = SpicyRadii.Lg.toPx()
+    drawIntoCanvas { canvas ->
+        val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = android.graphics.Color.TRANSPARENT
+            setShadowLayer(radius, 0f, 24.dp.toPx(), Color.Black.copy(alpha = 0.45f).toArgb())
+        }
+        canvas.nativeCanvas.drawRoundRect(spread, spread, size.width - spread, size.height - spread, corner, corner, paint)
+    }
+}
+
+private const val OVERLAY_ALPHA = 0.45f
+private const val CLOSED_SCALE = 0.96f
+private val PLATE_WIDTH = 420.dp
+private val TAP_MIN = 40.dp

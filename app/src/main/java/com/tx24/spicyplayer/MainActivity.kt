@@ -1,5 +1,12 @@
 package com.tx24.spicyplayer
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.NotificationsActive
+import com.tx24.spicyplayer.ui.components.SlButtonStyle
+import com.tx24.spicyplayer.ui.components.SlModal
+import com.tx24.spicyplayer.ui.components.SlModalButton
+import com.tx24.spicyplayer.ui.components.SlModalGap
+import com.tx24.spicyplayer.ui.components.SlModalMessage
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -10,6 +17,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -21,11 +29,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
+import androidx.compose.foundation.layout.size
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
@@ -152,15 +159,6 @@ private fun LyricsApp(
     LaunchedEffect(Unit) { viewModel.refresh() }
 
     Scaffold { padding ->
-        if (!state.accessGranted) {
-            PermissionScreen(
-                modifier = Modifier.padding(padding),
-                openNotificationAccess = openNotificationAccess,
-                refresh = viewModel::refresh,
-            )
-            return@Scaffold
-        }
-
         Box(
             Modifier
                 .fillMaxSize()
@@ -222,10 +220,16 @@ private fun LyricsApp(
                     metrics = headerMetrics,
                 )
                 // Out of the way under settings too: their glass would keep blurring behind it.
-                val controlsAlpha by animateFloatAsState(
-                    if (controlsVisible && !showSettings) 1f else 0f,
-                    tween(SpicyMotion.CONTROLS_FADE_MS),
-                    label = "controlsAlpha",
+                val controlsTarget = controlsVisible && !showSettings
+                // Quick to appear under the finger; a slow, soft fade when they time out.
+                val controlsShown by animateFloatAsState(
+                    if (controlsTarget) 1f else 0f,
+                    if (controlsTarget) {
+                        tween(CONTROLS_SHOW_MS, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
+                    } else {
+                        tween(CONTROLS_HIDE_MS, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f))
+                    },
+                    label = "controlsShown",
                 )
                 CompositionLocalProvider(LocalBackdrop provides backdrop) {
                     LyricsControls(
@@ -246,13 +250,22 @@ private fun LyricsApp(
                         onToggleRomanize = { setRomanize(!romanizePreferred) },
                         onOpenSettings = { showSettings = true },
                         interactive = controlsVisible,
+                        shown = { controlsShown },
                         onControlsHeight = { controlsHeightPx = it },
-                        modifier = Modifier
-                            .align(Alignment.BottomCenter)
-                            .graphicsLayer { alpha = controlsAlpha },
+                        modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
             }
+        }
+
+        // Coming back from the system's settings refreshes the grant (onResume), which closes it.
+        SlModal(
+            visible = !state.accessGranted,
+            onDismissRequest = null,
+            backdrop = backdrop,
+            modifier = Modifier.padding(padding),
+        ) {
+            NotificationAccessMessage(openNotificationAccess)
         }
 
         if (showSettings) {
@@ -273,6 +286,8 @@ private fun LyricsApp(
 }
 
 private const val CONTROLS_IDLE_MS = 3_000L
+private const val CONTROLS_SHOW_MS = 350
+private const val CONTROLS_HIDE_MS = 700
 private const val SPINNER_DELAY_MS = 500L
 
 /** Default word-motion boost over Spicy Lyrics' own (RenderConfig.wordMotionBoost). */
@@ -314,26 +329,19 @@ private fun LyricsNotice(message: String, detail: String?, bottomPx: () -> Float
     }
 }
 
+/** Asks for the notification-listener grant, which is how Android hands out media sessions. */
 @Composable
-private fun PermissionScreen(
-    modifier: Modifier,
-    openNotificationAccess: () -> Unit,
-    refresh: () -> Unit,
-) {
-    Box(modifier.fillMaxSize().padding(24.dp), contentAlignment = Alignment.Center) {
-        Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)) {
-            Column(
-                modifier = Modifier.padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Text("MediaSession access required", style = MaterialTheme.typography.titleLarge)
-                Text("Allow notification access so Spicy Player can find the music app currently playing and use its playback controls. Android groups media-session access under this permission. You can revoke it in system settings.")
-                Button(onClick = openNotificationAccess) { Text("Open notification access") }
-                Button(onClick = refresh) { Text("Refresh") }
-            }
-        }
-    }
+private fun NotificationAccessMessage(openNotificationAccess: () -> Unit) {
+    SlModalMessage(
+        title = "Allow notification access",
+        description = "Spicy Player reads the song playing in your music app, and controls it, through its media " +
+            "notification. Android files that under notification access. You can turn it off again in system settings.",
+        icon = {
+            Icon(Icons.Rounded.NotificationsActive, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary)
+        },
+    )
+    SlModalGap()
+    SlModalButton("Open notification access", openNotificationAccess, style = SlButtonStyle.Primary, fill = true)
 }
 
 @Composable

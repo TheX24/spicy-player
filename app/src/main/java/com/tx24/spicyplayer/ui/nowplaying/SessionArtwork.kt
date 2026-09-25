@@ -2,6 +2,7 @@ package com.tx24.spicyplayer.ui.nowplaying
 
 import android.content.Context
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.drawable.BitmapDrawable
 import android.os.Build
 import androidx.compose.runtime.Composable
@@ -12,11 +13,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import coil.Coil
+import com.tx24.spicyplayer.R
 import coil.request.ImageRequest
 import coil.request.SuccessResult
 import coil.size.Size
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
@@ -26,16 +29,39 @@ import kotlinx.coroutines.withContext
  */
 class SessionArtwork(val bitmap: Bitmap, val fingerprint: Int)
 
-/** Loads the session's cover: its bitmap when it sent one, else its artwork URI through Coil. */
+/**
+ * Loads the session's cover: its bitmap when it sent one, else its artwork URI through Coil.
+ * When there is none, the app logo stands in, but only after [FALLBACK_GRACE_MS]: players often
+ * publish a new song's metadata a moment before its cover, and the logo flashing up in between
+ * would be noise.
+ */
 @Composable
 fun rememberSessionArtwork(artwork: Bitmap?, artworkUri: String?, maxDimension: Int): SessionArtwork? {
     val context = LocalContext.current
     var loaded by remember { mutableStateOf<SessionArtwork?>(null) }
     LaunchedEffect(artwork, artworkUri, maxDimension) {
-        loaded = loadSessionArtwork(context, artwork, artworkUri, maxDimension)
+        val cover = loadSessionArtwork(context, artwork, artworkUri, maxDimension)
+        if (cover != null) {
+            loaded = cover
+            return@LaunchedEffect
+        }
+        delay(FALLBACK_GRACE_MS)
+        loaded = fallbackArtwork(context)
     }
     return loaded
 }
+
+private const val FALLBACK_GRACE_MS = 3_000L
+
+@Volatile private var fallback: SessionArtwork? = null
+
+/** The app logo on its gradient, cropped to the launcher icon's visible square. */
+private suspend fun fallbackArtwork(context: Context): SessionArtwork =
+    fallback ?: withContext(Dispatchers.Default) {
+        val options = BitmapFactory.Options().apply { inScaled = false }
+        val bitmap = BitmapFactory.decodeResource(context.resources, R.drawable.fallback_cover, options)
+        SessionArtwork(bitmap, fingerprint(bitmap)).also { fallback = it }
+    }
 
 suspend fun loadSessionArtwork(
     context: Context,
