@@ -22,6 +22,44 @@ class RendererTimelineTest {
         assertEquals(5_000L, timeline[1].endMs)
     }
 
+    @Test fun aBackgroundLeadInStaysUnderItsLineNotUnderTheDots() {
+        val lines = listOf(
+            Line(listOf(Word("one", 0L, 1_000L)), 0L, 1_000L),
+            Line(listOf(Word("two", 6_000L, 7_000L)), 6_000L, 7_000L),
+            // "(oh)" leading into line two: starts in the gap, before its own lead.
+            Line(listOf(Word("oh", 5_000L, 6_500L)), 5_000L, 6_500L, role = LineRole.BACKGROUND),
+        )
+
+        val roles = buildDisplayTimeline(lines, minimalMode = false).map { it.role to it.startMs }
+        assertEquals(
+            listOf(
+                LineRole.LEAD to 0L,
+                LineRole.INTERLUDE to 1_000L,
+                LineRole.LEAD to 6_000L,
+                LineRole.BACKGROUND to 5_000L,
+            ),
+            roles,
+        )
+    }
+
+    @Test fun introDotsRunUntilTheFirstLeadSyllable() {
+        // Bologna 2: the first line starts at 3.1s for a background "Pluh", but its lead vocal
+        // (and the API's song StartTime) is at 12.4s. The line keeps its own start, like SL.
+        val lines = listOf(
+            Line(listOf(Word("I", 12_423L, 13_914L)), 3_115L, 13_914L),
+            Line(listOf(Word("Pluh", 3_115L, 3_730L)), 3_115L, 3_730L, role = LineRole.BACKGROUND),
+            Line(listOf(Word("again", 13_880L, 15_430L)), 13_880L, 15_430L),
+        )
+
+        val timeline = buildDisplayTimeline(lines, minimalMode = false)
+        assertEquals(LineRole.INTERLUDE, timeline[0].role)
+        assertEquals(0L to 12_423L, timeline[0].startMs to timeline[0].endMs)
+        assertEquals(3_115L, timeline[1].startMs)
+        assertEquals(LineRole.BACKGROUND, timeline[2].role)
+        assertEquals(3_115L, timeline[2].startMs)
+        assertEquals(4, timeline.size)
+    }
+
     @Test fun interludeDotsFollowSpicyLyricsTiming() {
         // 9s gap from 10s: thirds of 3000ms, each shifted by -550/3, last ending 550ms early.
         assertEquals(

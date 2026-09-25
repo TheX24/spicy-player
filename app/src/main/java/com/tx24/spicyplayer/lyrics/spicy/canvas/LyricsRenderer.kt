@@ -1,10 +1,16 @@
 package com.tx24.spicyplayer.lyrics.spicy.canvas
 
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Paint
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
@@ -95,7 +101,42 @@ private fun DrawScope.drawWipeText(
         startX = 0f,
         endX = w,
     )
-    drawGlowThenText(layoutResult, topLeft, shadow) { drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft) }
+    drawGlowThenText(layoutResult, topLeft, shadow) { drawGradientText(layoutResult, brush, topLeft) }
+}
+
+/**
+ * Fills the text with [brush] (in text-local coordinates). Colour emoji need a mask: Skia draws
+ * a colour glyph's own pixels and ignores the shader, so a lit word would flip from the white
+ * silhouette an inactive line shows to the real emoji. The reference paints lyrics with
+ * `background-clip: text`, where an emoji is only a shape the gradient shows through, so words
+ * with emoji draw their glyphs into a layer and keep only the brush where they cover (SrcIn).
+ */
+private fun DrawScope.drawGradientText(layoutResult: TextLayoutResult, brush: Brush, topLeft: Offset) {
+    if (!layoutResult.layoutInput.text.text.hasEmoji()) {
+        drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft)
+        return
+    }
+    val w = layoutResult.size.width.toFloat()
+    val h = layoutResult.size.height.toFloat()
+    // Glyphs can reach past the layout box; the layer and fill cover that overhang.
+    val pad = h / 2f
+    translate(topLeft.x, topLeft.y) {
+        drawIntoCanvas { it.saveLayer(Rect(-pad, -pad, w + pad, h + pad), Paint()) }
+        drawText(layoutResult, color = Color.White, shadow = Shadow.None)
+        drawRect(brush, topLeft = Offset(-pad, -pad), size = Size(w + 2 * pad, h + 2 * pad), blendMode = BlendMode.SrcIn)
+        drawIntoCanvas { it.restore() }
+    }
+}
+
+/** True if [this] has a pictographic (colour-emoji) character. */
+internal fun String.hasEmoji(): Boolean {
+    var i = 0
+    while (i < length) {
+        val cp = codePointAt(i)
+        if (cp >= 0x1F000 || cp in 0x2600..0x27BF || cp in 0x2B00..0x2BFF || cp == 0xFE0F || cp in 0x2190..0x21FF || cp in 0x2300..0x23FF) return true
+        i += Character.charCount(cp)
+    }
+    return false
 }
 
 /**
@@ -163,7 +204,7 @@ private fun DrawScope.drawVerticalWipeText(
         startY = 0f,
         endY = h,
     )
-    drawGlowThenText(layoutResult, topLeft, shadow) { drawText(layoutResult, brush = brush, shadow = Shadow.None, topLeft = topLeft) }
+    drawGlowThenText(layoutResult, topLeft, shadow) { drawGradientText(layoutResult, brush, topLeft) }
 }
 
 /**
@@ -283,6 +324,9 @@ private fun cssPx(layout: TextLayoutResult, isBackground: Boolean): Float =
 private fun lyricSizePx(layout: TextLayoutResult, isBackground: Boolean): Float =
     with(layout.layoutInput) { with(density) { style.fontSize.toPx() } } / (if (isBackground) 0.75f else 1f)
 
+/** [scale] with its distance from 1 multiplied by [boost] (RenderConfig.wordMotionBoost). */
+private fun boosted(scale: Float, boost: Float): Float = 1f + (scale - 1f) * boost
+
 /** Word/syllable-synced karaoke line. */
 internal fun DrawScope.drawStandardLine(
     layout: LineLayout,
@@ -343,8 +387,11 @@ private fun DrawScope.drawSyllabicLetterFragment(
     val wordPivotX = wordLeftX + wLayout.fullWordWidth * anchor
     // Offsets are in lyric font sizes (--DefaultLyricsSize); a letter's is applied ×2.
     val lyricSize = lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground)
-    val lYShift = lState.yOffset * lyricSize * 2f
-    val containerYShift = wordAnim.yOffset * lyricSize
+    val boost = config.wordMotionBoost
+    val lYShift = lState.yOffset * lyricSize * 2f * boost
+    val containerYShift = wordAnim.yOffset * lyricSize * boost
+    val wordScale = boosted(wordAnim.scale, boost)
+    val letterScale = boosted(lState.scale, boost)
 
     // Glow shadow tracks the spring in every state (not gated to Active): the reference keeps
     // stepping scale/glow/yOffset toward their Sung targets after EndTime (checkNextLine), so a
@@ -370,9 +417,9 @@ private fun DrawScope.drawSyllabicLetterFragment(
     withTransform({
         // The reference nests letter spans inside the word element: the word's own
         // scale/translate wraps every letter's individual scale/translate.
-        scale(wordAnim.scale, wordAnim.scale, Offset(wordPivotX, sPivotY))
+        scale(wordScale, wordScale, Offset(wordPivotX, sPivotY))
         translate(top = containerYShift)
-        scale(lState.scale, lState.scale, Offset(sPivotX, sPivotY))
+        scale(letterScale, letterScale, Offset(sPivotX, sPivotY))
         translate(top = lYShift)
     }) {
         if (paintPlan is LyricPaintPlan.InactiveShadow) drawInactiveText(
@@ -420,8 +467,8 @@ private fun DrawScope.drawStandardWord(
         else -> null
     }
 
-    val wordScale = wordAnim.scale
-    val wordYShift = wordAnim.yOffset * lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground)
+    val wordScale = boosted(wordAnim.scale, config.wordMotionBoost)
+    val wordYShift = wordAnim.yOffset * lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground) * config.wordMotionBoost
     val pivotX = xPos + textWidth * anchor
     val pivotY = yPos + textHeight / 2f
 

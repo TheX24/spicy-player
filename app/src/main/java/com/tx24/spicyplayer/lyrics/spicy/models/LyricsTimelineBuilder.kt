@@ -4,44 +4,38 @@ private const val NORMAL_INTERLUDE_THRESHOLD_MS = 3_000L
 private const val MINIMAL_INTERLUDE_THRESHOLD_MS = 5_000L
 
 /**
- * Builds the presentation timeline from normalized vocal lines. Background vocals remain next
- * to their lead group but never participate in gap detection.
+ * Builds the presentation timeline from normalized vocal lines, which arrive in document order:
+ * each lead line followed by its background lines. That order is kept, like the reference's
+ * line list: a background vocal leading into its line starts before that line, but it still
+ * belongs under it, never above it.
+ *
+ * Interludes follow the reference's Syllable applyer. Between lines the gap is measured on the
+ * lead lines' times (which its parser stretches over their background vocals). The intro runs
+ * from 0 to the song's StartTime, which the Spicy Lyrics API sets to the first lead syllable,
+ * not the first line: in Bologna 2 the first line starts at 3.1s for a background "Pluh" but
+ * the song's StartTime is 12.4s, when the lead vocal comes in. TTML carries no song StartTime,
+ * so it is taken from the first lead line's own words.
  */
 fun buildDisplayTimeline(lines: List<Line>, minimalMode: Boolean): List<Line> {
     if (lines.isEmpty()) return emptyList()
 
     val threshold = if (minimalMode) MINIMAL_INTERLUDE_THRESHOLD_MS else NORMAL_INTERLUDE_THRESHOLD_MS
-    val ordered = lines.sortedWith(compareBy<Line> { it.startMs }.thenBy { it.role.ordinal })
-    val leads = ordered.filter { it.role == LineRole.LEAD }
-    if (leads.isEmpty()) return ordered
+    if (lines.none { it.role == LineRole.LEAD }) return lines
 
-    val interludes = ArrayList<Line>()
-    val firstLead = leads.first()
-    if (firstLead.startMs >= threshold) {
-        interludes += Line(
-            words = emptyList(),
-            startMs = 0L,
-            endMs = firstLead.startMs,
-            role = LineRole.INTERLUDE,
-        )
-    }
-
-    for (index in 0 until leads.lastIndex) {
-        val current = leads[index]
-        val next = leads[index + 1]
-        if (next.startMs - current.endMs >= threshold) {
-            interludes += Line(
-                words = emptyList(),
-                startMs = current.endMs,
-                endMs = next.startMs,
-                role = LineRole.INTERLUDE,
-            )
+    val timeline = ArrayList<Line>(lines.size + 8)
+    var previousLead: Line? = null
+    for (line in lines) {
+        if (line.role == LineRole.LEAD) {
+            val gapStart = previousLead?.endMs ?: 0L
+            val gapEnd = if (previousLead == null) line.words.minOfOrNull { it.startMs } ?: line.startMs else line.startMs
+            if (gapEnd - gapStart >= threshold) {
+                timeline += Line(words = emptyList(), startMs = gapStart, endMs = gapEnd, role = LineRole.INTERLUDE)
+            }
+            previousLead = line
         }
+        timeline += line
     }
-
-    return (ordered + interludes).sortedWith(
-        compareBy<Line> { it.startMs }.thenBy { if (it.role == LineRole.INTERLUDE) 0 else 1 }
-    )
+    return timeline
 }
 
 /** spicy-lyrics' getInterludeTimePadding(): (preHiddenDotLineMs + 50) * -1. */

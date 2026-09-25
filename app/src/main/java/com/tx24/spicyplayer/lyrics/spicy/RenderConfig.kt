@@ -21,6 +21,11 @@ data class RenderConfig(
     val letterDurationThresholdMs: Long = if (simpleLyricsMode) 1050L else 1000L,
     val letterMaxLength: Int = if (simpleLyricsMode) 12 else Int.MAX_VALUE,
     val interludeGapThresholdMs: Long = if (minimalLyricsMode) 5000L else 3000L,
+    /**
+     * Not in the reference: multiplies how far sung words and letters grow (their scale away
+     * from 1) and lift (their y offset). 1 is Spicy Lyrics' own motion.
+     */
+    val wordMotionBoost: Float = 1f,
 ) {
     val isSimple: Boolean get() = simpleLyricsMode
     val isMinimal: Boolean get() = minimalLyricsMode

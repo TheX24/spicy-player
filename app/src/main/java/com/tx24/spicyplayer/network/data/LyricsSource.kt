@@ -64,11 +64,11 @@ class LyricsSource @Inject constructor(
                 )
                 401, 403 -> ProviderResult.Unavailable(
                     category = ProviderFailureCategory.AUTHENTICATION,
-                    message = "LRCLIB rejected the request",
+                    message = "LRCLIB rejected the request (HTTP ${e.code()})",
                 )
                 in 400..499 -> ProviderResult.Unavailable(
                     category = ProviderFailureCategory.CLIENT_REQUEST,
-                    message = "LRCLIB request was invalid",
+                    message = "LRCLIB request was invalid (HTTP ${e.code()})",
                 )
                 else -> {
                     Timber.w("lrclib request failed with HTTP %d", e.code())

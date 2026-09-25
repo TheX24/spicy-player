@@ -37,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.RoundRect
@@ -117,6 +118,8 @@ fun LyricsControls(
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
     interactive: Boolean = true,
+    /** Height of the controls themselves, without the shade above them, in px. */
+    onControlsHeight: (Int) -> Unit = {},
 ) {
     val backdrop = LocalBackdrop.current
     Box(modifier.fillMaxWidth()) {
@@ -143,7 +146,7 @@ fun LyricsControls(
                 )
                 .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = SHADE_ALPHA))),
         )
-        Box(Modifier.padding(top = SHADE_REACH)) {
+        Box(Modifier.padding(top = SHADE_REACH).onSizeChanged { onControlsHeight(it.height) }) {
             ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings)
             // Hidden controls still own their area: a touch there only brings them back, rather
             // than seeking a lyric line or pressing a button nobody can see.

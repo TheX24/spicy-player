@@ -31,5 +31,6 @@ sealed interface LyricsState {
         val provider: String = "Spicy Lyrics",
         val lyricsType: com.tx24.spicyplayer.lyrics.spicy.models.LyricsType = com.tx24.spicyplayer.lyrics.spicy.models.LyricsType.Syllable,
     ) : LyricsState
-    data class Error(val message: String) : LyricsState
+    /** [message] is the headline, [detail] the smaller line under it (which sources, which codes). */
+    data class Error(val message: String, val detail: String? = null) : LyricsState
 }

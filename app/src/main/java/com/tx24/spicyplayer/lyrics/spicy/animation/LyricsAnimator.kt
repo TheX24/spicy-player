@@ -43,8 +43,10 @@ class LyricsAnimator(
 
     var config: RenderConfig = config
         set(value) {
-            if (value != field) {
-                field = value
+            // The motion boost is applied at draw time; only real mode changes restart the springs.
+            val modeChanged = value.copy(wordMotionBoost = 1f) != field.copy(wordMotionBoost = 1f)
+            field = value
+            if (modeChanged) {
                 rebuildModeSplines()
                 reset()
             }

@@ -124,8 +124,8 @@ class SpicyLyricsProvider @Inject constructor(
                     503 -> ProviderResult.Queued(
                         response.header("Retry-After")?.let(RetryAfterParser::deadline)
                     )
-                    401, 403 -> ProviderResult.Unavailable(ProviderFailureCategory.AUTHENTICATION)
-                    in 400..499 -> ProviderResult.Unavailable(ProviderFailureCategory.CLIENT_REQUEST)
+                    401, 403 -> ProviderResult.Unavailable(ProviderFailureCategory.AUTHENTICATION, "Spicy Lyrics returned HTTP ${response.code}")
+                    in 400..499 -> ProviderResult.Unavailable(ProviderFailureCategory.CLIENT_REQUEST, "Spicy Lyrics returned HTTP ${response.code}")
                     else -> ProviderResult.Unavailable(
                         ProviderFailureCategory.SERVER,
                         "Spicy Lyrics returned HTTP ${response.code}",

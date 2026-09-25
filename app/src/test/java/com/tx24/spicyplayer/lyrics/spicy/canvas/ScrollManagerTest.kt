@@ -32,6 +32,16 @@ class ScrollManagerTest {
         assertEquals(-300f, scroll.animScrollY, 0.01f)
     }
 
+    @Test fun aLineChangeGlidesFrontLoadedLikeDesktopChromium() {
+        frames(0.1f, 0, 0f)
+        // 400px: sqrt(400) = 20 frames. cubic-bezier(0.4, 0, 0, 1) covers ~86% of it by the
+        // halfway mark, where ease-in-out is only at 50%.
+        frames(10f / 60f, 1, -400f)
+        assertTrue(scroll.animScrollY < -320f)
+        frames(15f / 60f, 1, -400f)
+        assertEquals(-400f, scroll.animScrollY, 0.01f)
+    }
+
     @Test fun touchingHidesBlurAndStopsAutoScrollUntilCooldown() {
         frames(0.1f, 0, -300f)
         drag(-200f)

@@ -18,6 +18,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.lyrics.LyricsNotices
 import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.lyrics.NextLyricsBackend
 import com.tx24.spicyplayer.lyrics.RemoteLyricsAdapter
@@ -359,7 +360,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 ?: mutableState.value.detectedSpotifyId,
         )
         if (request.title.isBlank() || request.artist.isBlank()) {
-            mutableState.value = mutableState.value.copy(lyrics = LyricsState.Error("Track metadata is insufficient for a lyric lookup"))
+            mutableState.value = mutableState.value.copy(lyrics = LyricsNotices.missingMetadata)
             return
         }
         lyricsJob?.cancel()
@@ -399,7 +400,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     mutableState.value = mutableState.value.copy(
-                        lyrics = LyricsState.Error(error.message ?: "Lyrics request failed"),
+                        lyrics = LyricsNotices.lookupFailed(error),
                         lookupStatus = "Lyric lookup failed",
                     )
                 }
@@ -449,15 +450,14 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val selection = (resolution as? RemoteLyricsResolution.Found)?.selection
         val lyrics = when {
             selection == null && !final -> if (shownSelection == null) mutableState.value.lyrics else LyricsState.Loading
-            selection == null -> LyricsState.Error(
-                if (resolution is RemoteLyricsResolution.NotFound) "No enabled lyric source found this track"
-                else "Lyrics sources are temporarily unavailable"
-            )
+            selection == null -> LyricsNotices.noLyrics(resolution.attempts) { id ->
+                lyricsBackend.descriptors.firstOrNull { it.id == id }?.displayName ?: id
+            }
             selection == shownSelection -> mutableState.value.lyrics
             // Rendering includes on-device romanization, which is too heavy for main.
             else -> withContext(Dispatchers.Default) {
                 runCatching { RemoteLyricsAdapter.render(selection, request.durationSeconds * 1_000L) }
-                    .getOrElse { LyricsState.Error(it.message ?: "Lyrics could not be displayed") }
+                    .getOrElse { LyricsNotices.renderFailed(selection.source.displayName, it) }
             }
         }
         if (currentLyricsKey != identity) return

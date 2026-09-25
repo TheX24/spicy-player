@@ -17,12 +17,17 @@ import kotlin.math.sqrt
  * - After resuming it only moves when the current line changes, so a nudge is left alone.
  * - Jumps of over a second in the song snap straight to the line; shorter moves glide.
  *
- * Glides copy the reference's `scroll-behavior: smooth`, i.e. Chromium's programmatic smooth
- * scroll: ease-in-out over sqrt(distance in CSS px) / 60 seconds, at most 0.2s.
+ * Glides copy the reference's `scroll-behavior: smooth`, i.e. desktop Chromium's programmatic
+ * smooth scroll (cc ScrollOffsetAnimationCurve, M143+): cubic-bezier(0.4, 0, 0, 1) over
+ * sqrt(distance in px) / 60 seconds, at most 1.5s. The curve is front-loaded (~86% of the move
+ * by halfway, against 50% for ease-in-out), so the line lands early and then settles softly.
  */
 internal class ScrollManager(
-    /** px per CSS px (dp); glide durations are measured in CSS px like the reference. */
-    private val density: Float = 1f,
+    /**
+     * Our px per px of the reference's desktop page. Glide durations are measured in its px, and
+     * like the effect sizes they scale with the lyric text (its 56px lyrics), not screen density.
+     */
+    var pxPerReferencePx: Float = 1f,
     private val clockMs: () -> Long = { System.nanoTime() / 1_000_000L },
 ) {
     /** Offset added to the content: 0 puts the first line at the anchor, negative scrolls down. */
@@ -172,13 +177,13 @@ internal class ScrollManager(
             glideFrom = y
             glideTo = goal
             glideElapsed = 0f
-            val cssPx = abs(goal - y) / density
-            glideDuration = minOf(sqrt(cssPx), MAX_GLIDE_FRAMES) / 60f
+            val referencePx = abs(goal - y) / pxPerReferencePx.coerceAtLeast(0.01f)
+            glideDuration = minOf(sqrt(referencePx), MAX_GLIDE_FRAMES) / 60f
         }
         if (glideElapsed >= glideDuration) return glideTo
         glideElapsed += dt
         val t = (glideElapsed / glideDuration).coerceIn(0f, 1f)
-        return glideFrom + (glideTo - glideFrom) * EASE_IN_OUT.transform(t)
+        return glideFrom + (glideTo - glideFrom) * GLIDE_EASING.transform(t)
     }
 
     /** Stops any glide with the view resting at [y]. */
@@ -207,8 +212,12 @@ internal class ScrollManager(
         const val MIN_FLING_VELOCITY = 10f
         const val OVERSCROLL_PX = 60f
         const val EDGE_RETURN_RATE = 12f
-        /** Chromium caps a delta-based smooth scroll at 12 frames of 1/60s. */
-        const val MAX_GLIDE_FRAMES = 12f
-        val EASE_IN_OUT = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
+        /**
+         * Desktop Chromium's kProgrammaticScrollAnimationOverride defaults (cc/base/features.cc):
+         * max_animation_duration 1500ms (90 frames of 1/60s) and the curve below. Older builds
+         * used ease-in-out capped at 0.2s, which starts slow and trails the line change.
+         */
+        const val MAX_GLIDE_FRAMES = 90f
+        val GLIDE_EASING = CubicBezierEasing(0.4f, 0f, 0f, 1f)
     }
 }

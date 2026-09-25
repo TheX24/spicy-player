@@ -49,6 +49,8 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableIntStateOf
+import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,6 +63,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.foundation.layout.width
 import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutMetrics
 import com.tx24.spicyplayer.lyrics.spicy.canvas.SpicyLyricsView
@@ -80,7 +87,9 @@ import com.tx24.spicyplayer.ui.controls.PlaybackControlsState
 import com.tx24.spicyplayer.ui.nowplaying.CompactHeaderMetrics
 import com.tx24.spicyplayer.ui.nowplaying.CompactNowPlayingHeader
 import com.tx24.spicyplayer.ui.nowplaying.NowPlayingInfo
+import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
+import com.tx24.spicyplayer.ui.theme.SpicyType
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
 import kotlinx.coroutines.delay
@@ -128,6 +137,14 @@ private fun LyricsApp(
         ready.lines.any { line -> line.words.any { it.romanized != null } }
     } == true
     val romanize = romanizePreferred && romanizationAvailable
+    var originalWordMotion by remember { mutableStateOf(uiPrefs.getBoolean("originalWordMotion", false)) }
+    val setOriginalWordMotion = { on: Boolean ->
+        originalWordMotion = on
+        uiPrefs.edit().putBoolean("originalWordMotion", on).apply()
+    }
+    val renderConfig = remember(originalWordMotion) {
+        RenderConfig.FULL.copy(wordMotionBoost = if (originalWordMotion) 1f else WORD_MOTION_BOOST)
+    }
     var showSettings by remember { mutableStateOf(false) }
     val backdrop = remember { HazeState() }
 
@@ -183,6 +200,13 @@ private fun LyricsApp(
                         lyricFontSizeSp = LyricsLayoutMetrics(pageWidth, density, LyricsType.Syllable, 1f).baseFontSizeSp,
                     )
                 }
+                var controlsHeightPx by remember { mutableIntStateOf(0) }
+                // While the controls show, a notice centres in the space they leave above them.
+                val noticeBottomPx by animateFloatAsState(
+                    if (controlsVisible) controlsHeightPx.toFloat() else 0f,
+                    tween(SpicyMotion.CONTROLS_FADE_MS),
+                    label = "noticeBottom",
+                )
                 // Everything the glass controls blur.
                 Box(Modifier.fillMaxSize().hazeSource(backdrop)) {
                     SpicySessionBackground(
@@ -199,6 +223,8 @@ private fun LyricsApp(
                             onSeek = viewModel::seekTo,
                             romanize = romanize,
                             activeLineTopPx = headerMetrics.activeLineTopPx,
+                            noticeBottomPx = { noticeBottomPx },
+                            config = renderConfig,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -231,6 +257,7 @@ private fun LyricsApp(
                         onToggleRomanize = { setRomanize(!romanizePreferred) },
                         onOpenSettings = { showSettings = true },
                         interactive = controlsVisible,
+                        onControlsHeight = { controlsHeightPx = it },
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .graphicsLayer { alpha = controlsAlpha },
@@ -247,6 +274,8 @@ private fun LyricsApp(
                 romanizePreferred = romanizePreferred,
                 romanizationAvailable = romanizationAvailable,
                 onRomanizeChange = setRomanize,
+                originalWordMotion = originalWordMotion,
+                onOriginalWordMotionChange = setOriginalWordMotion,
                 onClose = { showSettings = false },
                 modifier = Modifier.padding(padding),
             )
@@ -256,6 +285,45 @@ private fun LyricsApp(
 
 private const val CONTROLS_IDLE_MS = 3_000L
 
+/** Default word-motion boost over Spicy Lyrics' own (RenderConfig.wordMotionBoost). */
+private const val WORD_MOTION_BOOST = 1.25f
+
+/**
+ * Spicy Lyrics' `.LyricsNotice` (default.scss): centred in the lyrics area, 80% of its width,
+ * centre-aligned. `.notice-descriptor` is semibold primary text at clamp(1.25rem, 3.5cqw, 2.5rem);
+ * `.notice-footer` sits 1cqh under it, regular secondary text at clamp(0.95rem, 3.5cqw, 1.45rem).
+ * [bottomPx] is how much of the panel's bottom the controls cover right now.
+ */
+@Composable
+private fun LyricsNotice(message: String, detail: String?, bottomPx: () -> Float, modifier: Modifier) {
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val cqw = maxWidth.value / 100f
+        val cqh = maxHeight / 100f
+        Column(
+            Modifier
+                .align(Alignment.Center)
+                .width(maxWidth * 0.8f)
+                .graphicsLayer { translationY = -bottomPx() / 2f },
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            val base = SpicyType.Body.copy(letterSpacing = (-0.01f).em, textAlign = TextAlign.Center)
+            Text(message, style = base.copy(fontSize = (cqw * 3.5f).coerceIn(20f, 40f).sp, fontWeight = FontWeight.SemiBold, lineHeight = 1.25.em))
+            if (detail != null) {
+                Text(
+                    detail,
+                    modifier = Modifier.padding(top = cqh),
+                    style = base.copy(
+                        fontSize = (cqw * 3.5f).coerceIn(15.2f, 23.2f).sp,
+                        fontWeight = FontWeight.Normal,
+                        letterSpacing = 0.sp,
+                        color = SpicyColors.TextSecondary,
+                    ),
+                )
+            }
+        }
+    }
+}
+
 /** The old Options and Debug panels on their own page, until the real settings screen replaces them. */
 @Composable
 private fun TemporarySettings(
@@ -264,6 +332,8 @@ private fun TemporarySettings(
     romanizePreferred: Boolean,
     romanizationAvailable: Boolean,
     onRomanizeChange: (Boolean) -> Unit,
+    originalWordMotion: Boolean,
+    onOriginalWordMotionChange: (Boolean) -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -327,6 +397,16 @@ private fun TemporarySettings(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(if (romanizationAvailable) "Romanize" else "Romanize (nothing to romanize)", modifier = Modifier.weight(1f))
                 Switch(checked = romanizePreferred, enabled = romanizationAvailable, onCheckedChange = onRomanizeChange)
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Original word motion")
+                    Text(
+                        "Spicy Lyrics' own amount of grow and lift on sung words. Off: ${WORD_MOTION_BOOST}×, which reads better on a phone.",
+                        style = MaterialTheme.typography.labelSmall,
+                    )
+                }
+                Switch(checked = originalWordMotion, onCheckedChange = onOriginalWordMotionChange)
             }
             Text("Lyric sources", style = MaterialTheme.typography.titleMedium)
             state.sourceOrder.forEachIndexed { index, id ->
@@ -423,18 +503,16 @@ private fun LyricsPanel(
     onSeek: (Long) -> Unit,
     romanize: Boolean,
     activeLineTopPx: Float?,
+    noticeBottomPx: () -> Float,
+    config: RenderConfig,
     modifier: Modifier = Modifier,
 ) {
     when (lyrics) {
-        LyricsState.Idle -> Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text("Waiting for track lyrics", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        LyricsState.Idle -> LyricsNotice("Waiting for a song", null, noticeBottomPx, modifier)
+        LyricsState.Loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator(color = SpicyColors.TextSecondary)
         }
-        LyricsState.Loading -> Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator()
-        }
-        is LyricsState.Error -> Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-            Text(lyrics.message, color = MaterialTheme.colorScheme.error)
-        }
+        is LyricsState.Error -> LyricsNotice(lyrics.message, lyrics.detail, noticeBottomPx, modifier)
         is LyricsState.Ready -> {
             val rendererLines = remember(lyrics.lines) {
                 buildDisplayTimeline(lyrics.lines.map { line ->
@@ -459,6 +537,7 @@ private fun LyricsPanel(
                 romanize = romanize,
                 activeLineTopPx = activeLineTopPx,
                 lyricsType = lyrics.lyricsType,
+                config = config,
                 footer = remember(lyrics) {
                     LyricsFooter(
                         songwriters = lyrics.songwriters,

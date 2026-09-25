@@ -93,7 +93,7 @@ fun SpicyLyricsView(
 
     // Synthesize per-letter emphasis for held words using the active config (mode-dependent
     // thresholds, romanized display). Syllable mode only; Line/Static never letter-split.
-    val displayLines = remember(lines, config, romanize, lyricsType) {
+    val displayLines = remember(lines, config.copy(wordMotionBoost = 1f), romanize, lyricsType) {
         if (lyricsType == LyricsType.Syllable) LetterSynthesizer.apply(lines, config, romanize) else lines
     }
 
@@ -114,7 +114,7 @@ fun SpicyLyricsView(
     // Read by the drag handler, written by the frame loop.
     val contentHeightForDrag = remember(documentId) { FloatArray(1) }
     val density = LocalDensity.current
-    val scrollManager = remember(documentId, density.density) { ScrollManager(density = density.density).also { it.reset() } }
+    val scrollManager = remember(documentId) { ScrollManager().also { it.reset() } }
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
 
@@ -138,6 +138,7 @@ fun SpicyLyricsView(
         val creditBaseSp = remember(canvasWidth, density.density, fontSizeScale) {
             LyricsLayoutMetrics(canvasWidth, density.density, LyricsType.Syllable, fontSizeScale).baseFontSizeSp
         }
+        scrollManager.pxPerReferencePx = creditBaseSp * density.density / REFERENCE_LYRIC_SIZE_PX
         val footerLayouts = remember(footer, creditBaseSp, footerSlot.widthPx, canvasWidth) {
             val lyricPx = creditBaseSp * density.density
             val constraints = Constraints(maxWidth = footerSlot.widthPx.roundToInt().coerceAtLeast(1))
@@ -448,6 +449,8 @@ fun SpicyLyricsView(
 
 /** Scales the credits relative to the reference's proportions, for a phone screen. */
 private const val CREDIT_SCALE = 1.15f
+/** Spicy Lyrics' desktop lyric size (--DefaultLyricsSize at its 3.5rem cap), in its px. */
+private const val REFERENCE_LYRIC_SIZE_PX = 56f
 
 private class FooterRow(
     val line: FooterLine,
