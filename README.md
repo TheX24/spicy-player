@@ -40,6 +40,6 @@ An intentional `v<versionName>` tag starts the prerelease workflow. It checks th
 - The controls report Android media-session acknowledgement, which is not a measurement of audible response time.
 - Source preferences, manual Spotify-ID overrides, and cached lyrics are stored locally. Android backup is disabled.
 
-## Source and attribution
+## License and attribution
 
-Parts of the renderer and lyric logic are ports from Spicy Lyrics, mild-lyrics, and other projects. Their provenance and bundled-font licenses must be documented before this repository is made public. See [PUBLICATION_CHECKLIST.md](PUBLICATION_CHECKLIST.md).
+Spicy Player is licensed under the [GNU Affero General Public License, version 3](LICENSE), following Spicy Lyrics. Parts of the renderer and lyric logic are adapted from Spicy Lyrics, mild-lyrics, and other projects. See [PUBLICATION_CHECKLIST.md](PUBLICATION_CHECKLIST.md) for the remaining publication checks.
