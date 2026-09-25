@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 An Android (Kotlin + Jetpack Compose) lyrics app for music playing in *another* app. It has no library and no playback service of its own. It reads the other app's MediaSession through a notification-listener grant, fetches lyrics from many online sources, and draws them with a port of Spicy Lyrics' (the Spotify/Spicetify extension's) word-synced renderer and backgrounds. Application ID: `com.tx24.spicyplayer.next`. The single module is `:app` with namespace `com.tx24.spicyplayer`.
 
-Much of the code ports Spicy Lyrics' web client (and `@kawarp/core` for the background). When behaviour is in question, the reference sources are the ground truth, and code comments often name the upstream function being matched (e.g. `GetScrollLine`). The reference checkouts live at `~/Projects/refs/spicy-lyrics` and `~/Projects/refs/mild-lyrics`. Do not use the original Spicy Player app as a reference.
+Much of the code ports Spicy Lyrics' web client (and `@kawarp/core` for the background). When behaviour is in question, the reference sources are the ground truth, and code comments often name the upstream function being matched (e.g. `GetScrollLine`). The reference checkouts live at `~/Projects/refs/spicy-lyrics` and `~/Projects/refs/mild-lyrics`. For the settings UI, iPixelGalaxy's fork of Spicy Lyrics (fetched into the spicy-lyrics checkout as `pixel/*`, e.g. `pixel/dev`) is the reference. Do not use the original Spicy Player app as a reference.
 
 ## Commands
 
@@ -21,32 +21,38 @@ Windows / PowerShell (use `./gradlew` from Git Bash):
 
 - Unit tests are plain JVM JUnit4. `unitTests.isReturnDefaultValues = true` turns Android logging and clock calls into no-ops, so provider and parser code runs unchanged. XML parsing in tests uses kxml2.
 - The live-network tests skip themselves unless you opt in: `RUN_SPICY_LYRICS_PROVIDER_TEST=1` (also needs `SPICY_LYRICS_CLIENT_KEY` in the environment) and `RUN_AMLL_NETWORK_TEST=1`.
-- `SPICY_LYRICS_CLIENT_KEY` is read from a git-ignored root `.env` into `BuildConfig`. It must be a publishable `sl_pk_` key, never a secret `sl_sk_` key. Users can override it in Options.
+- `SPICY_LYRICS_CLIENT_KEY` is read from a git-ignored root `.env` into `BuildConfig`. It must be a publishable `sl_pk_` key, never a secret `sl_sk_` key. Users can override it in Settings → Sources.
 
-## Releases and changelog
+## More docs
 
-Use GitHub Releases as the changelog for this repo. For now, every release is a **debug APK**; do not build or attach a release-variant APK or set up signing for one. Mark these GitHub releases as pre-releases so the download is clearly a development build.
+Read these only when the task calls for them:
 
-When asked to make a release:
-
-1. Bump `versionName` and increment `versionCode` in `app/build.gradle.kts`. Use a matching `v<versionName>` Git tag (for example, `v0.2.0`). Never reuse a version code or tag.
-2. Write release notes describing user-visible additions, fixes, and important limitations since the previous release. Use clear headings and concise bullets; do not paste a raw commit log. The GitHub release notes are the changelog.
-3. Ensure the local `.env` supplies a publishable `sl_pk_` client key, then run `.\gradlew.bat assembleDebug testDebugUnitTest lintDebug`. Check that `app/build/outputs/apk/debug/app-debug.apk` exists and installs if a device is available. Never put the key or `.env` in Git or release notes.
-4. Commit the version bump and any release-related changes. Push the commit and tag, then create a GitHub pre-release from that tag with the prepared notes and `app-debug.apk` attached. Verify the published tag, notes, and downloadable APK on GitHub. Do not create a release just because code changed; do it when requested.
-
-Do not publish an APK built from uncommitted changes or a different commit than the release tag. The debug APK is signed with the Android debug key and is for testing, not store distribution.
+- `docs/architecture.md`: before working inside a layer (session tracking, backend, sources, normalisation, rendering, UI).
+- `docs/settings.md`: before adding or changing a setting.
+- `docs/releases.md`: when asked to make a release. Releases are debug-APK GitHub pre-releases, and they double as the changelog.
 
 ## Architecture
 
-The data flows through these layers:
+The data flows through five layers. `docs/architecture.md` has the detail for each; read it before working on one.
 
-1. **Session tracking**: `playback/ExternalPlaybackViewModel.kt`. `SessionAccessService` is an empty `NotificationListenerService` that exists only to grant `MediaSessionManager` access. The VM watches all active sessions, prefers a playing local player over a remote mirror, and keeps a `TimelineAnchor` (position + `elapsedRealtime` + speed) as a monotonic lyric clock. `ClockCorrection` decides when drift reported by the session is big enough to re-anchor. `AudioOutputProfiles` stores a lyric delay per output route (e.g. Bluetooth vs. speaker). Lyrics are keyed on title + artist only, because players fill metadata in across several updates. The playback clock follows the full track identity.
-2. **Lyrics backend**: `lyrics/NextLyricsBackend.kt` wires the OkHttp/Retrofit client, the ~16 `RemoteLyricsProvider`s in `network/data/providers/`, source preferences (SharedPreferences), the per-track memory cache, a 3-day disk cache in `cacheDir/lyrics`, and fetch-ahead for queued tracks. **Bump `CACHE_VERSION` whenever matching, conversion, or TTML layout changes**, or stale cached lyrics will keep being served.
-3. **Source selection**: `network/data/RemoteLyricsSource.kt`. It asks the lead source first, then fans out to the rest in parallel. It reports the best result so far as results arrive (`onUpdate`), stops early once a good enough result is in, and applies `ProviderCooldownTracker` backoff. Quality ranking and diagnostics feed the Debug screen. Providers that need a Spotify track ID (Spicy Lyrics) get one from `network/data/spotify/SpotifyTrackResolver` + `SpotifyTrackMatcher`, which deliberately refuse unsafe matches rather than substitute a different recording. The matching heuristics are considered settled, so avoid re-tuning them without cause.
-   **Blends** (`network/data/LyricsBlends.kt` + `network/data/blend/`) port mild-lyrics' `_blend`: the best line-synced answer ranked above gets QQ/Kugou/NetEase word timing laid under its own words. Each blend ranks just above its highest donor and is built locally once those answers are in, so it makes no requests of its own. Off by default; toggled in Options. `BlendParityTest` checks the port against mild-lyrics' Python on real songs. It skips unless you generate fixtures with `tools/make_blend_fixtures.py` into `build/blend-fixtures` (they are full lyrics, so never commit them). Keep that test at 0 differences when touching the blender.
-4. **Normalisation**: providers return a `RemoteLyricsPayload`. TTML is first-class, so word timing never gets flattened to LRC. `lyrics/RemoteLyricsAdapter.kt` turns TTML (via `lyrics/spicy/parser/TtmlLyricsParser`, a port of SL's client `ttml/parser.ts`), LRC, or plain text into renderer `Line`/`Word` models, credits footer included.
-5. **Rendering**: `lyrics/spicy/canvas/SpicyLyricsView.kt` is a single Compose `Canvas` driven by one `withFrameNanos` loop that reads `currentTimeMs()` outside composition. `LyricsLayoutCalculator` + `LineWrapper` handle layout, `LyricsAnimator` (springs / cubic splines) handles animation, and `ScrollPolicyController` + `ScrollManager` handle scrolling, following SL's scroll-line logic. `LyricsRenderer` draws. `LetterSynthesizer` makes per-letter emphasis for held words. `romanization/` covers the per-script romanizers (kuromoji for Japanese, pinyin4j for Chinese). Backgrounds are `kawarp/` (the Kawarp port) or `DynamicBackgroundRenderer`, picked in `ui/background/SpicySessionBackground.kt`.
-6. **UI**: `MainActivity.kt` holds the lyrics screen: the header (`ui/nowplaying/`, SL's compact NowBar), the lyrics, and `ui/controls/LyricsControls` at the bottom (SL's floating ViewControls, the glass timeline and SL's playback row; any touch shows them, they fade after 3 s while playing). SL's design tokens live in `ui/theme/SpicyTokens.kt` and the glass ViewControl look in `ui/components/GlassButton.kt`; new chrome should use those rather than Material defaults. Settings is still a temporary page of the old Options/Debug panels.
+1. **Session tracking**: `playback/`, reading the other app's MediaSession and keeping the lyric clock.
+2. **Lyrics backend**: `lyrics/NextLyricsBackend.kt`, which holds the providers, the caches and the source preferences.
+3. **Source selection**: `network/data/`, covering source ranking, Spotify matching and blends.
+4. **Normalisation**: TTML, LRC or plain text become renderer `Line`/`Word` models.
+5. **Rendering**: `lyrics/spicy/canvas/`, the SL renderer. Backgrounds are in `kawarp/` and `ui/background/`.
+
+The UI is split across these places:
+- `MainActivity.kt` is the lyrics screen.
+- `ui/nowplaying/` holds the header, and `ui/controls/` the controls.
+- `ui/settings/` holds settings.
+
+SL's design tokens and glass live in `ui/theme/SpicyTokens.kt` and `ui/components/`. New chrome uses those, not Material defaults.
+
+Rules that apply even without the detail doc:
+- Bump `CACHE_VERSION` whenever matching, conversion or TTML layout changes. Otherwise stale cached lyrics keep being served.
+- The Spotify matching heuristics are settled, so don't re-tune them without cause.
+- Keep `BlendParityTest` at 0 differences when touching the blender. Never commit its fixtures, which are full lyrics.
+- TTML is first-class: word timing never gets flattened to LRC.
 
 ## Renderer conventions learned the hard way
 
