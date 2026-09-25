@@ -1,4 +1,4 @@
-package com.tx24.spicyplayer.latencytest
+package com.tx24.spicyplayer.lyrics
 
 data class TimedWord(
     val text: String,

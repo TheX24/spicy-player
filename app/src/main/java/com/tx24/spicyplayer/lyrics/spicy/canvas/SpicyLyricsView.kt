@@ -76,6 +76,9 @@ fun SpicyLyricsView(
     lyricsType: LyricsType = LyricsType.Syllable,
     romanize: Boolean = false,
     focusAnchorFraction: Float = 0.25f,
+    // When set, the active line's top (not its centre) is kept this far below the view's top,
+    // like SL's compact mode ("Top" scrolling); focusAnchorFraction is then unused.
+    activeLineTopPx: Float? = null,
     // Invoked with the raw frame-nanos at the top of this view's own animation frame, before
     // currentTimeMs() is read. Lets a caller (e.g. the playback clock smoothing in
     // SpicyLyricsPlayer) piggyback on this view's single withFrameNanos loop instead of running
@@ -119,7 +122,8 @@ fun SpicyLyricsView(
         val canvasWidth = constraints.maxWidth.toFloat()
         val canvasHeight = constraints.maxHeight.toFloat()
         // Compact fullscreen keeps the active lyric in the upper portion of the viewport.
-        val centerY = ScrollPolicyController.anchorY(canvasHeight, focusAnchorFraction)
+        val centerY = activeLineTopPx ?: ScrollPolicyController.anchorY(canvasHeight, focusAnchorFraction)
+        val alignTop = activeLineTopPx != null
         val footerMetrics = remember(canvasWidth, density.density, fontSizeScale, lyricsType) {
             LyricsLayoutMetrics(canvasWidth, density.density, lyricsType, fontSizeScale)
         }
@@ -276,7 +280,7 @@ fun SpicyLyricsView(
                         }
 
                         // 2. Resolve the reference lead/background overlap policy, then anchor
-                        // that one line at viewport center minus 30dp.
+                        // that one line: its centre at the focus point, or its top (compact mode).
                         val decision = scrollPolicy.decide(currentLines, currentTime)
                         // A lead with no words of its own (the line is only background vocals)
                         // has no height; its background vocals stand in for it.
@@ -286,8 +290,13 @@ fun SpicyLyricsView(
                                 next.line.groupId == currentLayouts[index].line.groupId) index + 1 else index
                         }
                         var targetY: Float? = targetIndex?.let { index ->
-                            // An interlude's offset is already the centre of its dots.
-                            val half = if (currentLayouts[index].isInterlude) 0f else currentLayouts[index].height / 2f
+                            // An interlude's offset is already the centre of its dots, in a row
+                            // one lyric line tall.
+                            val half = when {
+                                alignTop -> if (currentLayouts[index].isInterlude) -rowHeightUpdated / 2f else 0f
+                                currentLayouts[index].isInterlude -> 0f
+                                else -> currentLayouts[index].height / 2f
+                            }
                             -(settledYScratch[index] + half)
                         }
                         val targetVisiblePx = targetIndex?.let { index ->

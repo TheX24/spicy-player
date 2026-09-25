@@ -1,4 +1,4 @@
-package com.tx24.spicyplayer.latencytest
+package com.tx24.spicyplayer.playback
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull

@@ -1,4 +1,4 @@
-package com.tx24.spicyplayer.latencytest
+package com.tx24.spicyplayer.ui.background
 
 import android.graphics.Bitmap
 import android.os.Build
