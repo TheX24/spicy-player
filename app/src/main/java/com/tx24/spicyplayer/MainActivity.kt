@@ -273,6 +273,7 @@ private fun LyricsApp(
 }
 
 private const val CONTROLS_IDLE_MS = 3_000L
+private const val SPINNER_DELAY_MS = 500L
 
 /** Default word-motion boost over Spicy Lyrics' own (RenderConfig.wordMotionBoost). */
 private const val WORD_MOTION_BOOST = 1.25f
@@ -349,7 +350,14 @@ private fun LyricsPanel(
     when (lyrics) {
         LyricsState.Idle -> LyricsNotice("Waiting for a song", null, noticeBottomPx, modifier)
         LyricsState.Loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            CircularProgressIndicator(color = SpicyColors.TextSecondary)
+            // Cached lyrics arrive within a few frames; a spinner flashing up for those would
+            // only be noise, so it waits until the lookup actually takes a while.
+            var showSpinner by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                delay(SPINNER_DELAY_MS)
+                showSpinner = true
+            }
+            if (showSpinner) CircularProgressIndicator(color = SpicyColors.TextSecondary)
         }
         is LyricsState.Error -> LyricsNotice(lyrics.message, lyrics.detail, noticeBottomPx, modifier)
         is LyricsState.Ready -> {

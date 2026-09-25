@@ -87,34 +87,42 @@ fun SpicyLyricsView(
     onFrameTick: ((Long) -> Unit)? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
-    var lineLayouts by remember(documentId) { mutableStateOf<List<LineLayout>>(emptyList()) }
-    val layoutGeneration = remember(documentId) { LayoutGenerationGate() }
+    // What is on screen: lines and their layouts, swapped together once new layouts are measured.
+    // Until then the previous lyrics stay up, so a source switch mid-song (a better answer
+    // arriving) replaces them in one frame instead of blanking the view while it measures.
+    var shown by remember { mutableStateOf<ShownLyrics?>(null) }
+    val shownId = shown?.documentId
+    val lineLayouts = shown?.layouts.orEmpty()
+    // The type and credits of what is shown, not of what is still being measured.
+    val incomingType = lyricsType
+    val incomingFooter = footer
+    val lyricsType = shown?.lyricsType ?: incomingType
+    val footer = shown?.footer ?: incomingFooter
     val coroutineScope = rememberCoroutineScope()
 
     // Synthesize per-letter emphasis for held words using the active config (mode-dependent
     // thresholds, romanized display). Syllable mode only; Line/Static never letter-split.
-    val displayLines = remember(lines, config.copy(wordMotionBoost = 1f), romanize, lyricsType) {
-        if (lyricsType == LyricsType.Syllable) LetterSynthesizer.apply(lines, config, romanize) else lines
+    val displayLines = remember(lines, config.copy(wordMotionBoost = 1f), romanize, incomingType) {
+        if (incomingType == LyricsType.Syllable) LetterSynthesizer.apply(lines, config, romanize) else lines
     }
 
-    val animator = remember(documentId) { LyricsAnimator(coroutineScope, config) }
+    val animator = remember(shownId) { LyricsAnimator(coroutineScope, config) }
     LaunchedEffect(config) { animator.config = config }
-    LaunchedEffect(documentId) { animator.reset() }
     val isStatic = lyricsType == LyricsType.Static
 
     // Keep the latest time provider without recomposing on every position tick: the frame loop
     // invokes it off-composition (inside withFrameNanos), so the changing clock never re-runs this
     // composable's body — only the Canvas redraws when the derived anim state actually changes.
     val currentTimeProvider by rememberUpdatedState(currentTimeMs)
-    val linesUpdated by rememberUpdatedState(displayLines)
+    val linesUpdated by rememberUpdatedState(shown?.lines.orEmpty())
     val lineLayoutsUpdated by rememberUpdatedState(lineLayouts)
     val onFrameTickUpdated by rememberUpdatedState(onFrameTick)
 
-    val scrollPolicy = remember(documentId) { ScrollPolicyController() }
+    val scrollPolicy = remember(shownId) { ScrollPolicyController() }
     // Read by the drag handler, written by the frame loop.
-    val contentHeightForDrag = remember(documentId) { FloatArray(1) }
+    val contentHeightForDrag = remember(shownId) { FloatArray(1) }
     val density = LocalDensity.current
-    val scrollManager = remember(documentId) { ScrollManager().also { it.reset() } }
+    val scrollManager = remember(shownId) { ScrollManager().also { it.reset() } }
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
 
@@ -188,16 +196,14 @@ fun SpicyLyricsView(
             }.toMap()
         }
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
-        LaunchedEffect(displayLines, canvasWidth, fontSizeScale, romanize, documentId) {
-            val generation = layoutGeneration.next()
+        // A newer key cancels a measurement still running, so only the latest one lands.
+        LaunchedEffect(displayLines, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter) {
             val measured = withContext(Dispatchers.Default) {
                 LyricsLayoutCalculator.calculateLineLayouts(
-                    displayLines, canvasWidth, textMeasurer, density.density, lyricsType, fontSizeScale, romanize,
+                    displayLines, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanize,
                 )
             }
-            if (layoutGeneration.isCurrent(generation)) {
-                lineLayouts = measured
-            }
+            shown = ShownLyrics(documentId, displayLines, measured, incomingType, incomingFooter)
         }
 
         if (lineLayouts.isEmpty()) return@BoxWithConstraints
@@ -206,8 +212,8 @@ fun SpicyLyricsView(
         var dynamicYOffsets by remember { mutableStateOf(FloatArray(0)) }
         var lastFrameTimeNanos by remember { mutableLongStateOf(0L) }
         
-        // The high-frequency animation loop.
-        LaunchedEffect(Unit) {
+        // The high-frequency animation loop, restarted with each new document's animator and scroll.
+        LaunchedEffect(shownId) {
             // Reused per-frame scratch for the dynamic Y offsets: filled every frame but only
             // published to state when its contents actually change, so a paused/idle screen stops
             // invalidating the Canvas (a fresh FloatArray each frame was forcing a redraw via array
@@ -352,7 +358,7 @@ fun SpicyLyricsView(
             modifier = Modifier
                 .fillMaxSize()
                 .fadingEdge(fadeBrush)
-                .pointerInput(Unit) {
+                .pointerInput(scrollManager) {
                     // Interaction: Dragging.
                     detectDragGestures(
                         onDragStart = { scrollManager.onDragStart() },
@@ -364,7 +370,7 @@ fun SpicyLyricsView(
                         }
                     )
                 }
-                .pointerInput(isStatic, footerLayouts) {
+                .pointerInput(isStatic, footerLayouts, shown) {
                     detectTapGestures { tapOffset ->
                         val currentScrollY = scrollManager.animScrollY
                         val adjustedTapY = tapOffset.y - (centerY + currentScrollY)
@@ -446,6 +452,14 @@ fun SpicyLyricsView(
         }
     }
 }
+
+private class ShownLyrics(
+    val documentId: String,
+    val lines: List<Line>,
+    val layouts: List<LineLayout>,
+    val lyricsType: LyricsType,
+    val footer: LyricsFooter,
+)
 
 /** Scales the credits relative to the reference's proportions, for a phone screen. */
 private const val CREDIT_SCALE = 1.15f

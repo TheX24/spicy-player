@@ -24,36 +24,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         .readTimeout(12, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
-    private val spotifyResolver = SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(client, gson))
-    private val lrclib = Retrofit.Builder()
-        .baseUrl(LyricsService.BASE_URL)
-        // LRCLIB asks clients to identify themselves; its Cloudflare front answers OkHttp's
-        // default user agent with HTTP 520.
-        .client(client.newBuilder().addInterceptor { chain ->
-            chain.proceed(chain.request().newBuilder().header("User-Agent", LRCLIB_USER_AGENT).build())
-        }.build())
-        .addConverterFactory(GsonConverterFactory.create(gson))
-        .build()
-        .create(LyricsService::class.java)
-
-    private val providers: Set<RemoteLyricsProvider> = setOf(
-        SpicyLyricsProvider(client, gson, spotifyResolver, clientKey),
-        AmllLyricsProvider(client, gson),
-        UnisonLyricsProvider(client, gson),
-        AppleMusicLyricsProvider(client, gson),
-        RmmRevivalLyricsProvider(client, gson),
-        BiniLyricsProvider(client, gson),
-        KugouLyricsProvider(client, gson),
-        QqMusicLyricsProvider(client, gson),
-        KuwoLyricsProvider(client),
-        NetEaseLyricsProvider(client, gson),
-        LyricsSource(lrclib),
-        MusixmatchLyricsProvider(client, gson),
-        LrcMuxLyricsProvider(client, gson),
-        MegaLobizLyricsProvider(client),
-        GeniusLyricsProvider(client, gson),
-        YouTubeTranscriptLyricsProvider(client, gson),
-    )
+    private val providers: Set<RemoteLyricsProvider> = createProviders(client, gson, clientKey, context.cacheDir)
     private val source = RemoteLyricsSource(providers, ProviderCooldownTracker())
 
     val descriptors: List<LyricsSourceDescriptor> = providers.map(RemoteLyricsProvider::descriptor)
@@ -112,9 +83,9 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     }
 
     private fun cacheFile(request: LyricsLookupRequest): File {
-        // Title + artist only: a queue entry warmed ahead has no album or length, and must hit
-        // the same entry the real load asks for once the song starts.
-        val identity = listOf(request.title, request.artist, request.spotifyTrackId.orEmpty())
+        // Title + artist only: a queue entry warmed ahead has no album, length or Spotify ID, and
+        // must hit the same entry the real load asks for once the song starts.
+        val identity = listOf(request.title, request.artist)
             .joinToString("\u001f") { it.trim().lowercase() }
         val key = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray())
             .joinToString("") { "%02x".format(it) }
@@ -129,11 +100,43 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         val payload: RemoteLyricsPayload?,
     )
 
-    private companion object {
+    companion object {
+        /** Every source the app asks, built on [client]. Also used by the live source check test. */
+        fun createProviders(client: OkHttpClient, gson: Gson, clientKey: String, cacheDir: File? = null): Set<RemoteLyricsProvider> {
+            val spotifyResolver = SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(client, gson))
+            val lrclib = Retrofit.Builder()
+                .baseUrl(LyricsService.BASE_URL)
+                // LRCLIB asks clients to identify themselves; its Cloudflare front answers OkHttp's
+                // default user agent with HTTP 520.
+                .client(client.newBuilder().addInterceptor { chain ->
+                    chain.proceed(chain.request().newBuilder().header("User-Agent", LRCLIB_USER_AGENT).build())
+                }.build())
+                .addConverterFactory(GsonConverterFactory.create(gson))
+                .build()
+                .create(LyricsService::class.java)
+            return setOf(
+                SpicyLyricsProvider(client, gson, spotifyResolver, clientKey),
+                AmllLyricsProvider(client, gson),
+                UnisonLyricsProvider(client, gson),
+                AppleMusicLyricsProvider(client, gson),
+                RmmRevivalLyricsProvider(client, gson),
+                BiniLyricsProvider(client, gson),
+                KugouLyricsProvider(client, gson),
+                QqMusicLyricsProvider(client, gson),
+                KuwoLyricsProvider(client),
+                NetEaseLyricsProvider(client, gson),
+                LyricsSource(lrclib),
+                MusixmatchLyricsProvider(client, gson, cacheDir?.let { File(it, "musixmatch-token.txt") }),
+                LrcMuxLyricsProvider(client, gson),
+                GeniusLyricsProvider(client, gson),
+                YouTubeTranscriptLyricsProvider(client, gson),
+            )
+        }
+
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        const val CACHE_VERSION = 9
-        val LRCLIB_USER_AGENT = "Spicy Player Next ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
-        const val CACHE_DAYS = 3
+        private const val CACHE_VERSION = 10
+        private val LRCLIB_USER_AGENT = "Spicy Player Next ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
+        private const val CACHE_DAYS = 3
     }
 
     fun policy(): RemoteLyricsPolicy {

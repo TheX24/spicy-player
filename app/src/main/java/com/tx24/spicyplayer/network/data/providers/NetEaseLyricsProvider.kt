@@ -50,12 +50,14 @@ class NetEaseLyricsProvider @Inject constructor(private val client: OkHttpClient
         // untimed or credits-only copy: take the first word-timed candidate, else the first with
         // timed lines (mild-lyrics' `_netease`).
         val lyrics = coroutineScope { songs.map { song -> async { lyrics(song.get("id").asString) } }.awaitAll() }
+        // A copy whose lyric is only "纯音乐，请欣赏" (instrumental) says nothing about the others.
         lyrics.firstNotNullOfOrNull { data ->
             data.getAsJsonObject("yrc")?.get("lyric")?.asString
-                ?.takeIf { it.isNotBlank() && !it.contains("纯音乐，请欣赏") }
+                ?.takeIf { it.isNotBlank() && !BlendDonors.isNoWordsNote(it.lines().map { line -> line.replace(ANY_STAMP, "").replace(YRC_STAMP, "") }) }
                 ?.let(YrcToTtml::convert)
         }?.let { return ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics = it)) }
         val lrcs = lyrics.mapNotNull { data -> data.getAsJsonObject("lrc")?.get("lyric")?.asString?.takeIf(String::isNotBlank) }
+            .filterNot { lrc -> BlendDonors.isNoWordsNote(lrc.lines().map { it.replace(ANY_STAMP, "") }) }
         lrcs.firstOrNull(::hasTimedLyric)?.let { return ProviderResult.Hit(RemoteLyricsPayload(syncedLyrics = it)) }
         // No stamps worth the name: the words alone, if there are any besides the credits.
         val plain = lrcs.firstNotNullOfOrNull { lrc ->
@@ -93,6 +95,7 @@ class NetEaseLyricsProvider @Inject constructor(private val client: OkHttpClient
         const val TRIES = 3
         val TIMED_LINE = Regex("""^\[\d+:\d+(?:[.:]\d+)?]""")
         val ANY_STAMP = Regex("""\[[^\]]*]""")
+        val YRC_STAMP = Regex("""\(\d+,\d+,[^)]*\)""")
     }
 }
 

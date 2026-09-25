@@ -54,19 +54,49 @@ class QqMusicLyricsProvider @Inject constructor(private val client:OkHttpClient,
 class KuwoLyricsProvider @Inject constructor(private val client:OkHttpClient):RemoteLyricsProvider{
  override val descriptor=LyricsSourceDescriptor("kuwo","Kuwo",90,setOf(LyricsCapability.LINE_SYNC),releaseChannel=SourceReleaseChannel.EXTENDED,defaultEnabled=false)
  override suspend fun fetch(request:LyricsLookupRequest):ProviderResult { return try{
-  val url="https://search.kuwo.cn/r.s".toHttpUrl().newBuilder().addQueryParameter("all","${request.artist} ${request.title}").addQueryParameter("ft","music").addQueryParameter("client","kt").addQueryParameter("cluster","0").addQueryParameter("pn","0").addQueryParameter("rn","8").addQueryParameter("rformat","json").addQueryParameter("encoding","utf8").build()
-  val raw=getBytes(url).toString(Charsets.UTF_8);val records=KUWO_RECORD.findAll(raw)
-  for(rec in records){val text=rec.value;val title=field(text,"SONGNAME");val artist=field(text,"ARTIST");if(SpotifyTrackMatcher.normalize(title)!=SpotifyTrackMatcher.normalize(request.title)||!SpotifyTrackMatcher.normalize(artist).contains(SpotifyTrackMatcher.normalize(request.artist)))continue
-   var rid=field(text,"MUSICRID").ifBlank{field(text,"DC_TARGETID")};if(rid.isBlank())continue;if(!rid.startsWith("MUSIC_"))rid="MUSIC_$rid"
-   val query=Base64.getEncoder().encodeToString("user=12345,web,web,web&requester=localhost&req=1&rid=$rid".toByteArray().mapIndexed{i,b->(b.toInt() xor "yeelion".encodeToByteArray()[i%7].toInt()).toByte()}.toByteArray())
+  val url="https://search.kuwo.cn/r.s".toHttpUrl().newBuilder().addQueryParameter("all","${request.artist} ${request.title}").addQueryParameter("ft","music").addQueryParameter("client","kt").addQueryParameter("cluster","0").addQueryParameter("pn","0").addQueryParameter("rn","8").addQueryParameter("rformat","json").addQueryParameter("encoding","utf8")
+   // Without these the search leaves out licensed originals and returns only covers and remixes.
+   .addQueryParameter("vipver","1").addQueryParameter("strategy","2012").addQueryParameter("mobi","1").addQueryParameter("issubtitle","1").addQueryParameter("show_copyright_off","1").build()
+  for(song in kuwoSearchResults(getBytes(url).toString(Charsets.UTF_8))){
+   if(SpotifyTrackMatcher.normalize(song.title)!=SpotifyTrackMatcher.normalize(request.title)||!SpotifyTrackMatcher.normalize(song.artist).contains(SpotifyTrackMatcher.normalize(request.artist)))continue
+   if(song.durationSeconds>0&&request.durationSeconds>0&&kotlin.math.abs(song.durationSeconds-request.durationSeconds)>8)continue
+   val query=Base64.getEncoder().encodeToString("user=12345,web,web,web&requester=localhost&req=1&rid=${song.rid}".toByteArray().mapIndexed{i,b->(b.toInt() xor "yeelion".encodeToByteArray()[i%7].toInt()).toByte()}.toByteArray())
    val bytes=getBytes("https://newlyric.kuwo.cn/newlyric.lrc?$query".toHttpUrl());val split=bytes.indexOfSequence("\r\n\r\n".toByteArray());if(split<0)continue
-   val lrc=InflaterInputStream(ByteArrayInputStream(bytes.copyOfRange(split+4,bytes.size))).bufferedReader().readText().lineSequence().filterNot{it.startsWith("[kuwo:")||it.startsWith("[ml:")}.joinToString("\n")
+   val lrc=decodeKuwoLrc(InflaterInputStream(ByteArrayInputStream(bytes.copyOfRange(split+4,bytes.size))).readBytes())
    if(lrc.isNotBlank())return ProviderResult.Hit(RemoteLyricsPayload(syncedLyrics=lrc))
   };ProviderResult.Miss
  }catch(c:CancellationException){throw c}catch(e:ProviderHttpException){e.unavailable()}catch(e:IOException){ProviderResult.Unavailable(ProviderFailureCategory.NETWORK,e.message,true)}catch(e:Exception){ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE,e.message)} }
  private suspend fun getBytes(url:okhttp3.HttpUrl):ByteArray=client.newCall(Request.Builder().url(url).header("Referer","https://www.kuwo.cn/").get().build()).awaitResponse().use{r->if(!r.isSuccessful)throw ProviderHttpException("Kuwo",r.code);r.body?.bytes() ?: byteArrayOf()}
- private fun field(record:String,name:String)=Regex("['\"]?$name['\"]?\\s*:\\s*['\"]([^'\"]*)").find(record)?.groupValues?.get(1).orEmpty()
  private fun ByteArray.indexOfSequence(needle:ByteArray):Int{outer@for(i in 0..size-needle.size){for(j in needle.indices)if(this[i+j]!=needle[j])continue@outer;return i};return -1}
 }
 
-internal val KUWO_RECORD = Regex("\\{[^{}]*?(?:MUSICRID|DC_TARGETID)[^{}]*?\\}")
+internal data class KuwoSong(val title: String, val artist: String, val durationSeconds: Int, val rid: String)
+
+/**
+ * Kuwo's search answers in single-quoted JavaScript-style JSON, with `&nbsp;` for spaces in
+ * names. Records nest objects of their own, so this parses it leniently rather than by pattern.
+ */
+internal fun kuwoSearchResults(raw: String): List<KuwoSong> {
+    val reader = com.google.gson.stream.JsonReader(java.io.StringReader(raw)).apply { isLenient = true }
+    val root = com.google.gson.JsonParser.parseReader(reader).takeIf { it.isJsonObject }?.asJsonObject ?: return emptyList()
+    fun JsonObject.text(name: String) = get(name)?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
+        .replace("&nbsp;", " ").replace("&amp;", "&").trim()
+    return root.getAsJsonArray("abslist")?.mapNotNull { element ->
+        val record = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
+        val rid = record.text("MUSICRID").ifBlank { record.text("DC_TARGETID") }.ifBlank { return@mapNotNull null }
+        KuwoSong(
+            title = record.text("SONGNAME").ifBlank { record.text("NAME") },
+            artist = record.text("ARTIST"),
+            durationSeconds = record.text("DURATION").toIntOrNull() ?: 0,
+            rid = if (rid.startsWith("MUSIC_")) rid else "MUSIC_$rid",
+        )
+    }.orEmpty()
+}
+
+/** Kuwo's LRC is GB18030 (with its byte-order mark), not UTF-8; its own tag lines are dropped. */
+internal fun decodeKuwoLrc(bytes: ByteArray): String = String(bytes, charset("GB18030"))
+    .removePrefix("\uFEFF")
+    .lineSequence()
+    .map { it.trimEnd('\r') }
+    .filterNot { it.startsWith("[kuwo:") || it.startsWith("[ml:") }
+    .joinToString("\n")

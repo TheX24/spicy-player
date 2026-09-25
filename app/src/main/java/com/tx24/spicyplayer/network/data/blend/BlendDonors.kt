@@ -38,6 +38,16 @@ internal object BlendDonors {
         RegexOption.IGNORE_CASE,
     )
 
+    /**
+     * Whether [lines] are only a note saying the track has no words, like NetEase's and Kugou's
+     * "纯音乐，请欣赏" ("instrumental, please enjoy") stamped across the whole song: three lines at
+     * most besides credits, one of them saying it (mild-lyrics' `_instrumental`).
+     */
+    fun isNoWordsNote(lines: List<String>): Boolean {
+        val words = lines.map(String::trim).filter { it.isNotEmpty() && !isCredit(it) }
+        return words.size in 1..3 && NO_WORDS.containsMatchIn(words.joinToString(" "))
+    }
+
     /** A credit line these catalogues write into the lyric: "作词 : ...", "Produced by: ...". */
     fun isCredit(body: String): Boolean =
         NE_CREDIT.containsMatchIn(body) || QQ_CREDIT.containsMatchIn(body) || QRC_TAIL.matches(body)

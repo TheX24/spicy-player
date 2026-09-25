@@ -310,7 +310,8 @@ class RemoteLyricsSource @Inject constructor(
     }
 
     private suspend fun fetch(provider: RemoteLyricsProvider, request: LyricsLookupRequest): ProviderResult = try {
-        provider.fetch(request)
+        // A note saying the song has no words ("纯音乐，请欣赏") is no answer: other sources may have them.
+        provider.fetch(request).let { if (it is ProviderResult.Hit && it.payload.isNoWordsNote()) ProviderResult.Miss else it }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: NotFoundException) {

@@ -5,8 +5,15 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ProviderErrorsTest {
-    @Test fun kuwoRecordPatternParsesARecord() {
-        assertEquals("{MUSICRID:'123',SONGNAME:'Test'}", KUWO_RECORD.find("{MUSICRID:'123',SONGNAME:'Test'}")?.value)
+    @Test fun kuwoSearchParsesNestedSingleQuotedRecords() {
+        val raw = "{'HIT':'1','abslist':[{'ARTIST':'Jay&nbsp;Chou','DURATION':'269','MUSICRID':'MUSIC_1'," +
+            "'SONGNAME':'Qing&nbsp;Tian','audiobookpayinfo':{'download':'0'}}]}"
+        assertEquals(listOf(KuwoSong("Qing Tian", "Jay Chou", 269, "MUSIC_1")), kuwoSearchResults(raw))
+    }
+
+    @Test fun kuwoLyricsAreGb18030() {
+        val bytes = byteArrayOf(0x84.toByte(), 0x31, 0x95.toByte(), 0x33) + "[00:01.00]晴天\r\n".toByteArray(charset("GB18030"))
+        assertEquals("[00:01.00]晴天\n", decodeKuwoLrc(bytes))
     }
 
     @Test fun httpFailuresKeepTheirActualCategory() {

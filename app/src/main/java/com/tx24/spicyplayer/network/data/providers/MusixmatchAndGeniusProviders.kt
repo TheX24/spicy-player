@@ -5,6 +5,7 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.tx24.spicyplayer.network.data.*
 import com.tx24.spicyplayer.network.data.spotify.SpotifyTrackMatcher
+import java.io.File
 import java.io.IOException
 import java.util.Locale
 import javax.inject.Inject
@@ -14,34 +15,256 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-@Singleton class MusixmatchLyricsProvider @Inject constructor(private val client:OkHttpClient,private val gson:Gson):RemoteLyricsProvider{
- override val descriptor=LyricsSourceDescriptor("musixmatch","Musixmatch",110,setOf(LyricsCapability.WORD_SYNC,LyricsCapability.LINE_SYNC,LyricsCapability.PLAIN_TEXT),upstreamFamily="musixmatch",releaseChannel=SourceReleaseChannel.EXTENDED,defaultEnabled=false)
- @Volatile private var token:String?=null
- override suspend fun fetch(r:LyricsLookupRequest):ProviderResult { return try{val t=token?:fetchToken().also{token=it}?:return ProviderResult.Unavailable(ProviderFailureCategory.AUTHENTICATION)
-  val url="$BASE/macro.subtitles.get".toHttpUrl().newBuilder().addQueryParameter("format","json").addQueryParameter("namespace","lyrics_richsynced").addQueryParameter("optional_calls","track.richsync,track.lyrics").addQueryParameter("subtitle_format","lrc").addQueryParameter("app_id",APP).addQueryParameter("usertoken",t).addQueryParameter("q_artist",r.artist).addQueryParameter("q_track",r.title).addQueryParameter("f_subtitle_length",r.durationSeconds.toString()).addQueryParameter("f_subtitle_length_max_deviation","4").build()
-  val root=get(url);val message=root.getAsJsonObject("message")?:return ProviderResult.Miss;if(message.getAsJsonObject("header")?.get("status_code")?.asInt!=200)return ProviderResult.Miss
-  val calls=message.getAsJsonObject("body")?.getAsJsonObject("macro_calls")?:return ProviderResult.Miss
-  val track=calls.path("matcher.track.get","message","body","track");if(track!=null){val title=track.get("track_name")?.asString.orEmpty();val artist=track.get("artist_name")?.asString.orEmpty();if(SpotifyTrackMatcher.normalize(title)!=SpotifyTrackMatcher.normalize(r.title)||!SpotifyTrackMatcher.normalize(artist).contains(SpotifyTrackMatcher.normalize(r.artist)))return ProviderResult.Miss}
-  val rich=calls.path("track.richsync.get","message","body","richsync")?.get("richsync_body")?.asString
-  if(!rich.isNullOrBlank()&&!poisoned(rich))RichSyncToTtml.convert(gson.fromJson(rich,JsonArray::class.java))?.let{return ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics=it))}
-  val subs=calls.path("track.subtitles.get","message","body")?.getAsJsonArray("subtitle_list");val lrc=subs?.firstOrNull()?.asJsonObject?.getAsJsonObject("subtitle")?.get("subtitle_body")?.asString
-  if(!lrc.isNullOrBlank()&&!poisoned(lrc))return ProviderResult.Hit(RemoteLyricsPayload(syncedLyrics=lrc))
-  val plain=calls.path("track.lyrics.get","message","body","lyrics")?.get("lyrics_body")?.asString;if(!plain.isNullOrBlank()&&!poisoned(plain))ProviderResult.Hit(RemoteLyricsPayload(plainLyrics=plain))else ProviderResult.Miss
- }catch(c:CancellationException){throw c}catch(e:IOException){ProviderResult.Unavailable(ProviderFailureCategory.NETWORK,e.message,true)}catch(e:Exception){ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE,e.message)} }
- private suspend fun fetchToken():String?=get("$BASE/token.get".toHttpUrl().newBuilder().addQueryParameter("app_id",APP).addQueryParameter("format","json").build()).path("message","body")?.get("user_token")?.asString?.takeUnless{it.all{c->c=='0'}}?:STATIC
- private suspend fun get(url:okhttp3.HttpUrl)=client.newCall(Request.Builder().url(url).get().build()).awaitResponse().use{r->if(!r.isSuccessful)throw IOException("Musixmatch HTTP ${r.code}");gson.fromJson(r.body?.string(),JsonObject::class.java)}
- private fun poisoned(s:String)=listOf("wob gopini den","tefe woxica fero","gogoh vudob wiya","keric sohu peduf").any{s.contains(it,true)}
- private fun JsonObject.path(vararg p:String):JsonObject?{var c=this;for(k in p){c=c.getAsJsonObject(k)?:return null};return c}
- companion object{const val BASE="https://apic-desktop.musixmatch.com/ws/1.1";const val APP="web-desktop-app-v1.0";const val STATIC="21051986b9886e2d7bd5d8295b15d605c14e13e33326a3a0e50e1b"}
+/**
+ * Musixmatch through its iOS app's door, like mild-lyrics' `_musixmatch`. The desktop app's door
+ * no longer hands out tokens, and the shared token Spicetify ships answers every search with a
+ * decoy track and gibberish lyrics.
+ *
+ * `token.get` gives a token to anyone who asks as the app, but a few requests in a row get a
+ * captcha refusal for a while, so the token is kept in [tokenFile] and reused until Musixmatch
+ * rejects it, and a refusal waits [TOKEN_COOLDOWN_MS] before asking again.
+ */
+@Singleton
+class MusixmatchLyricsProvider @Inject constructor(
+    private val client: OkHttpClient,
+    private val gson: Gson,
+    private val tokenFile: File? = null,
+) : RemoteLyricsProvider {
+    override val descriptor = LyricsSourceDescriptor(
+        "musixmatch", "Musixmatch", 110,
+        setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
+        upstreamFamily = "musixmatch",
+        releaseChannel = SourceReleaseChannel.EXTENDED,
+        defaultEnabled = false,
+    )
+
+    @Volatile private var token: String? = null
+    @Volatile private var refusedAt = 0L
+
+    override suspend fun fetch(r: LyricsLookupRequest): ProviderResult = try {
+        var message = token()?.let { ask(r, it) }
+        if (message != null && message.status() == 401) {
+            // The token went stale: one fresh one, then give up.
+            forgetToken()
+            message = token()?.let { ask(r, it) }
+        }
+        when {
+            message == null -> ProviderResult.Unavailable(ProviderFailureCategory.AUTHENTICATION, "Musixmatch gave no app token")
+            message.status() == 401 -> ProviderResult.Unavailable(ProviderFailureCategory.AUTHENTICATION, "Musixmatch HTTP 401")
+            message.status() != 200 -> ProviderResult.Miss
+            else -> read(r, message)
+        }
+    } catch (c: CancellationException) {
+        throw c
+    } catch (e: IOException) {
+        ProviderResult.Unavailable(ProviderFailureCategory.NETWORK, e.message, true)
+    } catch (e: Exception) {
+        ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, e.message)
+    }
+
+    /** Everything Musixmatch has for the track, word timing included, in one request. */
+    private suspend fun ask(r: LyricsLookupRequest, token: String): JsonObject? {
+        val url = "$BASE/macro.subtitles.get".toHttpUrl().newBuilder()
+            .addQueryParameter("app_id", APP)
+            .addQueryParameter("format", "json")
+            .addQueryParameter("usertoken", token)
+            .addQueryParameter("namespace", "lyrics_richsynched")
+            .addQueryParameter("subtitle_format", "lrc")
+            .addQueryParameter("optional_calls", "track.richsync")
+            .addQueryParameter("richsync_compact_type", "words")
+            .addQueryParameter("q_track", r.title)
+            .addQueryParameter("q_artist", r.artist)
+            .apply {
+                r.spotifyTrackId?.let { addQueryParameter("track_spotify_id", it) }
+                if (r.album.isNotBlank()) addQueryParameter("q_album", r.album)
+                if (r.durationSeconds > 0) {
+                    addQueryParameter("q_duration", r.durationSeconds.toString())
+                    addQueryParameter("f_subtitle_length", r.durationSeconds.toString())
+                }
+            }
+            .build()
+        return get(url).getAsJsonObject("message")
+    }
+
+    private fun read(r: LyricsLookupRequest, message: JsonObject): ProviderResult {
+        val calls = message.path("body", "macro_calls") ?: return ProviderResult.Miss
+        val track = calls.path("matcher.track.get", "message", "body", "track")
+        if (track != null) {
+            val title = track.get("track_name")?.asString.orEmpty()
+            val artist = track.get("artist_name")?.asString.orEmpty()
+            if (SpotifyTrackMatcher.normalize(title) != SpotifyTrackMatcher.normalize(r.title) ||
+                !SpotifyTrackMatcher.normalize(artist).contains(SpotifyTrackMatcher.normalize(r.artist))
+            ) return ProviderResult.Miss
+        }
+        val rich = calls.path("track.richsync.get", "message", "body", "richsync")?.get("richsync_body")?.asString
+        if (!rich.isNullOrBlank() && !poisoned(rich)) {
+            RichSyncToTtml.convert(gson.fromJson(rich, JsonArray::class.java))?.let { return ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics = it)) }
+        }
+        val lrc = calls.path("track.subtitles.get", "message", "body")?.getAsJsonArray("subtitle_list")
+            ?.firstOrNull()?.asJsonObject?.getAsJsonObject("subtitle")?.get("subtitle_body")?.asString
+        if (!lrc.isNullOrBlank() && !poisoned(lrc)) return ProviderResult.Hit(RemoteLyricsPayload(syncedLyrics = lrc))
+        val plain = calls.path("track.lyrics.get", "message", "body", "lyrics")?.get("lyrics_body")?.asString
+        return if (!plain.isNullOrBlank() && !poisoned(plain)) ProviderResult.Hit(RemoteLyricsPayload(plainLyrics = plain)) else ProviderResult.Miss
+    }
+
+    private suspend fun token(): String? {
+        token?.let { return it }
+        tokenFile?.let { file -> runCatching { file.readText().trim() }.getOrNull()?.takeIf(String::isNotBlank) }
+            ?.let { return it.also { token = it } }
+        if (System.currentTimeMillis() - refusedAt < TOKEN_COOLDOWN_MS) return null
+        val fresh = get("$BASE/token.get".toHttpUrl().newBuilder().addQueryParameter("app_id", APP).addQueryParameter("format", "json").build())
+            .path("message", "body")?.get("user_token")?.takeIf { it.isJsonPrimitive }?.asString
+            ?.takeUnless { it.isBlank() || it.all { c -> c == '0' } }
+        if (fresh == null) {
+            refusedAt = System.currentTimeMillis()
+            return null
+        }
+        token = fresh
+        tokenFile?.let { file -> runCatching { file.parentFile?.mkdirs(); file.writeText(fresh) } }
+        return fresh
+    }
+
+    private fun forgetToken() {
+        token = null
+        tokenFile?.delete()
+    }
+
+    private suspend fun get(url: okhttp3.HttpUrl): JsonObject {
+        val request = Request.Builder().url(url).get().apply { HEADERS.forEach { (k, v) -> header(k, v) } }.build()
+        return client.newCall(request).awaitResponse().use { response ->
+            if (!response.isSuccessful) throw ProviderHttpException("Musixmatch", response.code)
+            gson.fromJson(response.body?.string(), JsonObject::class.java)
+        }
+    }
+
+    private fun JsonObject.status() = path("header")?.get("status_code")?.asInt ?: 0
+
+    /** Musixmatch's decoy lyrics, served to clients it has decided are scraping. */
+    private fun poisoned(s: String) = listOf("wob gopini den", "tefe woxica fero", "gogoh vudob wiya", "keric sohu peduf").any { s.contains(it, true) }
+
+    private fun JsonObject.path(vararg p: String): JsonObject? {
+        var c = this
+        for (k in p) c = c.get(k)?.takeIf { it.isJsonObject }?.asJsonObject ?: return null
+        return c
+    }
+
+    companion object {
+        const val BASE = "https://apic-appmobile.musixmatch.com/ws/1.1"
+        const val APP = "mac-ios-v2.0"
+        private const val TOKEN_COOLDOWN_MS = 30 * 60_000L
+        private val HEADERS = mapOf(
+            "X-Cookie" to "x-mxm-token-guid=",
+            "x-mxm-app-version" to "10.1.1",
+            "X-User-Agent" to "Musixmatch/2025120901 CFNetwork/3860.300.31 Darwin/25.2.0",
+            "Accept-Language" to "en-US,en;q=0.9",
+            "Accept" to "application/json",
+        )
+    }
 }
-internal object RichSyncToTtml{fun convert(a:JsonArray):String?{val ps=a.mapIndexedNotNull{i,e->val l=e.asJsonObject;val s=l.get("ts")?.asDouble?:return@mapIndexedNotNull null;val end=l.get("te")?.asDouble?:s;val words=l.getAsJsonArray("l")?:return@mapIndexedNotNull null;val spans=words.mapIndexedNotNull{j,w0->val w=w0.asJsonObject;val text=w.get("c")?.asString?:return@mapIndexedNotNull null;val ws=s+(w.get("o")?.asDouble?:0.0);val we=if(j+1<words.size())s+(words[j+1].asJsonObject.get("o")?.asDouble?:0.0)else end;"<span begin=\"${sec(ws)}\" end=\"${sec(we)}\">${xml(text)}</span>"};if(spans.isEmpty())null else "<p begin=\"${sec(s)}\" end=\"${sec(end)}\" xml:id=\"L$i\">${spans.joinToString("")}</p>"};if(ps.isEmpty())return null;return """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="word"><body><div>${ps.joinToString("")}</div></body></tt>"""};private fun sec(v:Double)="${"%.3f".format(Locale.ROOT,v)}s";private fun xml(s:String)=s.replace("&","&amp;").replace("<","&lt;").replace(">","&gt;")}
+
+/**
+ * Musixmatch richsync to word-timed TTML. Richsync writes the spaces as entries of their own, so
+ * a space entry both ends the word before it (where the singing stopped) and separates two
+ * words; two entries with no space between them are parts of one word.
+ */
+internal object RichSyncToTtml {
+    fun convert(rows: JsonArray): String? {
+        val paragraphs = rows.mapIndexedNotNull { index, element ->
+            val row = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapIndexedNotNull null
+            val lineStart = row.get("ts")?.asDouble ?: return@mapIndexedNotNull null
+            val lineEnd = row.get("te")?.asDouble ?: lineStart
+            val words = mutableListOf<RichWord>()
+            var gap: Double? = null
+            for (entry in row.getAsJsonArray("l") ?: return@mapIndexedNotNull null) {
+                val item = entry.takeIf { it.isJsonObject }?.asJsonObject ?: continue
+                val text = item.get("c")?.asString ?: continue
+                val at = lineStart + (item.get("o")?.asDouble ?: 0.0)
+                if (text.isBlank()) {
+                    if (gap == null) gap = at
+                    continue
+                }
+                words.lastOrNull()?.let { previous ->
+                    previous.end = gap ?: at
+                    previous.spaceAfter = gap != null
+                }
+                words += RichWord(text, at, at)
+                gap = null
+            }
+            if (words.isEmpty()) return@mapIndexedNotNull null
+            words.last().end = maxOf(lineEnd, words.last().start)
+            // A word ended where it began never lights up; it runs to the next word instead.
+            words.forEachIndexed { i, word ->
+                if (word.end <= word.start) word.end = words.getOrNull(i + 1)?.start?.takeIf { it > word.start } ?: maxOf(lineEnd, word.start)
+            }
+            val spans = words.joinToString("") { word ->
+                "<span begin=\"${sec(word.start)}\" end=\"${sec(word.end)}\">${xml(word.text)}</span>" + if (word.spaceAfter) " " else ""
+            }.trimEnd()
+            "<p begin=\"${sec(words.first().start)}\" end=\"${sec(maxOf(lineEnd, words.last().end))}\" xml:id=\"L$index\">$spans</p>"
+        }
+        if (paragraphs.isEmpty()) return null
+        return """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="word"><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
+    }
+
+    private class RichWord(val text: String, val start: Double, var end: Double, var spaceAfter: Boolean = false)
+
+    private fun sec(v: Double) = "${"%.3f".format(Locale.ROOT, v)}s"
+    private fun xml(s: String) = s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+}
 
 @Singleton class GeniusLyricsProvider @Inject constructor(private val client:OkHttpClient,private val gson:Gson):RemoteLyricsProvider{
  override val descriptor=LyricsSourceDescriptor("genius","Genius",160,setOf(LyricsCapability.PLAIN_TEXT, LyricsCapability.CONTRIBUTOR_CREDITS),releaseChannel=SourceReleaseChannel.EXPERIMENTAL,defaultEnabled=false)
  override suspend fun fetch(r:LyricsLookupRequest):ProviderResult { return try{val url="https://genius.com/api/search/multi".toHttpUrl().newBuilder().addQueryParameter("q","${r.artist} ${r.title}").build();val root=get(url);val sections=root.getAsJsonObject("response")?.getAsJsonArray("sections")?:return ProviderResult.Miss;var page:String?=null
   sections.flatMap{it.asJsonObject.getAsJsonArray("hits")?.toList().orEmpty()}.map{it.asJsonObject.getAsJsonObject("result")}.firstOrNull{res->SpotifyTrackMatcher.normalize(res.get("title")?.asString.orEmpty())==SpotifyTrackMatcher.normalize(r.title)&&SpotifyTrackMatcher.normalize(res.getAsJsonObject("primary_artist")?.get("name")?.asString.orEmpty()).contains(SpotifyTrackMatcher.normalize(r.artist))}?.let{page=it.get("url")?.asString}
-  val target=page?:return ProviderResult.Miss;val html=client.newCall(Request.Builder().url(target).get().build()).awaitResponse().use{it.body?.string().orEmpty()};val parts=Regex("<div[^>]*data-lyrics-container=[\"']true[\"'][^>]*>(.*?)</div>",setOf(RegexOption.IGNORE_CASE,RegexOption.DOT_MATCHES_ALL)).findAll(html).map{clean(it.groupValues[1])}.filter{it.isNotBlank()}.toList();if(parts.isEmpty())ProviderResult.Miss else ProviderResult.Hit(RemoteLyricsPayload(plainLyrics=parts.joinToString("\n\n")))
+  val target=page?:return ProviderResult.Miss;val html=client.newCall(Request.Builder().url(target).header("User-Agent",BROWSER_UA).get().build()).awaitResponse().use{if(!it.isSuccessful)throw ProviderHttpException("Genius",it.code);it.body?.string().orEmpty()};val text=geniusLyricsText(html);if(text.isBlank())ProviderResult.Miss else ProviderResult.Hit(RemoteLyricsPayload(plainLyrics=text))
  }catch(c:CancellationException){throw c}catch(e:ProviderHttpException){e.unavailable()}catch(e:IOException){ProviderResult.Unavailable(ProviderFailureCategory.NETWORK,e.message,true)}catch(e:Exception){ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE,e.message)} }
- private suspend fun get(url:okhttp3.HttpUrl)=client.newCall(Request.Builder().url(url).header("Referer","https://genius.com/").get().build()).awaitResponse().use{r->if(!r.isSuccessful)throw ProviderHttpException("Genius",r.code);gson.fromJson(r.body?.string(),JsonObject::class.java)}
- private fun clean(s:String)=s.replace(Regex("<br\\s*/?>",RegexOption.IGNORE_CASE),"\n").replace(Regex("<[^>]+>"),"").replace("&amp;","&").replace("&#x27;", "'").replace("&quot;","\"").trim()
+ // Genius' front answers OkHttp's own user agent with HTTP 401.
+ private suspend fun get(url:okhttp3.HttpUrl)=client.newCall(Request.Builder().url(url).header("Referer","https://genius.com/").header("User-Agent",BROWSER_UA).get().build()).awaitResponse().use{r->if(!r.isSuccessful)throw ProviderHttpException("Genius",r.code);gson.fromJson(r.body?.string(),JsonObject::class.java)}
+ private companion object { const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36" }
 }
+
+/**
+ * The lyrics on a Genius song page: the text of every `data-lyrics-container` div, which nest
+ * divs of their own (a header with a translations menu, annotations). Parts marked
+ * `data-exclude-from-selection` are page furniture, not lyrics, and are skipped.
+ */
+internal fun geniusLyricsText(html: String): String {
+    val tag = Regex("<(/?)([a-zA-Z0-9]+)([^>]*)>")
+    val containers = mutableListOf<String>()
+    var from = 0
+    while (true) {
+        val open = Regex("<div[^>]*data-lyrics-container=[\"']true[\"'][^>]*>", RegexOption.IGNORE_CASE).find(html, from) ?: break
+        val out = StringBuilder()
+        var depth = 1
+        var excludedAt = -1
+        var at = open.range.last + 1
+        while (depth > 0) {
+            val next = tag.find(html, at) ?: break
+            if (excludedAt < 0) out.append(html, at, next.range.first)
+            at = next.range.last + 1
+            val name = next.groupValues[2].lowercase()
+            val closing = next.groupValues[1] == "/"
+            if (name == "br") {
+                if (excludedAt < 0) out.append('\n')
+                continue
+            }
+            if (name !in NESTING_TAGS || next.groupValues[3].trimEnd().endsWith("/")) continue
+            if (closing) {
+                depth--
+                if (depth == excludedAt) excludedAt = -1
+            } else {
+                if (excludedAt < 0 && "data-exclude-from-selection=\"true\"" in next.groupValues[3]) excludedAt = depth
+                depth++
+            }
+        }
+        containers += out.toString()
+        from = at
+    }
+    return containers.joinToString("\n")
+        .replace("&amp;", "&").replace("&#x27;", "'").replace("&#39;", "'").replace("&quot;", "\"")
+        .lines().joinToString("\n") { it.trim() }
+        .replace(Regex("\n{3,}"), "\n\n")
+        .trim()
+}
+
+/** Tags that open and close around content; void and inline tags don't change the nesting that matters. */
+private val NESTING_TAGS = setOf("div", "span", "a", "i", "b", "em", "strong", "p", "button", "ul", "li", "svg", "path", "label", "section")

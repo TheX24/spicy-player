@@ -2,6 +2,7 @@ package com.tx24.spicyplayer.network.data
 
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.lyrics.spicy.parser.TtmlLyricsParser
+import com.tx24.spicyplayer.network.data.blend.BlendDonors
 import java.time.Instant
 
 /** Metadata available when looking up lyrics for a local track. */
@@ -141,6 +142,24 @@ fun RemoteLyricsPayload.measuredQuality(): RemoteLyricsQuality {
         else -> RemoteLyricsQuality.NONE
     }
 }
+
+/**
+ * True when these lyrics are only a note saying the song has no words ("纯音乐，请欣赏"). Taken as
+ * lyrics, a note stamped across the song outranks every real answer further down the list, so it
+ * counts as a miss. Reads the same representation [measuredQuality] ranks.
+ */
+fun RemoteLyricsPayload.isNoWordsNote(): Boolean {
+    val lines = when {
+        !ttmlLyrics.isNullOrBlank() -> TtmlLyricsParser.parse(ttmlLyrics.byteInputStream()).lines
+            .map { line -> line.words.joinToString("") { it.text } }
+            .ifEmpty { return false }
+        !syncedLyrics.isNullOrBlank() -> syncedLyrics.lines().map { it.replace(LRC_STAMP, "") }
+        else -> plainLyrics.orEmpty().lines()
+    }
+    return BlendDonors.isNoWordsNote(lines)
+}
+
+private val LRC_STAMP = Regex("""\[[^\]]*]""")
 
 private fun RemoteLyricsPayload.parsedTtmlQuality(): RemoteLyricsQuality {
     val ttml = ttmlLyrics?.takeIf(String::isNotBlank) ?: return RemoteLyricsQuality.NONE

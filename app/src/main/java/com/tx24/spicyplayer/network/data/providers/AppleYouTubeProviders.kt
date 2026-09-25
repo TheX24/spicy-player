@@ -75,43 +75,6 @@ class AppleMusicLyricsProvider @Inject constructor(
 }
 
 @Singleton
-class MegaLobizLyricsProvider @Inject constructor(private val client: OkHttpClient) : RemoteLyricsProvider {
-    override val descriptor = LyricsSourceDescriptor(
-        "megalobiz", "MegaLOBiz", 150, setOf(LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
-        releaseChannel = SourceReleaseChannel.EXPERIMENTAL, defaultEnabled = false,
-    )
-
-    override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
-        return try {
-            val query = "${request.title} ${request.artist}"
-            val html = text("https://www.megalobiz.com/search/all".toHttpUrl().newBuilder().addQueryParameter("qry", query).build().toString())
-            val links = Regex("href=[\"'](/lrc/maker/[^\"']+)[\"'][^>]*>(.*?)</a>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                .findAll(html).map { it.groupValues[1] to stripHtml(it.groupValues[2]) }.toList()
-            val normalizedTitle = SpotifyTrackMatcher.normalize(request.title)
-            val normalizedArtist = SpotifyTrackMatcher.normalize(request.artist)
-            val href = links.firstOrNull { (_, label) ->
-                val normalized = SpotifyTrackMatcher.normalize(label)
-                normalized.contains(normalizedTitle) && normalized.contains(normalizedArtist)
-            }?.first ?: return ProviderResult.Miss
-            val id = href.substringAfterLast('.')
-            val page = text("https://www.megalobiz.com$href")
-            val body = Regex("<div[^>]*id=[\"']lrc_${Regex.escape(id)}_details[\"'][^>]*>(.*?)</div>", setOf(RegexOption.IGNORE_CASE, RegexOption.DOT_MATCHES_ALL))
-                .find(page)?.groupValues?.get(1)?.let(::stripHtml)?.trim().orEmpty()
-            if (body.isBlank()) ProviderResult.Miss
-            else if (Regex("\\[\\d{1,2}:\\d{2}(?:[.:]\\d+)?]").containsMatchIn(body)) ProviderResult.Hit(RemoteLyricsPayload(syncedLyrics = body))
-            else ProviderResult.Hit(RemoteLyricsPayload(plainLyrics = body))
-        } catch (cancelled: CancellationException) { throw cancelled }
-          catch (error: ProviderHttpException) { error.unavailable() }
-          catch (error: IOException) { ProviderResult.Unavailable(ProviderFailureCategory.NETWORK, error.message, true) }
-          catch (error: Exception) { ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, error.message) }
-    }
-
-    private suspend fun text(url: String) = client.newCall(Request.Builder().url(url).get().build()).awaitResponse().use {
-        if (!it.isSuccessful) throw ProviderHttpException("MegaLOBiz", it.code); it.body?.string().orEmpty()
-    }
-}
-
-@Singleton
 class YouTubeTranscriptLyricsProvider @Inject constructor(
     private val client: OkHttpClient,
     private val gson: Gson,
@@ -185,9 +148,3 @@ class YouTubeTranscriptLyricsProvider @Inject constructor(
         )
     }
 }
-
-private fun stripHtml(value: String): String = value
-    .replace(Regex("<br\\s*/?>", RegexOption.IGNORE_CASE), "\n")
-    .replace(Regex("<[^>]+>"), "")
-    .replace("&amp;", "&").replace("&quot;", "\"").replace("&#39;", "'")
-    .replace("&lt;", "<").replace("&gt;", ">").trim()

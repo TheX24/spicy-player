@@ -121,6 +121,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val lookupCache = object : LinkedHashMap<LyricsLookupRequest, MutableMap<String, ProviderResult>>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LyricsLookupRequest, MutableMap<String, ProviderResult>>) = size > 30
     }
+    // Rendered lyrics for recent picks. Rendering (on-device romanization above all) is the slow
+    // step of showing cached lyrics, so a song played again, or warmed ahead, skips it.
+    private val renderedCache = object : LinkedHashMap<RemoteLyricsSelection, RenderedLyrics>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<RemoteLyricsSelection, RenderedLyrics>) = size > 12
+    }
     private var manualSpotifyId: String? = null
     private var currentTrackIdentity: String? = null
     // Players fill metadata in over several updates (YouTube Music adds length and album after
@@ -273,6 +278,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     /** Forgets every lyric answer, on disk and in memory, and looks the current song up again. */
     fun clearLyricsCache() {
         lookupCache.clear()
+        synchronized(renderedCache) { renderedCache.clear() }
         lyricsBackend.clearCache()
         loadLyrics(force = true)
     }
@@ -383,7 +389,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             if (mutableState.value.lyrics !is LyricsState.Ready) {
                 mutableState.value = mutableState.value.copy(lyrics = LyricsState.Loading, lookupStatus = "Starting lyric lookup…")
             }
-            if (known.isEmpty()) {
+            // The disk cache is keyed on title + artist; a manual Spotify ID asks the sources afresh.
+            if (known.isEmpty() && manualSpotifyId == null) {
                 val cached = withContext(Dispatchers.IO) {
                     if (force) lyricsBackend.forget(request)
                     lyricsBackend.cachedResolution(request)
@@ -442,10 +449,15 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val backend = lyricsBackend
         warmJob = viewModelScope.launch(Dispatchers.IO) {
             for (request in upcoming) {
-                if (backend.cachedResolution(request) != null) continue
-                // Failures are not reported: nobody is looking at this song yet.
-                runCatching { backend.store(request, backend.resolve(request, ConcurrentHashMap())) }
-                    .onFailure { if (it is CancellationException) throw it }
+                val resolution = backend.cachedResolution(request)
+                    // Failures are not reported: nobody is looking at this song yet.
+                    ?: runCatching { backend.resolve(request, ConcurrentHashMap()).also { backend.store(request, it) } }
+                        .onFailure { if (it is CancellationException) throw it }
+                        .getOrNull()
+                // Rendered too, so the song's lyrics are up the moment it starts.
+                (resolution as? RemoteLyricsResolution.Found)?.selection?.let { selection ->
+                    withContext(Dispatchers.Default) { runCatching { rendered(selection, request.durationSeconds * 1_000L) } }
+                }
             }
         }
     }
@@ -460,14 +472,15 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         if (currentLyricsKey != identity) return
         val selection = (resolution as? RemoteLyricsResolution.Found)?.selection
         val lyrics = when {
-            selection == null && !final -> if (shownSelection == null) mutableState.value.lyrics else LyricsState.Loading
+            // Nothing picked yet: whatever is up stays up until the lookup ends.
+            selection == null && !final -> mutableState.value.lyrics
             selection == null -> LyricsNotices.noLyrics(resolution.attempts) { id ->
                 lyricsBackend.descriptors.firstOrNull { it.id == id }?.displayName ?: id
             }
             selection == shownSelection -> mutableState.value.lyrics
             // Rendering includes on-device romanization, which is too heavy for main.
             else -> withContext(Dispatchers.Default) {
-                runCatching { RemoteLyricsAdapter.render(selection, request.durationSeconds * 1_000L) }
+                runCatching { rendered(selection, request.durationSeconds * 1_000L) }
                     .getOrElse { LyricsNotices.renderFailed(selection.source.displayName, it) }
             }
         }
@@ -490,6 +503,21 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             },
         )
     }
+
+    /** [selection] rendered for the renderer, from [renderedCache] when it holds it. */
+    private fun rendered(selection: RemoteLyricsSelection, durationMs: Long): LyricsState.Ready {
+        val payload = selection.payload
+        // Only LRC depends on the length (its last line ends with the song).
+        val usesDuration = payload.ttmlLyrics.isNullOrBlank() && !payload.syncedLyrics.isNullOrBlank()
+        synchronized(renderedCache) { renderedCache[selection] }
+            ?.takeIf { !usesDuration || it.durationMs == durationMs }
+            ?.let { return it.lyrics }
+        val lyrics = RemoteLyricsAdapter.render(selection, durationMs)
+        synchronized(renderedCache) { renderedCache[selection] = RenderedLyrics(durationMs, lyrics) }
+        return lyrics
+    }
+
+    private class RenderedLyrics(val durationMs: Long, val lyrics: LyricsState.Ready)
 
     /** A custom action's icon, which lives in the player's own resources. */
     private fun actionIcon(packageName: String, iconRes: Int): Bitmap? = actionIcons.getOrPut(packageName to iconRes) {
@@ -632,7 +660,12 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 else if (spotifyId != null) "Spotify ID from media session"
                 else "Matching through enabled lyric sources…"
             } else mutableState.value.matchInfo,
-            lyrics = if (lyricsChanged) LyricsState.Idle else mutableState.value.lyrics,
+            // A new song: Loading (which shows nothing at first), not Idle's "Waiting for a song".
+            lyrics = when {
+                !lyricsChanged -> mutableState.value.lyrics
+                lyricsKey == null -> LyricsState.Idle
+                else -> LyricsState.Loading
+            },
             providerAttempts = if (lyricsChanged) emptyList() else mutableState.value.providerAttempts,
             lookupStatus = if (lyricsChanged) null else mutableState.value.lookupStatus,
             lastCommandLatencyMs = latency ?: mutableState.value.lastCommandLatencyMs,

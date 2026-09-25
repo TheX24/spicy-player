@@ -146,10 +146,19 @@ fun LyricsControls(
                 )
                 .background(Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black.copy(alpha = SHADE_ALPHA))),
         )
-        Box(Modifier.padding(top = SHADE_REACH).onSizeChanged { onControlsHeight(it.height) }) {
+        Box(
+            Modifier
+                .padding(top = SHADE_REACH)
+                .onSizeChanged { onControlsHeight(it.height) }
+                // The controls own their whole area, gaps and margins included: without a pointer
+                // handler here, a touch between two buttons falls through to the lyrics and seeks.
+                .pointerInput(Unit) {
+                    awaitPointerEventScope { while (true) awaitPointerEvent() }
+                },
+        ) {
             ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings)
-            // Hidden controls still own their area: a touch there only brings them back, rather
-            // than seeking a lyric line or pressing a button nobody can see.
+            // Hidden controls swallow touches too: a touch there only brings them back, rather
+            // than pressing a button nobody can see.
             if (!interactive) {
                 Box(
                     Modifier
