@@ -122,4 +122,19 @@ class SpicyLyricsTtmlConverterTest {
         assertEquals(listOf("nan", "de"), lines[0].words.map { it.romanizedText })
         assertEquals(listOf<String?>(null), lines[1].words.map { it.romanizedText })
     }
+
+    @Test fun keepsEveryBackgroundVocal() {
+        val body = JsonParser.parseString("""{"Content":[
+            {"Lead":{"Syllables":[{"Text":"A","StartTime":1,"EndTime":2}]},"Background":[
+                {"Syllables":[{"Text":"oh","StartTime":1,"EndTime":2}]},
+                {"Syllables":[{"Text":"yeah","StartTime":2,"EndTime":3}]}
+            ]}
+        ]}""").asJsonObject
+        val ttml = requireNotNull(SpicyLyricsTtmlConverter.convert(body, body.getAsJsonArray("Content")))
+
+        val lines = TtmlLyricsParser.parse(ttml.byteInputStream()).lines
+
+        assertEquals(listOf("A", "oh", "yeah"), lines.map { it.words.single().text })
+        assertEquals(listOf(LineRole.LEAD, LineRole.BACKGROUND, LineRole.BACKGROUND), lines.map { it.role })
+    }
 }

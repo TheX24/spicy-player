@@ -20,7 +20,10 @@ import com.tx24.spicyplayer.network.data.awaitResponse
 import com.tx24.spicyplayer.network.data.spotify.LocalTrackMetadata
 import com.tx24.spicyplayer.network.data.spotify.SpotifyTrackResolution
 import com.tx24.spicyplayer.network.data.spotify.SpotifyTrackResolver
+import com.tx24.spicyplayer.network.data.BackoffLadder
 import java.io.IOException
+import java.time.Instant
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 import javax.inject.Qualifier
 import javax.inject.Singleton
@@ -57,6 +60,10 @@ class SpicyLyricsProvider @Inject constructor(
         ),
         releaseChannel = SourceReleaseChannel.RECOMMENDED,
     )
+
+    /** A stalled server would otherwise hold a request open for as long as it trickles bytes. */
+    private val deadlineClient = client.newBuilder().callTimeout(15, TimeUnit.SECONDS).build()
+    private val backoff = BackoffLadder()
 
     override suspend fun warmUp() {
         if (apiKey.isNotBlank()) spotifyResolver.warmUp()
@@ -117,17 +124,21 @@ class SpicyLyricsProvider @Inject constructor(
             .get()
             .build()
 
+        backoff.openUntil(System.currentTimeMillis())?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it)) }
         return try {
-            client.newCall(httpRequest).awaitResponse().use { response ->
+            deadlineClient.newCall(httpRequest).awaitResponse().use { response ->
+                val retryAfter = response.header("Retry-After")?.let(RetryAfterParser::deadline)
+                if (response.code in REFUSED_STATUSES) {
+                    backoff.failure(System.currentTimeMillis(), retryAfter?.toEpochMilli())
+                        ?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it)) }
+                } else backoff.success()
                 when (response.code) {
                     200 -> parseHit(response.body?.string().orEmpty())
                     404 -> ProviderResult.Miss
-                    429 -> ProviderResult.CoolingDown(
-                        RetryAfterParser.deadline(response.header("Retry-After"))
+                    429 -> retryAfter?.let(ProviderResult::CoolingDown) ?: ProviderResult.Unavailable(
+                        ProviderFailureCategory.SERVER, "Spicy Lyrics returned HTTP 429", retryable = true,
                     )
-                    503 -> ProviderResult.Queued(
-                        response.header("Retry-After")?.let(RetryAfterParser::deadline)
-                    )
+                    503 -> ProviderResult.Queued(retryAfter)
                     401, 403 -> ProviderResult.Unavailable(ProviderFailureCategory.AUTHENTICATION, "Spicy Lyrics returned HTTP ${response.code}")
                     in 400..499 -> ProviderResult.Unavailable(ProviderFailureCategory.CLIENT_REQUEST, "Spicy Lyrics returned HTTP ${response.code}")
                     else -> ProviderResult.Unavailable(
@@ -140,10 +151,17 @@ class SpicyLyricsProvider @Inject constructor(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: IOException) {
+            // Timeouts included: an overloaded server usually stalls rather than refuses.
+            backoff.failure(System.currentTimeMillis())?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it)) }
             ProviderResult.Unavailable(ProviderFailureCategory.NETWORK, error.message, retryable = true)
         } catch (error: Exception) {
             ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, error.message)
         }
+    }
+
+    private companion object {
+        /** Statuses that mean the server (or the edge in front of it) refused us, not that nothing is there. */
+        val REFUSED_STATUSES = setOf(403, 408, 425, 429, 500, 502, 503, 504)
     }
 
     internal fun parseHit(json: String): ProviderResult {

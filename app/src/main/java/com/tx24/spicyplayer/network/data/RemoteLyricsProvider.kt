@@ -168,7 +168,8 @@ private fun RemoteLyricsPayload.parsedTtmlQuality(): RemoteLyricsQuality {
     val ttml = ttmlLyrics?.takeIf(String::isNotBlank) ?: return RemoteLyricsQuality.NONE
     val document = TtmlLyricsParser.parse(ttml.byteInputStream())
     val hasText = document.lines.any { line ->
-        line.words.any { word -> word.text.isNotBlank() }
+        // A line with only its romanization still shows it.
+        line.words.any { word -> word.text.isNotBlank() || !word.romanizedText.isNullOrBlank() }
     }
     if (!hasText) return RemoteLyricsQuality.NONE
 

@@ -69,4 +69,23 @@ class RemoteLyricsAdapterTest {
         assertEquals(listOf("君", "と", "歩", "い", "た"), lines[1].words.map { it.text })
         assertEquals(listOf(false, true, true, true, true), lines[1].words.map { it.attached })
     }
+
+    @Test fun aLineTimedSourceRomanizationSurvivesTheSplit() {
+        val head = """<iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><transliterations><transliteration>""" +
+            """<text for="L1"><span begin="0s" end="2s">kimi to</span> <span begin="2s" end="4s">aruita</span></text></transliteration></transliterations></iTunesMetadata>"""
+        val ttml = """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Line"><head><metadata>$head</metadata></head>""" +
+            """<body><div><p begin="0s" end="4s" itunes:key="L1">君と歩いた</p></div></body></tt>"""
+        val selection = RemoteLyricsSelection(
+            LyricsSourceDescriptor("example", "Example", 1, emptySet()),
+            RemoteLyricsPayload(ttmlLyrics = ttml),
+            RemoteLyricsQuality.LINE_SYNCED,
+        )
+
+        val words = RemoteLyricsAdapter.render(selection, 4_000).lines.single().words
+
+        // The original's pieces, blank when romanized, then the romanization's, blank otherwise.
+        assertEquals(listOf("君", "と", "歩", "い", "た", "", "", ""), words.map { it.text })
+        assertEquals(listOf("", "", "", "", "", "kimi", "to", "aruita"), words.map { it.romanized })
+        assertEquals(listOf(false, true, true, true, true, false, false, false), words.map { it.attached })
+    }
 }

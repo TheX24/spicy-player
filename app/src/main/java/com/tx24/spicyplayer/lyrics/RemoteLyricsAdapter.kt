@@ -96,19 +96,34 @@ internal object RemoteLyricsAdapter {
         .replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"")
         .replace("&#39;", "'").replace("&apos;", "'").replace("&amp;", "&")
 
-    /** Splits at spaces, and CJK per character (glued), so long line-timed lines can wrap. */
+    /**
+     * Splits at spaces, and CJK per character (glued), so long line-timed lines can wrap.
+     *
+     * A source romanization doesn't line up with the original's pieces, so it becomes pieces of
+     * its own after them: blank in the original view, while the original's are blank when
+     * romanized. The layout gives blank pieces no room.
+     */
     internal fun wrappable(line: TimedLine): TimedLine = line.copy(words = line.words.flatMap { word ->
-        val pieces = word.text.split(Regex("\\s+")).filter(String::isNotEmpty).flatMapIndexed { tokenIdx, token ->
+        val pieces = wrapPieces(word.text, word.attached)
+        val roman = word.romanized?.let { wrapPieces(it, word.attached) }
+        when {
+            roman != null && (pieces.size > 1 || roman.size > 1) ->
+                pieces.map { (text, attached) -> TimedWord(text, word.startMs, word.endMs, attached, romanized = "") } +
+                    roman.map { (text, attached) -> TimedWord("", word.startMs, word.endMs, attached, romanized = text) }
+            roman != null || pieces.size <= 1 -> listOf(word)
+            else -> pieces.map { (text, attached) -> TimedWord(text, word.startMs, word.endMs, attached) }
+        }
+    })
+
+    private fun wrapPieces(text: String, attached: Boolean): List<Pair<String, Boolean>> =
+        text.split(Regex("\\s+")).filter(String::isNotEmpty).flatMapIndexed { tokenIdx, token ->
             val runs = mutableListOf<String>()
             for (c in token) {
                 if (LyricsLayoutCalculator.isCjk(c) || runs.isEmpty() || LyricsLayoutCalculator.isCjk(runs.last().last())) runs += c.toString()
                 else runs[runs.lastIndex] += c
             }
-            runs.mapIndexed { runIdx, run -> run to if (runIdx > 0) true else tokenIdx == 0 && word.attached }
+            runs.mapIndexed { runIdx, run -> run to if (runIdx > 0) true else tokenIdx == 0 && attached }
         }
-        if (pieces.size <= 1) listOf(word)
-        else pieces.map { (text, attached) -> TimedWord(text, word.startMs, word.endMs, attached) }
-    })
 
     private fun staticLines(plain: String?): List<TimedLine> = plain.orEmpty().lines()
         .map(String::trim).filter(String::isNotEmpty)

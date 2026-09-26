@@ -78,6 +78,10 @@ internal object LyricsLayoutCalculator {
     private fun displayText(word: Word, romanize: Boolean): String =
         if (romanize) (word.romanizedText ?: word.text) else word.text
 
+    /** Whether [line] shows romanized: when asked, or when only its romanization has text. */
+    private fun romanizes(line: Line, romanize: Boolean): Boolean =
+        romanize || (line.words.none { it.text.isNotBlank() } && line.words.any { !it.romanizedText.isNullOrBlank() })
+
     /**
      * Whether a line's block should sit on the right edge of the lyrics column.
      *
@@ -159,7 +163,7 @@ internal object LyricsLayoutCalculator {
                     .firstOrNull { it.startMs > line.startMs && !it.isInterlude && !it.isBackground && !it.isSongwriter }
                 val nextLineAlignment = nextLine?.oppositeAligned ?: false
                 val nextLineIsRtl = nextLine != null &&
-                    RtlDetector.isRtl(nextLine.words.joinToString(" ") { displayText(it, romanize) })
+                    RtlDetector.isRtl(nextLine.words.joinToString(" ") { displayText(it, romanizes(nextLine, romanize)) })
                 val dotsRightAligned = resolveRightAligned(hasDuet, nextLineIsRtl, nextLineAlignment, isSongwriter = false)
 
                 val slot = metrics.contentSlot(hasDuet, nextLineIsRtl, nextLineAlignment)
@@ -171,8 +175,9 @@ internal object LyricsLayoutCalculator {
 
 
             // Standard lyric line layout.
-            val lineIsRtl = RtlDetector.isRtl(line.words.joinToString(" ") { displayText(it, romanize) })
-            val lineFontFamily = fontFamilyFor(line.words.joinToString(" ") { displayText(it, romanize) })
+            val romanizeLine = romanizes(line, romanize)
+            val lineIsRtl = RtlDetector.isRtl(line.words.joinToString(" ") { displayText(it, romanizeLine) })
+            val lineFontFamily = fontFamilyFor(line.words.joinToString(" ") { displayText(it, romanizeLine) })
             val contentSlot = metrics.contentSlot(hasDuet, lineIsRtl, line.oppositeAligned)
             // An active line-synced line grows 1.05x away from its aligned edge. The reference
             // wraps it inside a 5cqw padding that the growth fills; here it must wrap narrower
@@ -235,7 +240,7 @@ internal object LyricsLayoutCalculator {
                     letterSpacing = (System.identityHashCode(word) % 1000 * 0.0000001f).sp
                 )
                 
-                val text = displayText(word, romanize)
+                val text = displayText(word, romanizeLine)
                 val fullResult = textMeasurer.measure(text, style)
                 val fullW = fullResult.size.width.toFloat()
 
@@ -245,7 +250,8 @@ internal object LyricsLayoutCalculator {
                 // TTML). Romanization must preserve the source's spacing exactly: a syllable glued to
                 // its neighbour in the original script stays glued when romanized (こんにちは → "konnichiwa",
                 // not "kon nichi wa"), and only tokens that had real whitespace in the source get a gap.
-                val effectiveIsPartOfWord = word.isPartOfWord
+                // A blank piece (the other view's half of a line-timed romanization) takes no room.
+                val effectiveIsPartOfWord = word.isPartOfWord || text.isEmpty()
 
                 if (word.isLetterGroup) {
                     var currentX = 0f

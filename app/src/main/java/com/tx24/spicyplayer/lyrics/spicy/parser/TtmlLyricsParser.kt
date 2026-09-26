@@ -83,8 +83,15 @@ object TtmlLyricsParser {
     private fun hasLyricsText(text: String?) = text != null && stripZeroWidth(text).isNotBlank()
 
     private class TimedSpan(val begin: String, val end: String, val beginS: Double?, val endS: Double?, val text: String)
-    /** One `<text for>` entry: spans mirroring the lead, and those under an x-bg wrapper. */
-    private class TransliterationLine(val spans: MutableList<TimedSpan> = mutableListOf(), val background: MutableList<TimedSpan> = mutableListOf())
+    /**
+     * One `<text for>` entry: spans mirroring the lead, those under an x-bg wrapper, and the lead's
+     * whole text with the spacing between spans kept (an entry can also be plain text, no spans).
+     */
+    private class TransliterationLine(
+        val spans: MutableList<TimedSpan> = mutableListOf(),
+        val background: MutableList<TimedSpan> = mutableListOf(),
+        var text: String = "",
+    )
 
     private class Syllable(val text: String, val roman: String?, val partOfWord: Boolean, val start: Double?, val end: Double?)
     private class RoleTexts(val roman: String?)
@@ -162,9 +169,12 @@ object TtmlLyricsParser {
             val start = convertTimeToSeconds(p["begin"] ?: vocalSpans.firstOrNull()?.get("begin"))
             val end = convertTimeToSeconds(p["end"] ?: vocalSpans.lastOrNull()?.get("end"))
             val text = getLineText(p)
-            val itm = p["itunes:key"]?.let { transliterations?.get(it) }?.spans
-            val roman = (if (!itm.isNullOrEmpty()) itm.joinToString("") { it.text } else inlineRoleTexts(p).roman)
-                ?.trim()?.takeIf(String::isNotEmpty)
+            val entry = p["itunes:key"]?.let { transliterations?.get(it) }
+            val roman = when {
+                !entry?.text.isNullOrEmpty() -> entry!!.text
+                !entry?.spans.isNullOrEmpty() -> entry!!.spans.joinToString("") { it.text }
+                else -> inlineRoleTexts(p).roman
+            }?.trim()?.takeIf(String::isNotEmpty)
             if (!hasLyricsText(text) && !hasLyricsText(roman)) return@mapNotNull null
             val startMs = ms(start) ?: 0L
             val endMs = ms(end) ?: startMs
@@ -314,12 +324,27 @@ object TtmlLyricsParser {
                     val key = entry["for"] ?: continue
                     val line = TransliterationLine()
                     collectTransliterationSpans(entry.elements("span"), line.spans, line.background)
-                    if (line.spans.isEmpty() && line.background.isEmpty()) continue
-                    map[key]?.let { it.spans += line.spans; it.background += line.background } ?: run { map[key] = line }
+                    line.text = leadText(entry).replace(Regex("\\s+"), " ").trim()
+                    if (line.spans.isEmpty() && line.background.isEmpty() && line.text.isEmpty()) continue
+                    map[key]?.let {
+                        it.spans += line.spans
+                        it.background += line.background
+                        it.text = listOf(it.text, line.text).filter(String::isNotEmpty).joinToString(" ")
+                    } ?: run { map[key] = line }
                 }
             }
         }
         return map.ifEmpty { null }
+    }
+
+    /** All the text under [node], the spaces between spans included, leaving out x-bg wrappers. */
+    private fun leadText(node: Element): String = node.children.joinToString("") { child ->
+        when {
+            child is Text -> child.value
+            child is Element && child["ttm:role"] == "x-bg" -> ""
+            child is Element -> leadText(child)
+            else -> ""
+        }
     }
 
     /** Timed spans are leaves; wrappers are descended into, x-bg ones into the background list. */

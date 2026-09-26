@@ -79,4 +79,29 @@ class TtmlLyricsParserTest {
         assertEquals(6_000L, lines.single().endMs)
         assertEquals(LineRole.LEAD, lines.single().role)
     }
+
+    @Test fun everyBackgroundVocalOnALineIsKept() {
+        val p = """<p begin="1" end="4"><span begin="1" end="2">A</span><span ttm:role="x-bg"><span begin="1" end="2">(oh)</span></span>""" +
+            """<span ttm:role="x-bg"><span begin="3" end="4">(yeah)</span></span></p>"""
+        val lines = parse(doc("<div>$p</div>")).lines
+        assertEquals(listOf(LineRole.LEAD, LineRole.BACKGROUND, LineRole.BACKGROUND), lines.map { it.role })
+        assertEquals(listOf("oh", "yeah"), lines.drop(1).map { it.words.single().text })
+        assertEquals(4_000L, lines[0].endMs)
+    }
+
+    @Test fun lineTimedTransliterationsKeepTheSpacesBetweenSpans() {
+        val head = """<iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><transliterations><transliteration>""" +
+            """<text for="L1"><span begin="1s" end="2s">konnichiwa</span> <span begin="2s" end="3s">sekai</span><span ttm:role="x-bg"><span begin="2s" end="3s">oh</span></span></text>""" +
+            """<text for="L2">plain  text</text></transliteration></transliterations></iTunesMetadata>"""
+        val body = """<div><p begin="1s" end="3s" itunes:key="L1">こんにちは世界</p><p begin="3s" end="4s" itunes:key="L2">平文</p></div>"""
+        val lines = parse(doc(body, timing = "Line", head = head)).lines
+        assertEquals(listOf("konnichiwa sekai", "plain text"), lines.map { it.words.single().romanizedText })
+    }
+
+    @Test fun aLineWithOnlyItsRomanizationIsKept() {
+        val p = """<p begin="1" end="2"><span ttm:role="x-roman">romaji</span></p>"""
+        val line = parse(doc("<div>$p</div>", timing = "Line")).lines.single()
+        assertEquals("", line.words.single().text)
+        assertEquals("romaji", line.words.single().romanizedText)
+    }
 }
