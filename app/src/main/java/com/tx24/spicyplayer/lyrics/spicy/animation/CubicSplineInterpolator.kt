@@ -2,7 +2,7 @@ package com.tx24.spicyplayer.lyrics.spicy.animation
 
 /**
  * Natural cubic spline interpolation over (time, value) control points.
- * Port of the "cubic-spline" npm package used by spicy-lyrics.
+ * Port of the "cubic-spline" npm package (MIT).
  */
 class CubicSplineInterpolator(points: List<AnimationPoint>) {
     private val xs: FloatArray

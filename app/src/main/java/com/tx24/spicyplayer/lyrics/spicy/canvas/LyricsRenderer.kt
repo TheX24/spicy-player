@@ -23,10 +23,10 @@ import com.tx24.spicyplayer.lyrics.spicy.animation.WordAnimState
  * single pass. This mirrors the original's exact CSS model:
  * `linear-gradient(bright stop1%, dim stop2%)` where `stop1 = gradientPositionPercent` and
  * `stop2 = stop1 + 20`, both expressed as percentages of [fullWidth] — NOT renormalized to a
- * plain 0..1 range. That distinction matters: the reference's position sweeps from -20% to
+ * plain 0..1 range. That distinction matters: the position sweeps from -20% to
  * 100% (a 120-point range), so for roughly the first ~17% and last ~17% of a syllable's own
  * timing window the transition band sits entirely off the visible text (uniformly dim, then
- * uniformly bright) before/after actually crossing it — matching the reference's real feel
+ * uniformly bright) before/after actually crossing it — which is what gives the wipe its feel
  * instead of stretching the wipe evenly across the whole syllable.
  *
  * @param gradientPositionPercent the raw position value (e.g. -20 at NotSung, 100 at Sung),
@@ -140,7 +140,7 @@ internal fun String.hasEmoji(): Boolean {
 }
 
 /**
- * Draws [shadow] as its own pass (invisible text casting a white glow, like the reference's CSS
+ * Draws [shadow] as its own pass (invisible text casting a white glow, like a CSS
  * text-shadow), then the text on top without a shadow, instead of giving the gradient-filled
  * text the shadow in the same draw, which renders the glyphs visibly darker.
  *
@@ -241,7 +241,7 @@ internal fun DrawScope.drawInterludeGroup(
     dynamicY: Float,
 ) {
     // Widened past 1 (but not below 0 — a negative scale would mirror-flip the dots) so the
-    // reference's overshoot collapse curve (DOT_GROUP_COLLAPSE_EASING) stays visible.
+    // overshoot collapse curve (DOT_GROUP_COLLAPSE_EASING) stays visible.
     val groupScale = lineAnim.scale.coerceIn(0f, 1.3f)
     if (groupScale < 0.01f) return
 
@@ -265,7 +265,7 @@ internal fun DrawScope.drawInterludeGroup(
 
         val dotPivotX = xPos + textW / 2f
         val dotPivotY = baseYPos + textH / 2f
-        // The reference's offset is in lyric font sizes (--DefaultLyricsSize); a dot is 1.3 of that.
+        // The offset is in lyric font sizes; a dot is 1.3 of that.
         val lyricSizePx = with(wLayout.textLayoutResult.layoutInput) { with(density) { style.fontSize.toPx() } } / 1.3f
         val dotYShift = dotAnim.yOffset * lyricSizePx
 
@@ -308,19 +308,19 @@ private fun scaleAnchor(gluedBefore: Boolean, gluedAfter: Boolean, rtl: Boolean)
 }
 
 /**
- * The reference's lyric size on a desktop window, where its effect sizes (blur, glow radii in CSS
- * px) were tuned: --DefaultLyricsSize is clamp(1.85rem, 7cqw, 3.5rem), so 3.5rem = 56px.
+ * The lyric size on a desktop window, where the effect sizes (blur, glow radii in CSS px) were
+ * tuned: clamp(1.85rem, 7cqw, 3.5rem), so 3.5rem = 56px.
  */
 private const val REFERENCE_LYRIC_SIZE_CSS_PX = 56f
 
 /**
- * One of the reference's CSS px in our px, relative to the text: effects keep the same size next
- * to the letters as on Spicy Lyrics' desktop page, whatever the screen density.
+ * One desktop CSS px in our px, relative to the text: effects keep the same size next to the
+ * letters as on a desktop page, whatever the screen density.
  */
 private fun cssPx(layout: TextLayoutResult, isBackground: Boolean): Float =
     lyricSizePx(layout, isBackground) / REFERENCE_LYRIC_SIZE_CSS_PX
 
-/** The reference's --DefaultLyricsSize in px: a background line's text is 0.75 of it. */
+/** The lyric size in px: a background line's text is 0.75 of it. */
 private fun lyricSizePx(layout: TextLayoutResult, isBackground: Boolean): Float =
     with(layout.layoutInput) { with(density) { style.fontSize.toPx() } } / (if (isBackground) 0.75f else 1f)
 
@@ -379,7 +379,7 @@ private fun DrawScope.drawSyllabicLetterFragment(
     val sLYPos = yPos + scrollOffset
     val sPivotX = xPos + textWidth / 2f
     val sPivotY = sLYPos + textHeight / 2f
-    // Word-container pivot: the reference nests letters inside the word element, so the
+    // Word-container pivot: letters sit inside their word, so the
     // word's own scale() pivots at the WORD's center (spreading letters outward), not each
     // letter's own center. Recover the word's left edge from this fragment's offset within it.
     // ponytail: single-row word-center pivot; wrapped held words approximate.
@@ -393,7 +393,7 @@ private fun DrawScope.drawSyllabicLetterFragment(
     val wordScale = boosted(wordAnim.scale, boost)
     val letterScale = boosted(lState.scale, boost)
 
-    // Glow shadow tracks the spring in every state (not gated to Active): the reference keeps
+    // Glow shadow tracks the spring in every state (not gated to Active): the animator keeps
     // stepping scale/glow/yOffset toward their Sung targets after EndTime (checkNextLine), so a
     // held word's settle tail must stay visible instead of being amputated the instant it's Sung.
     val lGlowBlur = 4f + 12f * lState.glow
@@ -456,7 +456,7 @@ private fun DrawScope.drawStandardWord(
     rtl: Boolean,
     anchor: Float,
 ) {
-    // Glow shadow tracks the spring in every state (not gated to Active): the reference keeps
+    // Glow shadow tracks the spring in every state (not gated to Active): the animator keeps
     // stepping scale/glow/yOffset toward their Sung targets after EndTime (checkNextLine), so a
     // held word's settle tail must stay visible instead of being amputated the instant it's Sung.
     val glowBlur = 4f + 2f * wordAnim.glow
@@ -531,7 +531,7 @@ internal fun DrawScope.drawLineModeLine(
     val lineWidth = layout.maxRowWidth.coerceAtLeast(1f)
 
     // Active Line-mode lines scale to 1.05 with transform-origin left-center
-    // (right-center for duet/RTL lines), per the reference CSS.
+    // (right-center for duet/RTL lines).
     val pivot = Offset(
         if (layout.isRightAligned) lineStartX + layout.totalWidth else lineStartX,
         dynamicY + scrollOffset + layout.height / 2f,

@@ -12,7 +12,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * A full-screen composable that renders the spicy-lyrics style dynamic background.
+ * A full-screen composable that renders the rotating-circles dynamic background.
  * Place this behind all other content using a Box/Stack layout.
  *
  * @param coverArtBitmap The album cover art to derive the background from.

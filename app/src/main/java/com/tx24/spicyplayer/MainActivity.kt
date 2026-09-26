@@ -2,11 +2,11 @@ package com.tx24.spicyplayer
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.NotificationsActive
-import com.tx24.spicyplayer.ui.components.SlButtonStyle
-import com.tx24.spicyplayer.ui.components.SlModal
-import com.tx24.spicyplayer.ui.components.SlModalButton
-import com.tx24.spicyplayer.ui.components.SlModalGap
-import com.tx24.spicyplayer.ui.components.SlModalMessage
+import com.tx24.spicyplayer.ui.components.SpicyButtonStyle
+import com.tx24.spicyplayer.ui.components.SpicyModal
+import com.tx24.spicyplayer.ui.components.SpicyModalButton
+import com.tx24.spicyplayer.ui.components.SpicyModalGap
+import com.tx24.spicyplayer.ui.components.SpicyModalMessage
 import android.content.Context
 import android.content.Intent
 import android.os.Bundle
@@ -16,6 +16,13 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.calculateStartPadding
+import androidx.compose.foundation.layout.calculateEndPadding
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -30,7 +37,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import com.tx24.spicyplayer.ui.components.LyricsSkeleton
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -46,7 +56,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
-import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -65,7 +74,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.layout.width
 import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutMetrics
-import com.tx24.spicyplayer.lyrics.spicy.canvas.SpicyLyricsView
+import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsView
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsCredit
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
@@ -82,7 +91,13 @@ import com.tx24.spicyplayer.ui.controls.PlaybackControlsState
 import com.tx24.spicyplayer.ui.nowplaying.CompactHeaderMetrics
 import com.tx24.spicyplayer.ui.nowplaying.CompactNowPlayingHeader
 import com.tx24.spicyplayer.ui.nowplaying.NowPlayingInfo
-import com.tx24.spicyplayer.ui.settings.LyricsPreferences
+import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
+import androidx.compose.animation.core.spring
+import com.tx24.spicyplayer.ui.settings.AppSettings
+import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutCalculator
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalView
 import com.tx24.spicyplayer.ui.settings.SettingsScreen
 import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
@@ -97,6 +112,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        hideSystemBars()
         setContent {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 LyricsApp(
@@ -113,6 +129,20 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         playbackViewModel.refresh()
     }
+
+    // Dialogs and the keyboard can bring the bars back; hide them again once the window is ours.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
+    }
+
+    /** Fullscreen: a swipe from the edge shows the bars for a moment over the page. */
+    private fun hideSystemBars() {
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            hide(WindowInsetsCompat.Type.systemBars())
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -123,55 +153,59 @@ private fun LyricsApp(
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
-    // Global and persisted, like the reference's "romanization" setting.
-    val uiPrefs = remember { context.getSharedPreferences("ui", Context.MODE_PRIVATE) }
-    var romanizePreferred by remember { mutableStateOf(uiPrefs.getBoolean("romanize", false)) }
-    val setRomanize = { on: Boolean ->
-        romanizePreferred = on
-        uiPrefs.edit().putBoolean("romanize", on).apply()
-    }
+    val settings = remember { AppSettings(context.getSharedPreferences("ui", Context.MODE_PRIVATE)) }
+    val lowPerformance = settings.lowPerformance
     val romanizationAvailable = (state.lyrics as? LyricsState.Ready)?.let { ready ->
         ready.lines.any { line -> line.words.any { it.romanized != null } }
     } == true
-    val romanize = romanizePreferred && romanizationAvailable
-    var originalWordMotion by remember { mutableStateOf(uiPrefs.getBoolean("originalWordMotion", false)) }
-    val setOriginalWordMotion = { on: Boolean ->
-        originalWordMotion = on
-        uiPrefs.edit().putBoolean("originalWordMotion", on).apply()
+    val romanize = settings.romanize && romanizationAvailable
+    val systemFont = settings.systemFont
+    SideEffect { LyricsLayoutCalculator.useSystemFont = systemFont }
+    // Awake while the music plays, so the lyrics can be followed without touching the phone.
+    val view = LocalView.current
+    val keepAwake = settings.keepScreenOn && state.isPlaying
+    DisposableEffect(view, keepAwake) {
+        view.keepScreenOn = keepAwake
+        onDispose { view.keepScreenOn = false }
     }
-    // Drops the costliest effects: the moving background, glass blur, and lyric blur and glow.
-    var lowPerformance by remember { mutableStateOf(uiPrefs.getBoolean("lowPerformance", false)) }
-    val setLowPerformance = { on: Boolean ->
-        lowPerformance = on
-        uiPrefs.edit().putBoolean("lowPerformance", on).apply()
+    // The big cover: the button (or a tap on the cover) asks for it; the setting brings it up on
+    // its own while a song has no lyrics, until it's put away for that song.
+    var userExpanded by remember { mutableStateOf(false) }
+    var dismissedForSong by remember(state.title, state.artist) { mutableStateOf(false) }
+    val autoExpanded = settings.expandWithoutLyrics && state.lyrics is LyricsState.Error && !dismissedForSong
+    val headerExpanded = userExpanded || autoExpanded
+    val toggleExpanded = {
+        if (headerExpanded) {
+            userExpanded = false
+            if (autoExpanded) dismissedForSong = true
+        } else {
+            userExpanded = true
+        }
     }
-    // Spicy Lyrics' Simple and Minimal Lyrics Modes.
-    var simpleLyricsMode by remember { mutableStateOf(uiPrefs.getBoolean("simpleLyricsMode", false)) }
-    var simpleAnimationStyle by remember {
-        mutableStateOf(runCatching { SimpleAnimationStyle.valueOf(uiPrefs.getString("simpleAnimationStyle", null)!!) }
-            .getOrDefault(SimpleAnimationStyle.CALCULATE))
-    }
-    var minimalLyricsMode by remember { mutableStateOf(uiPrefs.getBoolean("minimalLyricsMode", false)) }
-    val renderConfig = remember(originalWordMotion, lowPerformance, simpleLyricsMode, simpleAnimationStyle, minimalLyricsMode) {
-        // Built fresh, not copied: the mode-dependent defaults are worked out in the constructor.
-        RenderConfig(
-            simpleLyricsMode = simpleLyricsMode,
-            minimalLyricsMode = minimalLyricsMode,
-            simpleAnimationStyle = simpleAnimationStyle,
-            wordMotionBoost = if (originalWordMotion) 1f else WORD_MOTION_BOOST,
-            distanceBlurEnabled = !lowPerformance,
-            glowEnabled = !lowPerformance,
-        )
-    }
+    // The header expands over 0.4 s with CSS's `ease`.
+    val expansion by animateFloatAsState(
+        if (headerExpanded) 1f else 0f,
+        tween(400, easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)),
+        label = "headerExpansion",
+    )
+    // Built fresh, not copied: the mode-dependent defaults are worked out in the constructor.
+    val renderConfig = RenderConfig(
+        simpleLyricsMode = settings.simpleLyricsMode,
+        minimalLyricsMode = settings.minimalLyricsMode,
+        simpleAnimationStyle = settings.simpleAnimationStyle,
+        wordMotionBoost = settings.wordMotionBoost,
+        distanceBlurEnabled = settings.distanceBlur && !lowPerformance,
+        glowEnabled = settings.glow && !lowPerformance,
+    )
     var showSettings by remember { mutableStateOf(false) }
     val backdrop = remember { HazeState() }
 
-    // SL shows its controls while the pointer is over the page. On a phone: any touch shows them,
-    // and they fade after a few seconds without one. They stay while paused.
+    // Any touch shows the controls, and they fade after a few seconds without one.
     var controlsVisible by remember { mutableStateOf(true) }
     var lastTouchMs by remember { mutableLongStateOf(0L) }
-    LaunchedEffect(lastTouchMs, state.isPlaying) {
-        if (!state.isPlaying) {
+    // They stay while paused, and while the big cover is up (it has nothing else to show).
+    LaunchedEffect(lastTouchMs, state.isPlaying, headerExpanded, settings.autoHideControls) {
+        if (!state.isPlaying || headerExpanded || !settings.autoHideControls) {
             controlsVisible = true
             return@LaunchedEffect
         }
@@ -181,11 +215,11 @@ private fun LyricsApp(
 
     LaunchedEffect(Unit) { viewModel.refresh() }
 
-    Scaffold { padding ->
+    // The bars are hidden, so this is only the camera cutout (and the keyboard in settings).
+    Scaffold(contentWindowInsets = WindowInsets.safeDrawing) { padding ->
         Box(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
                 .pointerInput(Unit) {
                     // Sees every touch on its way down without taking it from what's underneath.
                     awaitPointerEventScope {
@@ -197,18 +231,30 @@ private fun LyricsApp(
                     }
                 },
         ) {
+            // The background fills the screen; everything on it keeps clear of the cutout.
             BoxWithConstraints(Modifier.fillMaxSize()) {
+                // The header rises into the cutout's band (the camera is clear of the cover), so the
+                // page starts at the top of the screen and only the bottom inset comes off.
+                val topInsetPx = with(LocalDensity.current) { padding.calculateTopPadding().toPx() }
+                val bottomInsetPx = with(LocalDensity.current) { padding.calculateBottomPadding().toPx() }
                 val pageWidth = constraints.maxWidth.toFloat()
-                val pageHeight = constraints.maxHeight.toFloat()
+                val pageHeight = constraints.maxHeight.toFloat() - bottomInsetPx
                 val density = LocalDensity.current.density
-                val headerMetrics = remember(pageWidth, pageHeight, density) {
+                val headerMetrics = remember(pageWidth, pageHeight, density, topInsetPx) {
                     CompactHeaderMetrics(
                         pageWidthPx = pageWidth,
                         pageHeightPx = pageHeight,
                         density = density,
                         lyricFontSizeSp = LyricsLayoutMetrics(pageWidth, density, LyricsType.Syllable, 1f).baseFontSizeSp,
+                        topInsetPx = topInsetPx,
                     )
                 }
+                val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
+                val belowTop = androidx.compose.foundation.layout.PaddingValues(
+                    start = padding.calculateStartPadding(layoutDirection),
+                    end = padding.calculateEndPadding(layoutDirection),
+                    bottom = padding.calculateBottomPadding(),
+                )
                 var controlsHeightPx by remember { mutableIntStateOf(0) }
                 // While the controls show, a notice centres in the space they leave above them.
                 val noticeBottomPx by animateFloatAsState(
@@ -223,9 +269,16 @@ private fun LyricsApp(
                         artworkUri = state.artworkUri,
                         isPlaying = state.isPlaying,
                         modifier = Modifier.fillMaxSize(),
-                        animate = !lowPerformance,
+                        animate = !lowPerformance && !settings.staticBackground,
+                        legacy = settings.legacyBackground,
                     )
-                    Column(Modifier.fillMaxSize()) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(belowTop)
+                            // Expanding, the lyrics fade out under the cover.
+                            .graphicsLayer { alpha = 1f - expansion },
+                    ) {
                         Spacer(Modifier.height(with(LocalDensity.current) { headerMetrics.lyricsTopPx.toDp() }))
                         LyricsPanel(
                             lyrics = state.lyrics,
@@ -235,14 +288,30 @@ private fun LyricsApp(
                             activeLineTopPx = headerMetrics.activeLineTopPx,
                             noticeBottomPx = { noticeBottomPx },
                             config = renderConfig,
+                            fontSizeScale = settings.lyricsSize.scale,
                             modifier = Modifier.weight(1f),
                         )
                     }
+                // Hidden lyrics take no touches (no seeking through the cover view).
+                if (headerExpanded) {
+                    Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } })
+                }
+                val expandedHeader = remember(headerMetrics, controlsHeightPx) {
+                    headerMetrics.expanded(pageHeight - controlsHeightPx)
                 }
                 CompactNowPlayingHeader(
                     info = NowPlayingInfo(state.title, state.artist, state.artwork, state.artworkUri, state.trackDirection),
                     metrics = headerMetrics,
+                    modifier = Modifier.padding(belowTop),
+                    expansion = { expansion },
+                    expanded = expandedHeader,
+                    isPlaying = state.isPlaying,
+                    onPlayPause = viewModel::playPause,
+                    onSkip = { direction -> if (direction == TrackDirection.Forward) viewModel.skipNext() else viewModel.skipPrevious() },
                 )
+                // The header sits in what the glass and the shade blur, so the shade blurs it
+                // rather than painting the blurred page over it.
+                }
                 // Out of the way under settings too: their glass would keep blurring behind it.
                 val controlsTarget = controlsVisible && !showSettings
                 // Quick to appear under the finger; a slow, soft fade when they time out.
@@ -275,19 +344,23 @@ private fun LyricsApp(
                         ),
                         romanizeAvailable = romanizationAvailable,
                         romanized = romanize,
-                        onToggleRomanize = { setRomanize(!romanizePreferred) },
+                        onToggleRomanize = { settings.romanize = !settings.romanize },
                         onOpenSettings = { showSettings = true },
+                        expanded = headerExpanded,
+                        onToggleExpanded = toggleExpanded,
                         interactive = controlsVisible,
                         shown = { controlsShown },
+                        // No lyrics behind them when expanded, so no shade over the cover.
+                        shade = { 1f - expansion.coerceIn(0f, 1f) },
                         onControlsHeight = { controlsHeightPx = it },
-                        modifier = Modifier.align(Alignment.BottomCenter),
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(padding),
                     )
                 }
             }
         }
 
         // Coming back from the system's settings refreshes the grant (onResume), which closes it.
-        SlModal(
+        SpicyModal(
             visible = !state.accessGranted,
             onDismissRequest = null,
             backdrop = backdrop,
@@ -300,28 +373,7 @@ private fun LyricsApp(
             SettingsScreen(
                 state = state,
                 viewModel = viewModel,
-                prefs = LyricsPreferences(
-                    originalWordMotion = originalWordMotion,
-                    onOriginalWordMotionChange = setOriginalWordMotion,
-                    wordMotionBoost = WORD_MOTION_BOOST,
-                    lowPerformance = lowPerformance,
-                    onLowPerformanceChange = setLowPerformance,
-                    simpleLyricsMode = simpleLyricsMode,
-                    onSimpleLyricsModeChange = { on ->
-                        simpleLyricsMode = on
-                        uiPrefs.edit().putBoolean("simpleLyricsMode", on).apply()
-                    },
-                    simpleAnimationStyle = simpleAnimationStyle,
-                    onSimpleAnimationStyleChange = { style ->
-                        simpleAnimationStyle = style
-                        uiPrefs.edit().putString("simpleAnimationStyle", style.name).apply()
-                    },
-                    minimalLyricsMode = minimalLyricsMode,
-                    onMinimalLyricsModeChange = { on ->
-                        minimalLyricsMode = on
-                        uiPrefs.edit().putBoolean("minimalLyricsMode", on).apply()
-                    },
-                ),
+                settings = settings,
                 backdrop = backdrop,
                 contentPadding = padding,
                 onClosed = { showSettings = false },
@@ -333,15 +385,12 @@ private fun LyricsApp(
 private const val CONTROLS_IDLE_MS = 3_000L
 private const val CONTROLS_SHOW_MS = 350
 private const val CONTROLS_HIDE_MS = 700
-private const val SPINNER_DELAY_MS = 500L
-
-/** Default word-motion boost over Spicy Lyrics' own (RenderConfig.wordMotionBoost). */
-private const val WORD_MOTION_BOOST = 1.25f
+private val CssEaseOut = CubicBezierEasing(0f, 0f, 0.58f, 1f)
 
 /**
- * Spicy Lyrics' `.LyricsNotice` (default.scss): centred in the lyrics area, 80% of its width,
- * centre-aligned. `.notice-descriptor` is semibold primary text at clamp(1.25rem, 3.5cqw, 2.5rem);
- * `.notice-footer` sits 1cqh under it, regular secondary text at clamp(0.95rem, 3.5cqw, 1.45rem).
+ * A notice in place of lyrics: centred in the lyrics area, 80% of its width, centre-aligned. The
+ * message is semibold primary text at clamp(1.25rem, 3.5cqw, 2.5rem); the detail sits 1cqh
+ * under it, regular secondary text at clamp(0.95rem, 3.5cqw, 1.45rem).
  * [bottomPx] is how much of the panel's bottom the controls cover right now.
  */
 @Composable
@@ -377,7 +426,7 @@ private fun LyricsNotice(message: String, detail: String?, bottomPx: () -> Float
 /** Asks for the notification-listener grant, which is how Android hands out media sessions. */
 @Composable
 private fun NotificationAccessMessage(openNotificationAccess: () -> Unit) {
-    SlModalMessage(
+    SpicyModalMessage(
         title = "Allow notification access",
         description = "Spicy Player reads the song playing in your music app, and controls it, through its media " +
             "notification. Android files that under notification access. You can turn it off again in system settings.",
@@ -385,8 +434,8 @@ private fun NotificationAccessMessage(openNotificationAccess: () -> Unit) {
             Icon(Icons.Rounded.NotificationsActive, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary)
         },
     )
-    SlModalGap()
-    SlModalButton("Open notification access", openNotificationAccess, style = SlButtonStyle.Primary, fill = true)
+    SpicyModalGap()
+    SpicyModalButton("Open notification access", openNotificationAccess, style = SpicyButtonStyle.Primary, fill = true)
 }
 
 @Composable
@@ -398,20 +447,48 @@ private fun LyricsPanel(
     activeLineTopPx: Float?,
     noticeBottomPx: () -> Float,
     config: RenderConfig,
+    fontSizeScale: Float,
+    modifier: Modifier = Modifier,
+) {
+    // The loading skeleton: up as soon as the lookup starts, over whatever the panel
+    // shows, fading in over 0.2s and out over 0.25s (ease-out).
+    Box(modifier) {
+        LyricsPanelContent(lyrics, currentTimeMs, onSeek, romanize, activeLineTopPx, noticeBottomPx, config, fontSizeScale, Modifier.fillMaxSize())
+        AnimatedVisibility(
+            visible = lyrics == LyricsState.Loading,
+            enter = fadeIn(tween(200, easing = CssEaseOut)),
+            exit = fadeOut(tween(250, easing = CssEaseOut)),
+        ) {
+            BoxWithConstraints(Modifier.fillMaxSize()) {
+                val density = LocalDensity.current.density
+                val metrics = LyricsLayoutMetrics(constraints.maxWidth.toFloat(), density, LyricsType.Syllable, fontSizeScale)
+                val column = metrics.contentSlot(hasDuet = false, isRtl = false, oppositeAligned = false)
+                LyricsSkeleton(
+                    lineSizeSp = metrics.baseFontSizeSp,
+                    lineStartPx = column.startPx,
+                    lineMaxWidthPx = column.widthPx,
+                    topPx = activeLineTopPx ?: 0f,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun LyricsPanelContent(
+    lyrics: LyricsState,
+    currentTimeMs: () -> Long,
+    onSeek: (Long) -> Unit,
+    romanize: Boolean,
+    activeLineTopPx: Float?,
+    noticeBottomPx: () -> Float,
+    config: RenderConfig,
+    fontSizeScale: Float,
     modifier: Modifier = Modifier,
 ) {
     when (lyrics) {
         LyricsState.Idle -> LyricsNotice("Waiting for a song", null, noticeBottomPx, modifier)
-        LyricsState.Loading -> Box(modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            // Cached lyrics arrive within a few frames; a spinner flashing up for those would
-            // only be noise, so it waits until the lookup actually takes a while.
-            var showSpinner by remember { mutableStateOf(false) }
-            LaunchedEffect(Unit) {
-                delay(SPINNER_DELAY_MS)
-                showSpinner = true
-            }
-            if (showSpinner) CircularProgressIndicator(color = SpicyColors.TextSecondary)
-        }
+        LyricsState.Loading -> Unit
         is LyricsState.Error -> LyricsNotice(lyrics.message, lyrics.detail, noticeBottomPx, modifier)
         is LyricsState.Ready -> {
             val rendererLines = remember(lyrics.lines, config.isMinimal, config.isSimple) {
@@ -433,7 +510,7 @@ private fun LyricsPanel(
                     else -> false
                 })
             }
-            SpicyLyricsView(
+            LyricsView(
                 lines = rendererLines,
                 documentId = remember(lyrics.lines) { lyrics.lines.hashCode().toString() },
                 currentTimeMs = currentTimeMs,
@@ -442,6 +519,7 @@ private fun LyricsPanel(
                 activeLineTopPx = activeLineTopPx,
                 lyricsType = lyrics.lyricsType,
                 config = config,
+                fontSizeScale = fontSizeScale,
                 footer = remember(lyrics) {
                     LyricsFooter(
                         songwriters = lyrics.songwriters,

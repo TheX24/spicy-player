@@ -9,15 +9,14 @@ data class LyricsFooter(
     val uploader: LyricsCredit? = null,
 ) {
     /**
-     * The lines shown after the lyrics, mirroring spicy-lyrics' ApplyLyricsCredits and
-     * ApplyIsByCommunity: writers, then Spicy Lyrics' community block, or for other sources
+     * The lines shown after the lyrics: writers, then the Spicy Lyrics community block, or for other sources
      * the lyric source followed by its own credits.
      */
     fun lines(): List<FooterLine> = buildList {
         // Reference order (Syllable/Line/Static applyers): Credits, LyricsProvider, SongInfo.
         if (songwriters.isNotEmpty()) add(FooterLine("Written by: ${songwriters.joinToString(", ")}", FooterLine.Kind.WRITERS))
         provenance?.let { p ->
-            // The catalogue that answered, like the reference's "Provided by: Apple Music"; a
+            // The catalogue that answered, as in "Provided by: Apple Music"; a
             // Spicy Lyrics community sync is "Spicy Lyrics" there.
             val origin = p.contributor?.takeIf(String::isNotBlank)
                 ?.let { if (it == "Spicy Lyrics Community") "Spicy Lyrics" else it } ?: p.provider

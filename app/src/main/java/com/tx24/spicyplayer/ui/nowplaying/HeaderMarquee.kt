@@ -3,8 +3,8 @@ package com.tx24.spicyplayer.ui.nowplaying
 import kotlin.math.min
 
 /**
- * Spicy Lyrics' compact NowBar marquee (`Marquee_SongName_Compact` / `Marquee_Artists_Compact`
- * in `app.tsx`, run as `25s linear infinite alternate`). Each pass holds still for the first and
+ * The header's marquee for names too long to fit, run as `25s linear infinite alternate`.
+ * Each pass holds still for the first and
  * last 10%, slides linearly in between, and every other pass runs backwards.
  */
 object HeaderMarquee {

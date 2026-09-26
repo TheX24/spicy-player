@@ -12,7 +12,7 @@ import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 
 /*
- * Spicy Lyrics' design tokens (`src/css/tokens.css`): Apple HIG for the base, iOS glass for
+ * The design tokens: Apple HIG for the base, iOS glass for
  * overlays, monochrome white on a dark page. Lyric rendering never reads these; they are for the
  * app's own chrome (controls, settings). CSS px are taken as dp and rem as 16sp.
  */
@@ -37,7 +37,7 @@ object SpicyColors {
     val TintBg = Color.White.copy(alpha = 0.06f)
     val TintBgPressed = Color.White.copy(alpha = 0.14f)
 
-    /** `--accent`: SL has no colour accent, only brighter white. */
+    /** No colour accent, only brighter white. */
     val Accent = Color.White.copy(alpha = 0.95f)
 
     /** `--color-status-*`: muted; tints an icon or one line of text, never a surface. */
@@ -103,7 +103,7 @@ object SpicyMotion {
     /** `--ease-standard`. */
     val Standard = CubicBezierEasing(0.4f, 0f, 0.2f, 1f)
 
-    /** The springy overshoot SL's ViewControls scale with. */
+    /** The springy overshoot the glass buttons scale with. */
     val Overshoot = CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f)
     const val FAST_MS = 150
     const val BASE_MS = 250
@@ -120,7 +120,7 @@ object SpicyMotion {
     const val MODAL_MS = 220
 }
 
-/** `--text-*` ramp in SL's font. */
+/** The text ramp, in the lyrics font. */
 object SpicyType {
     private val base = TextStyle(fontFamily = LyricsLayoutCalculator.spicyFontFamily, color = SpicyColors.TextPrimary)
     val Title = base.copy(fontSize = 17.6.sp, lineHeight = 1.25.em, fontWeight = FontWeight.Bold)

@@ -2,9 +2,13 @@ package com.tx24.spicyplayer.lyrics
 
 import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutCalculator
 import com.tx24.spicyplayer.lyrics.spicy.parser.TtmlLyricsParser
+import com.tx24.spicyplayer.lyrics.spicy.romanization.HumanRomanization
 import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationService
+import com.tx24.spicyplayer.lyrics.spicy.romanization.Script
+import com.tx24.spicyplayer.lyrics.spicy.romanization.ScriptDetector
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
 import com.tx24.spicyplayer.network.data.RemoteLyricsQuality
+import com.tx24.spicyplayer.lyrics.spicy.models.LineRole
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 
 /** Keeps the selected provider's best format and provenance through to the renderer. */
@@ -52,12 +56,39 @@ internal object RemoteLyricsAdapter {
             uploader = attribution?.uploader,
             songwriters = (attribution?.songwriters.orEmpty() + parsedTtml?.songwriters.orEmpty())
                 .map { decodeEntities(it).trim() }.filter(String::isNotBlank).distinct(),
+            sourceRomanized = unromanized.any { line -> line.words.any { it.romanized != null } },
             lyricsType = when (selection.quality) {
                 RemoteLyricsQuality.WORD_SYNCED -> LyricsType.Syllable
                 RemoteLyricsQuality.LINE_SYNCED -> LyricsType.Line
                 else -> LyricsType.Static
             },
         )
+    }
+
+    /**
+     * [lyrics] with Genius's human romanization ([genius], its lyric lines) laid over the lines it
+     * lines up with. Only lines that were romanized get it; the rest, and lines Genius doesn't
+     * match confidently, keep what they had.
+     */
+    fun withHumanRomanization(lyrics: LyricsState.Ready, genius: List<String>): LyricsState.Ready {
+        val cuts = HumanRomanization.apply(
+            ours = lyrics.lines.map { line -> line.words.map { it.romanized ?: it.text } },
+            genius = genius,
+            background = lyrics.lines.map { it.role == LineRole.BACKGROUND },
+            groups = lyrics.lines.map { it.groupId },
+        )
+        return lyrics.copy(lines = lyrics.lines.mapIndexed { i, line ->
+            val cut = cuts[i]
+            if (cut == null || line.words.none { it.romanized != null }) line
+            else line.copy(words = line.words.mapIndexed { w, word -> word.copy(romanized = cut[w]) })
+        })
+    }
+
+    /** Whether [lyrics] are in a script Genius writes romanizations for (Japanese, Korean, Chinese). */
+    fun wantsHumanRomanization(lyrics: LyricsState.Ready): Boolean {
+        if (lyrics.sourceRomanized || lyrics.lines.none { line -> line.words.any { it.romanized != null } }) return false
+        val scripts = ScriptDetector.detect(lyrics.lines.joinToString("\n") { line -> line.words.joinToString("") { it.text } })
+        return scripts.any { it == Script.JAPANESE || it == Script.KOREAN || it == Script.CHINESE }
     }
 
     /** Some sources escape twice ("Tom &amp;amp; Jerry"), so one XML decode still leaves "&amp;". */

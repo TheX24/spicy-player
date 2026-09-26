@@ -29,17 +29,14 @@ internal data class BlendOutcome(
 )
 
 /**
- * Port of mild-lyrics' blends (lyric_sources.py `_blended`, `_blend`, `stand_down` and what they
- * call): one document's lines with somebody else's word timing laid under them.
+ * Blends: one document's lines with somebody else's word timing laid under them.
  *
- * The base is the best document ranked above the blend, usually Spicy Lyrics' Apple Music copy
+ * The base is the best document ranked above the blend, usually the Spicy Lyrics API's Apple Music copy
  * that came back line-synced. The timing donor (QQ Music, Kugou or NetEase) is paired with it line
  * by line, then as one syllable stream re-cut at the base's line ends, and its syllables are used
  * only as cut points for the base's own words. A second donor, where there is one, answers for
  * the lines the first cannot place or placed badly. Where the blend comes out worse than the donor
  * alone, the donor's document is handed back instead, in the base's wording.
- *
- * Constants and rules are mild-lyrics'; its docstrings carry the measurements behind each one.
  */
 internal object LyricsBlender {
     private const val ASIDE_REACH = 2.0
@@ -573,8 +570,7 @@ internal object LyricsBlender {
     // --- The blend itself (`_blend`) -------------------------------------------------------
 
     /**
-     * The documents reconciled into one. mild-lyrics' `ne` argument, a third vote on line starts,
-     * is left out: nothing passes one any more, so every branch reading it was dead.
+     * The documents reconciled into one.
      */
     fun blend(
         base: BlendDoc,
@@ -661,8 +657,7 @@ internal object LyricsBlender {
         }
         val slid = HashMap<Int, Double>()
         val over = HashMap<Int, Double>()
-        // mild-lyrics pools whole donor lines too, but keys them by an empty string (it reads a
-        // line's words as `line_text({"Lead": line})`), so only backing groups can ever match.
+        // Only backing groups are pooled: whole donor lines never match here.
         val pool = (qit.take(qorig) + spareLines).flatMap { it.background }.mapNotNull { g ->
             val (at, _) = groupSpan(g)
             if (g.syllables.isEmpty() || at == null) null else Pooled(g, at, key(syllablesText(g.syllables)), g.syllables)
@@ -855,7 +850,7 @@ internal object LyricsBlender {
 
     /**
      * No line drawn past the start of the next where the part past it is slack (`no_overlap`).
-     * mild-lyrics runs this over blends only: a single source's overlaps are its own measurements.
+     * Run over blends only: a single source's overlaps are its own measurements.
      */
     fun noOverlap(doc: BlendDoc): BlendDoc {
         val items = doc.lines

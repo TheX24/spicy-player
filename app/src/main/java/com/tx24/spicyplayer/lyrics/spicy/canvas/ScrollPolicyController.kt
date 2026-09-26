@@ -26,7 +26,7 @@ internal class ScrollPolicyController {
         val replayToZero = initialized && timeMs <= 100L && lastTimeMs > 1_000L
         val largeSeek = initialized && abs(timeMs - lastTimeMs) > 1_000L
         val jumped = !initialized || explicitSeek || replayToZero || largeSeek
-        // Between lines the view stays on the last target, like the reference; only a jump into
+        // Between lines the view stays on the last target; only a jump into
         // a gap needs somewhere to land.
         val target = selectTargetIndex(lines, timeMs)
             ?: if (jumped) lastStartedIndex(lines, timeMs) else lastTargetIndex
@@ -47,8 +47,7 @@ internal class ScrollPolicyController {
         private const val PIN_LOOKAHEAD = 2
 
         /**
-         * The line to keep centred, ported from the reference's GetScrollLine
-         * (ScrollToActiveLine.ts). Null when no line is active: the view then stays put.
+         * The line to keep centred. Null when no line is active: the view then stays put.
          *
          * - Background lines belong to the lead line above them.
          * - A background line still active under a later active line is the tail of a line

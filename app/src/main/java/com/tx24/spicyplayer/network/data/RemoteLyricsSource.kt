@@ -66,7 +66,7 @@ sealed interface RemoteLyricsResolution {
  * equal timing the user's order wins, never whichever server answered first. TTML is parsed
  * before it can win, so malformed or empty XML never terminates the chain.
  *
- * Fetching follows mild-lyrics' walk: the top-ranked source leads alone, since one request
+ * Fetching walks the ranking: the top-ranked source leads alone, since one request
  * usually settles the song; the rest fan out in parallel if it misses or is slow. The walk stops
  * once a word-synced answer has nothing ranked above it still out.
  */
@@ -384,7 +384,7 @@ class RemoteLyricsSource @Inject constructor(
     private companion object {
         /** How long the lead source is asked alone before everyone else is asked too. */
         const val LEAD_HOLD_MS = 1_000L
-        /** Where a blend takes its lines when nothing ranked above it has any (mild-lyrics' too). */
+        /** Where a blend takes its lines when nothing ranked above it has any. */
         const val LRCLIB_ID = "lrclib"
         const val BLEND_FAMILY = "blend"
     }

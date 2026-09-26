@@ -44,7 +44,7 @@ class RendererTimelineTest {
 
     @Test fun introDotsRunUntilTheFirstLeadSyllable() {
         // Bologna 2: the first line starts at 3.1s for a background "Pluh", but its lead vocal
-        // (and the API's song StartTime) is at 12.4s. The line keeps its own start, like SL.
+        // (and the API's song StartTime) is at 12.4s. The line keeps its own start.
         val lines = listOf(
             Line(listOf(Word("I", 12_423L, 13_914L)), 3_115L, 13_914L),
             Line(listOf(Word("Pluh", 3_115L, 3_730L)), 3_115L, 3_730L, role = LineRole.BACKGROUND),

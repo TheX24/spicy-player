@@ -10,8 +10,7 @@ import com.tx24.spicyplayer.network.data.blend.LyricsBlender
 
 /**
  * A blend: the lines of whatever ranks above it, under a donor's word timing, with a second donor
- * for the lines the first cannot place (mild-lyrics' blend, kublend, neblend, triblend and
- * kutriblend). It costs no request of its own: the donors are providers already in the walk.
+ * for the lines the first cannot place. It costs no request of its own: the donors are providers already in the walk.
  */
 data class LyricsBlendDefinition(
     val id: String,
@@ -44,7 +43,7 @@ object LyricsBlends {
 
     /**
      * The walk's running order with each live blend placed immediately above the highest-ranked
-     * source it borrows from (mild-lyrics' `provider_order`): above its donors, since it is their
+     * source it borrows from: above its donors, since it is their
      * clock plus something they lack, and below everything that lent it nothing. A blend is live
      * when switched on and every donor is too. Blends sharing a home go in `blend_rank` order.
      */
@@ -68,7 +67,7 @@ object LyricsBlends {
     fun byId(id: String): LyricsBlendDefinition? = ALL.firstOrNull { it.id == id }
 
     /**
-     * Builds [blend] from what the walk already holds (mild-lyrics' `_blended`). [above] is every
+     * Builds [blend] from what the walk already holds. [above] is every
      * usable answer ranked above the blend, in rank order; the best of them by timing is the base,
      * [fallbackBase] only where none of them has any lyrics.
      */

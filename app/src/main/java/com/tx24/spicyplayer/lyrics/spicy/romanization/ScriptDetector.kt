@@ -1,8 +1,7 @@
 package com.tx24.spicyplayer.lyrics.spicy.romanization
 
 /**
- * Detects the dominant non-Latin script of a block of text, ported from the cascade in
- * `spicy-lyrics/src/utils/Lyrics/ProcessLyrics.ts`: kana implies Japanese, otherwise Han
+ * Detects the dominant non-Latin script of a block of text, in a cascade: kana implies Japanese, otherwise Han
  * implies Chinese; then Hangul, Cyrillic, Greek. Character-class scanning over the whole
  * lyric is sufficient offline (no language-guessing library needed).
  */

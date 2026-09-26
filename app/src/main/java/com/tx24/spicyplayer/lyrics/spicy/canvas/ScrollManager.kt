@@ -9,23 +9,22 @@ import kotlin.math.abs
 import kotlin.math.sqrt
 
 /**
- * One scroll position shared by the user and auto-scroll, like the reference's scroll container
- * (ScrollToActiveLine.ts):
- * - Touching the lyrics stops auto-scroll and hides the distance blur (HideLineBlur).
+ * One scroll position shared by the user and auto-scroll:
+ * - Touching the lyrics stops auto-scroll and hides the distance blur.
  * - Auto-scroll resumes, and the blur returns, once nothing has moved the lyrics by hand for
  *   [USER_SCROLL_COOLDOWN_MS] and the current line is at least partly on screen.
  * - After resuming it only moves when the current line changes, so a nudge is left alone.
  * - Jumps of over a second in the song snap straight to the line; shorter moves glide.
  *
- * Glides copy the reference's `scroll-behavior: smooth`, i.e. desktop Chromium's programmatic
+ * Glides copy CSS's `scroll-behavior: smooth`, i.e. desktop Chromium's programmatic
  * smooth scroll (cc ScrollOffsetAnimationCurve, M143+): cubic-bezier(0.4, 0, 0, 1) over
  * sqrt(distance in px) / 60 seconds, at most 1.5s. The curve is front-loaded (~86% of the move
  * by halfway, against 50% for ease-in-out), so the line lands early and then settles softly.
  */
 internal class ScrollManager(
     /**
-     * Our px per px of the reference's desktop page. Glide durations are measured in its px, and
-     * like the effect sizes they scale with the lyric text (its 56px lyrics), not screen density.
+     * Our px per desktop CSS px. Glide durations are measured in those px, and like the effect
+     * sizes they scale with the lyric text (56px lyrics on desktop), not screen density.
      */
     var pxPerReferencePx: Float = 1f,
     private val clockMs: () -> Long = { System.nanoTime() / 1_000_000L },
@@ -47,7 +46,7 @@ internal class ScrollManager(
     private var lastUserMoveMs = 0L
     /** Line index auto-scroll last went to; a different target starts a new glide. */
     private var lastAutoTarget: Int? = null
-    /** After resuming, stay put until the line changes (the reference doesn't re-centre). */
+    /** After resuming, stay put until the line changes (no re-centring). */
     private var holdUntilLineChange = false
     private var snapNext = true
 

@@ -15,7 +15,7 @@ Playback controls depend on what the music app exposes through Android MediaSess
 
 ## Build from source
 
-You need JDK 17 and the Android SDK for API 35. Android Studio can install both. `local.properties` may point to your SDK; it is ignored by Git.
+You need JDK 17 or newer and the Android SDK for API 37. Android Studio can install both. `local.properties` may point to your SDK; it is ignored by Git.
 
 On Windows, from the repository root:
 
@@ -36,10 +36,11 @@ An intentional `v<versionName>` tag starts the prerelease workflow. It checks th
 ## Current limits
 
 - The settings screen still includes developer-oriented source and matching controls.
+- Judge smoothness on a release build (`assembleRelease`): debug builds are unoptimised and noticeably slower.
 - This app needs notification access to follow another player; it does not play local files itself.
 - The controls report Android media-session acknowledgement, which is not a measurement of audible response time.
 - Source preferences, manual Spotify-ID overrides, and cached lyrics are stored locally. Android backup is disabled.
 
 ## License and attribution
 
-Spicy Player is licensed under the [GNU Affero General Public License, version 3](LICENSE), following Spicy Lyrics. Parts of the renderer and lyric logic are adapted from Spicy Lyrics, mild-lyrics, and other projects. See [PUBLICATION_CHECKLIST.md](PUBLICATION_CHECKLIST.md) for the remaining publication checks.
+Spicy Player is licensed under the [GNU Affero General Public License, version 3](LICENSE). Its lyrics renderer is adapted from [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), its source fetching and blends from [mild-lyrics](https://github.com/gcoolL/mild-lyrics), and more comes from other open-source projects. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists them all with their licenses.

@@ -17,6 +17,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.AutoFixOff
+import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.Height
+import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.FontDownload
+import androidx.compose.material.icons.rounded.BlurOn
+import androidx.compose.material.icons.rounded.Flare
+import androidx.compose.material.icons.rounded.Speed
+import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.rounded.MotionPhotosPaused
+import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.StayCurrentPortrait
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Timer
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.CallMerge
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material3.Icon
@@ -48,15 +69,15 @@ import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.components.DISABLED_ALPHA
 import com.tx24.spicyplayer.ui.components.DescriptionStyle
 import com.tx24.spicyplayer.ui.components.RowLabel
-import com.tx24.spicyplayer.ui.components.SlSelect
+import com.tx24.spicyplayer.ui.components.SpicySelect
 import com.tx24.spicyplayer.ui.components.Searchable
 import com.tx24.spicyplayer.ui.components.SettingRow
 import com.tx24.spicyplayer.ui.components.SettingsSection
-import com.tx24.spicyplayer.ui.components.SlBipolarSlider
-import com.tx24.spicyplayer.ui.components.SlButton
-import com.tx24.spicyplayer.ui.components.SlIconButton
-import com.tx24.spicyplayer.ui.components.SlTextField
-import com.tx24.spicyplayer.ui.components.SlToggle
+import com.tx24.spicyplayer.ui.components.SpicyBipolarSlider
+import com.tx24.spicyplayer.ui.components.SpicyButton
+import com.tx24.spicyplayer.ui.components.SpicyIconButton
+import com.tx24.spicyplayer.ui.components.SpicyTextField
+import com.tx24.spicyplayer.ui.components.SpicyToggle
 import com.tx24.spicyplayer.ui.components.ToggleRow
 import com.tx24.spicyplayer.ui.components.outlinedCard
 import com.tx24.spicyplayer.ui.theme.SpicyColors
@@ -90,29 +111,30 @@ internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
     SettingRow(
         label = "Wrong lyrics?",
         description = "Paste the song's Spotify link and the lyrics will come from that recording.",
+        icon = Icons.Rounded.Link,
         stacked = true,
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-            SlTextField(spotifyInput, { spotifyInput = it }, placeholder = "Spotify link or track ID", modifier = Modifier.weight(1f))
+            SpicyTextField(spotifyInput, { spotifyInput = it }, placeholder = "Spotify link or track ID", modifier = Modifier.weight(1f))
             if (spotifyInput.isBlank()) {
-                SlButton("Paste", onClick = {
+                SpicyButton("Paste", onClick = {
                     val pasted = context.getSystemService(ClipboardManager::class.java)?.primaryClip
                         ?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty()
                     spotifyInput = pasted
                     viewModel.overrideSpotifyId(pasted)
                 })
             } else {
-                SlButton("Use", onClick = { viewModel.overrideSpotifyId(spotifyInput) })
+                SpicyButton("Use", onClick = { viewModel.overrideSpotifyId(spotifyInput) })
             }
         }
     }
     state.manualSpotifyId?.let { id ->
-        SettingRow(label = "Using your Spotify link", description = id) {
-            SlButton("Auto-match", onClick = viewModel::clearSpotifyIdOverride)
+        SettingRow(label = "Using your Spotify link", description = id, icon = Icons.Rounded.Link) {
+            SpicyButton("Auto-match", onClick = viewModel::clearSpotifyIdOverride)
         }
     }
-    SettingRow(label = "Look again", description = "Ask the sources again instead of using the saved lyrics.") {
-        SlButton("Retry", onClick = { viewModel.loadLyrics(force = true) })
+    SettingRow(label = "Look again", description = "Ask the sources again instead of using the saved lyrics.", icon = Icons.Rounded.Refresh) {
+        SpicyButton("Retry", onClick = { viewModel.loadLyrics(force = true) })
     }
     state.status?.let { status ->
         Searchable("Status", status) {
@@ -122,45 +144,125 @@ internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
 }
 
 @Composable
-internal fun LyricsContent(prefs: LyricsPreferences) {
-    // Spicy Lyrics' "Lyrics Display" section, in its order and words.
+internal fun LyricsContent(settings: AppSettings) {
     ToggleRow(
         label = "Simple Lyrics Mode",
-        checked = prefs.simpleLyricsMode,
-        onCheckedChange = prefs.onSimpleLyricsModeChange,
+        checked = settings.simpleLyricsMode,
+        onCheckedChange = { settings.simpleLyricsMode = it },
         description = "Remove extra visual effects from lyrics.",
+        icon = Icons.Rounded.AutoFixOff,
     )
     SettingRow(
         label = "Simple Mode: Text Animation Style",
         description = "How lyrics text transitions are rendered in Simple Lyrics Mode.",
-        enabled = prefs.simpleLyricsMode,
+        icon = Icons.Rounded.Animation,
+        enabled = settings.simpleLyricsMode,
     ) {
-        SlSelect(
-            value = prefs.simpleAnimationStyle.name,
+        SpicySelect(
+            value = settings.simpleAnimationStyle.name,
             options = SimpleAnimationStyle.entries.map { it.name },
             labels = SimpleAnimationStyle.entries.map { it.name.lowercase() },
-            onChange = { prefs.onSimpleAnimationStyleChange(SimpleAnimationStyle.valueOf(it)) },
-            enabled = prefs.simpleLyricsMode,
+            onChange = { settings.simpleAnimationStyle = SimpleAnimationStyle.valueOf(it) },
+            enabled = settings.simpleLyricsMode,
         )
     }
     ToggleRow(
         label = "Minimal Lyrics Mode",
-        checked = prefs.minimalLyricsMode,
-        onCheckedChange = prefs.onMinimalLyricsModeChange,
+        checked = settings.minimalLyricsMode,
+        onCheckedChange = { settings.minimalLyricsMode = it },
         description = "Hides sung lyrics lines.",
+        icon = Icons.Rounded.VisibilityOff,
     )
     ToggleRow(
         label = "Original word motion",
-        checked = prefs.originalWordMotion,
-        onCheckedChange = prefs.onOriginalWordMotionChange,
-        description = "Spicy Lyrics' own amount of grow and lift on sung words. Off: ${prefs.wordMotionBoost}×, which reads better on a phone.",
+        checked = settings.originalWordMotion,
+        onCheckedChange = { settings.originalWordMotion = it },
+        description = "The desktop amount of grow and lift on sung words. Off: ${AppSettings.WORD_MOTION_BOOST}×, which reads better on a phone.",
+        icon = Icons.Rounded.Height,
     )
-    ToggleRow(
-        label = "Low performance mode",
-        checked = prefs.lowPerformance,
-        onCheckedChange = prefs.onLowPerformanceChange,
-        description = "Stills the background and turns off blur and glow, for smoother lyrics on slower phones.",
-    )
+    SettingsSection("Text") {
+        SettingRow(label = "Lyrics size", description = "Make the lyrics smaller or bigger than the screen's default.", icon = Icons.Rounded.FormatSize) {
+            SpicySelect(
+                value = settings.lyricsSize.name,
+                options = LyricsSize.entries.map { it.name },
+                labels = LyricsSize.entries.map { it.label },
+                onChange = { settings.lyricsSize = LyricsSize.valueOf(it) },
+            )
+        }
+        ToggleRow(
+            label = "Use System Font",
+            checked = settings.systemFont,
+            onCheckedChange = { settings.systemFont = it },
+            description = "Use your phone's font instead of the lyrics font.",
+            icon = Icons.Rounded.FontDownload,
+        )
+    }
+    SettingsSection("Effects") {
+        ToggleRow(
+            label = "Blur distant lines",
+            checked = settings.distanceBlur && !settings.lowPerformance,
+            onCheckedChange = { settings.distanceBlur = it },
+            description = "Soften the lines further from the one being sung.",
+            icon = Icons.Rounded.BlurOn,
+            enabled = !settings.lowPerformance,
+        )
+        ToggleRow(
+            label = "Glow",
+            checked = settings.glow && !settings.lowPerformance,
+            onCheckedChange = { settings.glow = it },
+            description = "Let sung words glow.",
+            icon = Icons.Rounded.Flare,
+            enabled = !settings.lowPerformance,
+        )
+        ToggleRow(
+            label = "Low performance mode",
+            checked = settings.lowPerformance,
+            onCheckedChange = { settings.lowPerformance = it },
+            description = "Stills the background and turns off blur and glow, for smoother lyrics on slower phones.",
+            icon = Icons.Rounded.Speed,
+        )
+    }
+    SettingsSection("Appearance") {
+        SettingRow(label = "Background Type", description = "Choose the dynamic or legacy background.", icon = Icons.Rounded.Wallpaper) {
+            SpicySelect(
+                value = if (settings.legacyBackground) "legacy" else "default",
+                options = listOf("default", "legacy"),
+                labels = listOf("Default", "Legacy"),
+                onChange = { settings.legacyBackground = it == "legacy" },
+            )
+        }
+        ToggleRow(
+            label = "Static Background",
+            checked = settings.staticBackground || settings.lowPerformance,
+            onCheckedChange = { settings.staticBackground = it },
+            description = "Hold the background still instead of animating it.",
+            icon = Icons.Rounded.MotionPhotosPaused,
+            enabled = !settings.lowPerformance,
+        )
+        ToggleRow(
+            label = "Show the cover without lyrics",
+            checked = settings.expandWithoutLyrics,
+            onCheckedChange = { settings.expandWithoutLyrics = it },
+            description = "Grow the song header into the big cover when a song has no lyrics.",
+            icon = Icons.Rounded.Album,
+        )
+    }
+    SettingsSection("Screen") {
+        ToggleRow(
+            label = "Keep the screen on",
+            checked = settings.keepScreenOn,
+            onCheckedChange = { settings.keepScreenOn = it },
+            description = "Stop the screen from turning off while music plays.",
+            icon = Icons.Rounded.StayCurrentPortrait,
+        )
+        ToggleRow(
+            label = "Hide controls while playing",
+            checked = settings.autoHideControls,
+            onCheckedChange = { settings.autoHideControls = it },
+            description = "Fade the controls out a few seconds after the last touch. A touch brings them back.",
+            icon = Icons.Rounded.TouchApp,
+        )
+    }
 }
 
 @Composable
@@ -168,10 +270,11 @@ internal fun SyncContent(state: PlayerUiState, viewModel: ExternalPlaybackViewMo
     SettingRow(
         label = "Lyric delay",
         description = "Saved for ${state.outputLabel}. Move it right if the lyrics run ahead of the song.",
+        icon = Icons.Rounded.Timer,
         stacked = true,
     ) {
         Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-            SlBipolarSlider(
+            SpicyBipolarSlider(
                 value = state.lyricDelayMs,
                 range = -DELAY_RANGE_MS..DELAY_RANGE_MS,
                 step = DELAY_STEP_MS,
@@ -179,8 +282,8 @@ internal fun SyncContent(state: PlayerUiState, viewModel: ExternalPlaybackViewMo
                 unit = "ms",
             )
             Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-                SlButton("−$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(-DELAY_STEP_MS) })
-                SlButton("+$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(DELAY_STEP_MS) })
+                SpicyButton("−$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(-DELAY_STEP_MS) })
+                SpicyButton("+$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(DELAY_STEP_MS) })
             }
         }
     }
@@ -212,6 +315,15 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
             }
         }
     }
+    SettingsSection("Romanization") {
+        ToggleRow(
+            label = "Human romanizations",
+            checked = state.humanRomanizations,
+            onCheckedChange = viewModel::setHumanRomanizations,
+            description = "Use a romanization written by people on Genius where it lines up with the lyrics, for readings no romanizer can guess.",
+            icon = Icons.Rounded.Translate,
+        )
+    }
     SettingsSection("Blends") {
         Searchable("Blends", "Word timing", *state.blendDescriptors.map { it.displayName }.toTypedArray()) {
             Text(
@@ -226,6 +338,7 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
                 label = blend.displayName,
                 checked = blend.id in state.enabledBlendIds,
                 onCheckedChange = { viewModel.setBlendEnabled(blend.id, it) },
+                icon = Icons.Rounded.CallMerge,
             )
         }
     }
@@ -233,18 +346,19 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
         SettingRow(
             label = "Your Spicy Lyrics key",
             description = "Leave it empty to use the built-in key.",
+            icon = Icons.Rounded.Key,
             stacked = true,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-                SlTextField(clientKey, { clientKey = it }, placeholder = "sl_pk_…", password = true, modifier = Modifier.weight(1f))
-                SlButton("Use", onClick = { viewModel.useApiKey(clientKey) })
+                SpicyTextField(clientKey, { clientKey = it }, placeholder = "sl_pk_…", password = true, modifier = Modifier.weight(1f))
+                SpicyButton("Use", onClick = { viewModel.useApiKey(clientKey) })
             }
         }
     }
 }
 
 /**
- * Pixel's `.sl-sp-source-card`: the rank in a ring, the name and what it gives, then up, down and
+ * A source's card: the rank in a ring, the name and what it gives, then up, down and
  * the switch. Tapping the card flips the switch; a switched-off source dims.
  */
 @Composable
@@ -276,18 +390,18 @@ private fun SourceCard(
             Text("$rank", style = SpicyType.Caption.copy(fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"))
         }
         RowLabel(source.displayName, source.summary(), Modifier.weight(1f).alpha(if (enabled) 1f else DISABLED_ALPHA))
-        SlIconButton(onClick = { onMove(-1) }, enabled = canMoveUp) {
+        SpicyIconButton(onClick = { onMove(-1) }, enabled = canMoveUp) {
             Icon(Icons.Rounded.KeyboardArrowUp, "Move ${source.displayName} up", tint = SpicyColors.TextPrimary, modifier = Modifier.size(20.dp))
         }
-        SlIconButton(onClick = { onMove(1) }, enabled = canMoveDown) {
+        SpicyIconButton(onClick = { onMove(1) }, enabled = canMoveDown) {
             Icon(Icons.Rounded.KeyboardArrowDown, "Move ${source.displayName} down", tint = SpicyColors.TextPrimary, modifier = Modifier.size(20.dp))
         }
         Spacer(Modifier.width(2.dp))
-        SlToggle(enabled)
+        SpicyToggle(enabled)
     }
 }
 
-/** Pixel's `.sl-sp-source-rank` fill. */
+/** The rank ring's fill. */
 private val RankFill = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.09f)
 
 private fun LyricsSourceDescriptor.summary(): String = buildList {
@@ -304,8 +418,8 @@ private fun LyricsSourceDescriptor.summary(): String = buildList {
 
 @Composable
 internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
-    SettingRow(label = "Clear lyrics cache", description = "Forget every saved lyric and look this song up again.") {
-        SlButton("Clear", onClick = viewModel::clearLyricsCache)
+    SettingRow(label = "Clear lyrics cache", description = "Forget every saved lyric and look this song up again.", icon = Icons.Rounded.DeleteSweep) {
+        SpicyButton("Clear", onClick = viewModel::clearLyricsCache)
     }
     val session = listOfNotNull(
         "Player" to (state.sourcePackage ?: "None"),

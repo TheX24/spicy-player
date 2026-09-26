@@ -49,9 +49,9 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     ): RemoteLyricsResolution = source.resolveLyrics(request, policy(), known = known, onUpdate = onUpdate)
 
     /**
-     * The last final pick for [request], like Spicy Lyrics' LyricsStore: kept [CACHE_DAYS] days,
+     * The last final pick for [request]: kept [CACHE_DAYS] days,
      * "no lyrics" included, errors never. Only reused while the enabled source order is the one it
-     * was picked under (mild-lyrics' rule), since another order could pick differently.
+     * was picked under, since another order could pick differently.
      */
     fun cachedResolution(request: LyricsLookupRequest): RemoteLyricsResolution? {
         val stored = runCatching { gson.fromJson(cacheFile(request).readText(), StoredPick::class.java) }.getOrNull()
@@ -95,11 +95,13 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     private fun cacheFile(request: LyricsLookupRequest): File {
         // Title + artist only: a queue entry warmed ahead has no album, length or Spotify ID, and
         // must hit the same entry the real load asks for once the song starts.
-        val identity = listOf(request.title, request.artist)
-            .joinToString("\u001f") { it.trim().lowercase() }
-        val key = MessageDigest.getInstance("SHA-256").digest(identity.toByteArray())
+        return File(diskCache, cacheKey(request.title, request.artist) + ".json")
+    }
+
+    private fun cacheKey(title: String, artist: String): String {
+        val identity = listOf(title, artist).joinToString("\u001f") { it.trim().lowercase() }
+        return MessageDigest.getInstance("SHA-256").digest(identity.toByteArray())
             .joinToString("") { "%02x".format(it) }
-        return File(diskCache, "$key.json")
     }
 
     private data class StoredPick(
@@ -169,6 +171,34 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         if (enabled) blends += id else blends -= id
         preferences.edit().putStringSet("blends", blends).apply()
     }
+
+    /** Human-written romanizations from Genius over the on-device ones (on by default). */
+    var humanRomanizations: Boolean
+        get() = preferences.getBoolean("humanRomanizations", true)
+        set(value) = preferences.edit().putBoolean("humanRomanizations", value).apply()
+
+    private val geniusRomanization = GeniusRomanizationSource(client, gson)
+    private val romanCache = File(context.cacheDir, "genius-roman")
+
+    /**
+     * Genius's romanization of the song as lyric lines, or null when it has none. Kept on disk a
+     * week when found and a day when not, so a replayed song asks once.
+     */
+    suspend fun humanRomanization(title: String, artist: String): List<String>? {
+        val file = File(romanCache, cacheKey(title, artist) + ".json")
+        runCatching { gson.fromJson(file.readText(), StoredRoman::class.java) }.getOrNull()
+            ?.takeIf { it.expiresAt > System.currentTimeMillis() }
+            ?.let { return it.lines }
+        val lines = geniusRomanization.find(title, artist)
+        val keep = TimeUnit.DAYS.toMillis(if (lines != null) 7 else 1)
+        runCatching {
+            romanCache.mkdirs()
+            file.writeText(gson.toJson(StoredRoman(System.currentTimeMillis() + keep, lines)))
+        }
+        return lines
+    }
+
+    private data class StoredRoman(val expiresAt: Long, val lines: List<String>?)
 
     fun setPolicy(order: List<String>, disabledSourceIds: Set<String>) {
         val normalized = LyricsSourcePreferenceNormalizer.normalize(order, disabledSourceIds, descriptors)

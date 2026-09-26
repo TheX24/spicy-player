@@ -3,8 +3,7 @@ package com.tx24.spicyplayer.network.data.blend
 import kotlin.math.abs
 
 /**
- * mild-lyrics' text and timing primitives (lyric_sources.py and spicy_lyrics.py), shared by the
- * blend: how a line is spelled, compared, and re-cut along somebody else's syllables.
+ * Text and timing primitives shared by the blend: how a line is spelled, compared, and re-cut along somebody else's syllables.
  */
 internal object BlendText {
     const val RELAY_LIKE = 0.75
@@ -86,8 +85,7 @@ internal object BlendText {
     }
 
     /**
-     * Re-cut [text] along [syllables]' boundaries, keeping our own characters (mild-lyrics'
-     * `_relay`). Only the timing is borrowed: every character on screen still comes from [text].
+     * Re-cut [text] along [syllables]' boundaries, keeping our own characters. Only the timing is borrowed: every character on screen still comes from [text].
      * Where the two spell the line differently the letters are aligned and the cuts come across
      * with them; below [floor] similarity nothing is taken.
      */

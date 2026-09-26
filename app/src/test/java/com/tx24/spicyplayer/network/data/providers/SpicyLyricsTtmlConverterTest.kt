@@ -35,7 +35,7 @@ class SpicyLyricsTtmlConverterTest {
     }
 
     @Test fun keepsLineThatIsOnlyBackgroundVocals() {
-        // Industry Baby's first line as the SL API sends it: an empty lead, all background.
+        // Industry Baby's first line as the Spicy Lyrics API sends it: an empty lead, all background.
         val body = JsonParser.parseString("""{"Content":[
             {"Type":"Vocal","OppositeAligned":false,"Lead":{"Syllables":[],"StartTime":4.425,"EndTime":6.42},"Background":[{"Syllables":[
                 {"Text":"D-","IsPartOfWord":true,"StartTime":4.425,"EndTime":4.618},

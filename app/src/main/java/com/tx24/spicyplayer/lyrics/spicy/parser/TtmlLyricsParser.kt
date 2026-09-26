@@ -14,10 +14,8 @@ import kotlin.math.pow
 import kotlin.math.roundToLong
 
 /**
- * TTML lyrics parser, ported from Spicy Lyrics' client parser (utils/Lyrics/ttml/parser.ts).
- *
- * The reference reads the document with fast-xml-parser, so its rules are written against that
- * library's view of the XML, and this port keeps them:
+ * TTML lyrics parser. Its rules are written against fast-xml-parser's view of the XML (as web
+ * clients read these documents), and kept that way:
  * - Names are matched as written, prefix included (`ttm:role`, `itunes:key`, `xml:id`).
  * - An element with no attributes and no child elements is plain text there, so an attribute-
  *   less `<span>` is not a syllable (it only counts towards a line's text) and an attribute-less
@@ -74,7 +72,7 @@ object TtmlLyricsParser {
         return requireNotNull(root) { "Empty document" }
     }
 
-    // --- The reference's helpers ----------------------------------------------------------
+    // --- Helpers ---------------------------------------------------------------------------
 
     private fun isSpanObject(node: Element?) = node != null && node.name == "span" && !node.isPlain
     /** A span carrying lyrics text: anything with a ttm:role is metadata. */

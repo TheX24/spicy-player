@@ -65,7 +65,7 @@ import kotlin.math.roundToInt
  * @param onSeekWord Callback triggered when a user taps a line to seek to its start time.
  */
 @Composable
-fun SpicyLyricsView(
+fun LyricsView(
     lines: List<Line>,
     documentId: String,
     footer: LyricsFooter = LyricsFooter(),
@@ -78,7 +78,7 @@ fun SpicyLyricsView(
     romanize: Boolean = false,
     focusAnchorFraction: Float = 0.25f,
     // When set, the active line's top (not its centre) is kept this far below the view's top,
-    // like SL's compact mode ("Top" scrolling); focusAnchorFraction is then unused.
+    // ("Top" scrolling); focusAnchorFraction is then unused.
     activeLineTopPx: Float? = null,
     // Invoked with the raw frame-nanos at the top of this view's own animation frame, before
     // currentTimeMs() is read. Lets a caller (e.g. the playback clock smoothing in
@@ -148,7 +148,7 @@ fun SpicyLyricsView(
             LyricsLayoutMetrics(canvasWidth, density.density, LyricsType.Syllable, fontSizeScale).baseFontSizeSp
         }
         scrollManager.pxPerReferencePx = creditBaseSp * density.density / REFERENCE_LYRIC_SIZE_PX
-        val footerLayouts = remember(footer, creditBaseSp, footerSlot.widthPx, canvasWidth) {
+        val footerLayouts = remember(footer, creditBaseSp, footerSlot.widthPx, canvasWidth, LyricsLayoutCalculator.useSystemFont) {
             val lyricPx = creditBaseSp * density.density
             val constraints = Constraints(maxWidth = footerSlot.widthPx.roundToInt().coerceAtLeast(1))
             footer.lines().mapIndexed { index, line ->
@@ -198,7 +198,7 @@ fun SpicyLyricsView(
         }
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
         // A newer key cancels a measurement still running, so only the latest one lands.
-        LaunchedEffect(displayLines, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, config.isSimple) {
+        LaunchedEffect(displayLines, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, config.isSimple, LyricsLayoutCalculator.useSystemFont) {
             val measured = withContext(Dispatchers.Default) {
                 LyricsLayoutCalculator.calculateLineLayouts(
                     displayLines, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanize, config.isSimple,
@@ -229,7 +229,7 @@ fun SpicyLyricsView(
                     val currentLines = linesUpdated
                     val currentTime = currentTimeProvider()
 
-                    // Unclamped like the reference: springs integrate analytically over any dt.
+                    // Unclamped: springs integrate analytically over any dt.
                     val deltaTime = if (lastFrameTimeNanos == 0L) {
                         0.016f
                     } else {
@@ -269,8 +269,7 @@ fun SpicyLyricsView(
                             }
 
                             if (layout.isInterlude) {
-                                // An open interlude is a full lyric row plus the normal gap, like the
-                                // reference's .musical-line.Active getting the regular line-height;
+                                // An open interlude is a full lyric row plus the normal gap;
                                 // the dots are drawn centred in that row.
                                 val scale = state?.scale?.coerceIn(0f, 1f) ?: 0f
                                 newDynamicYOffsets[i] = layout.yOffset + accumulatedY + rowHeightUpdated / 2f * scale
@@ -287,7 +286,7 @@ fun SpicyLyricsView(
                             dynamicYOffsets = newDynamicYOffsets.copyOf()
                         }
 
-                        // 2. Resolve the reference lead/background overlap policy, then anchor
+                        // 2. Resolve the lead/background overlap policy, then anchor
                         // that one line: its centre at the focus point, or its top (compact mode).
                         val decision = scrollPolicy.decide(currentLines, currentTime)
                         // A lead with no words of its own (the line is only background vocals)
@@ -376,7 +375,7 @@ fun SpicyLyricsView(
                         val currentScrollY = scrollManager.animScrollY
                         val adjustedTapY = tapOffset.y - (centerY + currentScrollY)
 
-                        // A credit with a profile opens it (Spicy Lyrics' "View TTML Profile").
+                        // A credit with a profile opens it.
                         footerLayouts.zip(footerRowTops()).firstOrNull { (row, top) ->
                             row.line.profileUrl != null && adjustedTapY in top..(top + row.height)
                         }?.let { (row, _) ->
@@ -445,7 +444,7 @@ fun SpicyLyricsView(
                     alpha = row.alpha,
                     topLeft = Offset(x, y + (row.height - textHeight) / 2f),
                 )
-                // The avatar follows the name, a 24px circle, like the reference's profile <img>.
+                // The avatar follows the name, a 24px circle.
                 row.line.avatarUrl?.let { avatars[it] }?.let { avatar ->
                     val ax = x + row.text.size.width + row.avatarGap
                     val ay = y + (row.height - row.avatarSize) / 2f
@@ -470,9 +469,9 @@ private class ShownLyrics(
     val footer: LyricsFooter,
 )
 
-/** Scales the credits relative to the reference's proportions, for a phone screen. */
+/** Scales the credits up from their desktop proportions, for a phone screen. */
 private const val CREDIT_SCALE = 1.15f
-/** Spicy Lyrics' desktop lyric size (--DefaultLyricsSize at its 3.5rem cap), in its px. */
+/** The desktop lyric size (its 3.5rem cap), in CSS px. */
 private const val REFERENCE_LYRIC_SIZE_PX = 56f
 
 private class FooterRow(

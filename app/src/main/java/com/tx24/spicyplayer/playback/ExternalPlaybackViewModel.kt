@@ -51,7 +51,7 @@ import kotlinx.coroutines.withContext
  */
 private const val TRACK_SETTLE_MS = 700L
 
-/** Upcoming queue entries whose lyrics are fetched ahead, like mild-lyrics' default. */
+/** Upcoming queue entries whose lyrics are fetched ahead. */
 private const val FETCH_AHEAD = 3
 
 /** How long after our own skip a track change is still taken to be its result. */
@@ -86,6 +86,7 @@ data class PlayerUiState(
     val enabledBlendIds: Set<String> = emptySet(),
     val providerAttempts: List<ProviderAttempt> = emptyList(),
     val lookupStatus: String? = null,
+    val humanRomanizations: Boolean = true,
 )
 
 class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(application) {
@@ -107,6 +108,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         disabledSourceIds = lyricsBackend.policy().disabledSourceIds,
         blendDescriptors = lyricsBackend.blendDescriptors,
         enabledBlendIds = lyricsBackend.policy().enabledBlendIds,
+        humanRomanizations = lyricsBackend.humanRomanizations,
     ))
     val state: StateFlow<PlayerUiState> = mutableState.asStateFlow()
 
@@ -122,6 +124,12 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var lastTrackChangeAt = Long.MIN_VALUE / 2
     private var warmJob: Job? = null
     private var shownSelection: RemoteLyricsSelection? = null
+    private var shownRequest: LyricsLookupRequest? = null
+    private var humanJob: Job? = null
+    // Lyrics with Genius's romanization laid over, per pick, so a replay doesn't wait for it again.
+    private val humanCache = object : LinkedHashMap<RemoteLyricsSelection, LyricsState.Ready>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<RemoteLyricsSelection, LyricsState.Ready>) = size > 12
+    }
     // Per-source results for recent requests, so a policy change re-picks without refetching.
     private val lookupCache = object : LinkedHashMap<LyricsLookupRequest, MutableMap<String, ProviderResult>>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<LyricsLookupRequest, MutableMap<String, ProviderResult>>) = size > 30
@@ -152,7 +160,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     init {
-        // The Spotify token Spicy Lyrics' matching needs is fetched now, not by the first song.
+        // The Spotify token that matching needs is fetched now, not by the first song.
         viewModelScope.launch(Dispatchers.IO) { lyricsBackend.warmUp() }
         startTicker()
         refresh()
@@ -449,8 +457,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     /**
-     * Fetches the next [FETCH_AHEAD] queue entries into the disk cache, one at a time, like
-     * mild-lyrics' look-ahead: started only once the current song is settled and cancelled by
+     * Fetches the next [FETCH_AHEAD] queue entries into the disk cache, one at a time: started only once the current song is settled and cancelled by
      * the next lookup, so it never competes with the song on screen. Cached entries cost nothing.
      */
     private fun warmAhead() {
@@ -501,6 +508,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 lyricsBackend.descriptors.firstOrNull { it.id == id }?.displayName ?: id
             }
             selection == shownSelection -> mutableState.value.lyrics
+            lyricsBackend.humanRomanizations && synchronized(humanCache) { humanCache[selection] } != null ->
+                synchronized(humanCache) { humanCache.getValue(selection) }
             // Rendering includes on-device romanization, which is too heavy for main.
             else -> withContext(Dispatchers.Default) {
                 runCatching { rendered(selection, request.durationSeconds * 1_000L) }
@@ -508,7 +517,12 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             }
         }
         if (currentLyricsKey != identity) return
+        val newPick = selection != shownSelection
         shownSelection = selection
+        shownRequest = request
+        if (newPick && selection != null && lyrics is LyricsState.Ready &&
+            synchronized(humanCache) { humanCache[selection] } == null
+        ) humanize(selection, lyrics, identity, request)
         val pending = resolution.attempts.filter { it.outcome == ProviderAttemptOutcome.PENDING }
         val names = pending.joinToString { attempt ->
             lyricsBackend.descriptors.firstOrNull { it.id == attempt.sourceId }?.displayName ?: attempt.sourceId
@@ -541,6 +555,39 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     private class RenderedLyrics(val durationMs: Long, val lyrics: LyricsState.Ready)
+
+    /**
+     * Looks up Genius's human romanization for the lyrics on screen and swaps it in when it
+     * lines up, a moment after the on-device one shows. Off the main thread; dropped if the song
+     * or the pick changes first.
+     */
+    private fun humanize(selection: RemoteLyricsSelection, lyrics: LyricsState.Ready, identity: String?, request: LyricsLookupRequest) {
+        humanJob?.cancel()
+        if (!lyricsBackend.humanRomanizations || !RemoteLyricsAdapter.wantsHumanRomanization(lyrics)) return
+        val backend = lyricsBackend
+        humanJob = viewModelScope.launch {
+            val genius = runCatching { withContext(Dispatchers.IO) { backend.humanRomanization(request.title, request.artist) } }
+                .onFailure { if (it is CancellationException) throw it }
+                .getOrNull() ?: return@launch
+            val human = withContext(Dispatchers.Default) {
+                runCatching { RemoteLyricsAdapter.withHumanRomanization(lyrics, genius) }.getOrNull()
+            } ?: return@launch
+            synchronized(humanCache) { humanCache[selection] = human }
+            if (currentLyricsKey != identity || shownSelection != selection) return@launch
+            Log.d("LyricsProviders", "Genius romanization laid over ${human.lines.count { it !in lyrics.lines }} lines")
+            mutableState.value = mutableState.value.copy(lyrics = human)
+        }
+    }
+
+    fun setHumanRomanizations(enabled: Boolean) {
+        lyricsBackend.humanRomanizations = enabled
+        mutableState.value = mutableState.value.copy(humanRomanizations = enabled)
+        val selection = shownSelection ?: return
+        val request = shownRequest ?: return
+        val machine = runCatching { rendered(selection, request.durationSeconds * 1_000L) }.getOrNull() ?: return
+        mutableState.value = mutableState.value.copy(lyrics = machine)
+        humanize(selection, machine, currentLyricsKey, request)
+    }
 
     /** A custom action's icon, which lives in the player's own resources. */
     private fun actionIcon(packageName: String, iconRes: Int): Bitmap? = actionIcons.getOrPut(packageName to iconRes) {
@@ -657,7 +704,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     TrackDirection.Backward
                 } else TrackDirection.Forward
         } else mutableState.value.trackDirection
-        if (trackChanged) pendingSkip = null
+        // Not cleared on the change: players often send a new song in steps (title, then artist or
+        // cover), and each step must still see the button that caused it. It lapses on its own.
         if (queueIndex >= 0) lastQueueIndex = queueIndex
         if (trackChanged) currentTrackIdentity = trackIdentity
         val lyricsKey = metadata.lyricsKey()

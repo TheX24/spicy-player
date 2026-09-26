@@ -6,7 +6,7 @@ import android.graphics.Bitmap
  * What the song header shows. Kept apart from the player's view-model state so the header only
  * depends on this and survives the rework of the playback layer.
  *
- * @param artists the session's artist string as published; SL joins several with ", ".
+ * @param artists the session's artist string as published; several are joined with ", ".
  * @param direction which way the player moved to reach this track, for the cover change.
  */
 data class NowPlayingInfo(

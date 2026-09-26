@@ -7,8 +7,7 @@ import kotlin.math.sin
 import kotlin.math.sqrt
 
 /**
- * Exact port of `spicy-lyrics/src/modules/Spring.ts`, itself a port of Fraktality's spr.lua
- * (MIT). Behavioural contract, kept deliberately identical to the reference:
+ * A damped spring, ported from Fractality's spr.lua (MIT). Behavioural contract:
  *
  * - [frequency] is stored raw in Hz and converted to rad/s (×2π) inside every [step].
  * - [step] takes **seconds**, has NO deltaTime clamping and NO settle/snap logic — position

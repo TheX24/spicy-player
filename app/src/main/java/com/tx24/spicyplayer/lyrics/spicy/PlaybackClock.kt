@@ -4,10 +4,9 @@ import kotlin.math.abs
 import kotlin.math.exp
 
 /**
- * Port of the reference's position pipeline (`spicy-lyrics/src/utils/Gets/GetProgress.ts`):
- * a smooth playback clock built in two stages, exactly like the original.
+ * A smooth playback clock built in two stages.
  *
- * **Stage 1 — anchor extrapolation** (the reference's `Position + (Date.now() - StartedSyncAt)`):
+ * **Stage 1 — anchor extrapolation** (`position + (now - syncedAt)`):
  * the raw player position is only trusted as an *anchor*; between changes it is extrapolated
  * on wall-clock time. This is essential — if the platform position steps coarsely (e.g. a
  * `MediaController` that refreshes over IPC), feeding it raw into a smoother makes the
@@ -19,7 +18,7 @@ import kotlin.math.exp
  * (`alpha = 1 − exp(−elapsed / 300ms)`); deltas above 500ms (seeks, track changes) snap.
  *
  * While paused the clock returns the raw measured position and forgets its state; while
- * playing a fixed +100ms lead compensates audio-output latency (the reference's dial).
+ * playing a fixed +100ms lead compensates audio-output latency.
  */
 class PlaybackClock {
 

@@ -1,7 +1,7 @@
 package com.tx24.spicyplayer.network.data.blend
 
 /**
- * A port of CPython's `difflib.SequenceMatcher` as mild-lyrics calls it: always with no junk
+ * A port of CPython's `difflib.SequenceMatcher` as the blend uses it: always with no junk
  * function and `autojunk=False`, so no element is ever treated as junk or as popular. Its
  * matching blocks, opcodes and ratios are the ones Python returns for the same input, which is
  * what the blend's tuned thresholds were measured against.

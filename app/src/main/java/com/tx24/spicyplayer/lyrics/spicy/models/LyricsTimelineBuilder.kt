@@ -5,18 +5,17 @@ private const val MINIMAL_INTERLUDE_THRESHOLD_MS = 5_000L
 
 /**
  * Builds the presentation timeline from normalized vocal lines, which arrive in document order:
- * each lead line followed by its background lines. That order is kept, like the reference's
- * line list: a background vocal leading into its line starts before that line, but it still
+ * each lead line followed by its background lines. That order is kept: a background vocal leading into its line starts before that line, but it still
  * belongs under it, never above it.
  *
- * Interludes follow the reference's Syllable applyer. Between lines the gap is measured on the
+ * Between lines the gap is measured on the
  * lead lines' times (which its parser stretches over their background vocals). The intro runs
  * from 0 to the song's StartTime, which the Spicy Lyrics API sets to the first lead syllable,
  * not the first line: in Bologna 2 the first line starts at 3.1s for a background "Pluh" but
  * the song's StartTime is 12.4s, when the lead vocal comes in. TTML carries no song StartTime,
  * so it is taken from the first lead line's own words.
  *
- * [holdThroughShortGaps] is the applyers' lineEndTime stretch, which spicy-lyrics turns on in
+ * [holdThroughShortGaps] stretches each line's end over short gaps; it's on in
  * Minimal Lyrics Mode for word-synced lyrics and in Simple Lyrics Mode for line-synced ones.
  */
 fun buildDisplayTimeline(lines: List<Line>, minimalMode: Boolean, holdThroughShortGaps: Boolean = false): List<Line> {
@@ -50,12 +49,11 @@ fun buildDisplayTimeline(lines: List<Line>, minimalMode: Boolean, holdThroughSho
     return timeline
 }
 
-/** spicy-lyrics' getInterludeTimePadding(): (preHiddenDotLineMs + 50) * -1. */
+/** How much earlier interludes end: (preHiddenDotLineMs + 50) * -1. */
 private const val INTERLUDE_TIME_PADDING_MS = -550.0
 
 /**
- * The three interlude dots' [start, end) times, ported from spicy-lyrics' Syllable/Line
- * applyers: each fills a third of the gap, shifted earlier so the last dot finishes 550ms
+ * The three interlude dots' [start, end) times: each fills a third of the gap, shifted earlier so the last dot finishes 550ms
  * before the next line (the dot line itself hides 500ms before it).
  */
 fun interludeDotTimes(startMs: Long, endMs: Long): List<Pair<Long, Long>> {

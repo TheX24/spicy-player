@@ -113,7 +113,7 @@ object SpotifyTrackMatcher {
             }
         }
 
-        // Like mild-lyrics' NetEase alternates: only a copy that ties on title, byline and
+        // Only a copy that ties on title, byline and
         // length is another pressing of this song; anything less is a different song.
         val alternates = ranked
             .filter { it !== winner && sameRecording(winner.candidate, it.candidate) }

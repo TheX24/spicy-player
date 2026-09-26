@@ -72,26 +72,25 @@ import dev.chrisbanes.haze.HazeTint
 import dev.chrisbanes.haze.hazeEffect
 
 /*
- * Spicy Lyrics' pop-ups (`sl-generic-modal`, `Modal.ts` and `generic-modal-polyfill.css` in
- * Pixel's fork), with the pieces its update and data-migration cards are built from
- * (`.update-card-wrapper` in `default.css`), so any pop-up here is a [SlModal] filled with
- * [SlModalMessage], [SlVersionRow], [SlModalNotes] and [SlModalButton]s.
+ * Pop-ups, and the pieces message cards (an update notice, a permission request) are built
+ * from, so any pop-up here is a [SpicyModal] filled with
+ * [SpicyModalMessage], [SpicyVersionRow], [SpicyModalNotes] and [SpicyModalButton]s.
  */
 
 /**
- * A centred glass pop-up over a dimmed page. It animates like SL's: the page dims to 45% black,
+ * A centred glass pop-up over a dimmed page. Opening, the page dims to 45% black,
  * the glass plate fades in and grows from 0.96, all in 220 ms; closing plays it backwards, and
  * the pop-up stays composed until that ends.
  *
  * @param visible whether it is showing; flip to false to close it.
  * @param onDismissRequest called by the close button, a tap outside, or back. Null makes the
  * pop-up one the user has to act on: no close button, and taps outside and back do nothing.
- * @param title the header's title (`.sl-modal-title`); null leaves the header out, for
- * pop-ups that carry their own heading like SL's update card.
+ * @param title the header's title; null leaves the header out, for pop-ups that carry their
+ * own heading like an update card.
  * @param backdrop what the plate blurs; without one the plate is a darker solid.
  */
 @Composable
-fun SlModal(
+fun SpicyModal(
     visible: Boolean,
     onDismissRequest: (() -> Unit)?,
     backdrop: HazeState?,
@@ -117,7 +116,7 @@ fun SlModal(
     BoxWithConstraints(
         modifier
             .fillMaxSize()
-            // `.sl-modal-overlay`: rgba(0,0,0,.45), fading with the modal.
+            // The dim: rgba(0,0,0,.45), fading with the modal.
             .drawBehind { drawRect(Color.Black.copy(alpha = OVERLAY_ALPHA * open.value)) }
             // Takes every touch, so nothing reaches the page; a tap outside the plate dismisses.
             // The plate consumes its own touches first, which is how this tells them apart.
@@ -137,7 +136,7 @@ fun SlModal(
         val shape = RoundedCornerShape(SpicyRadii.Lg)
         Column(
             Modifier
-                // `.sl-modal-container { width: 420px; max-height: 90vh }`, inside the screen's margins.
+                // 420px wide at most and 90% of the screen high, inside the screen's margins.
                 .widthIn(max = PLATE_WIDTH)
                 .fillMaxWidth()
                 .padding(horizontal = SpicySpacing.S4)
@@ -160,7 +159,7 @@ fun SlModal(
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
         ) {
             if (title != null) ModalHeader(title, onDismissRequest)
-            // `.sl-modal-main-section { padding: 20px 24px 24px; overflow-y: auto }`.
+            // The body: padding 20px 24px 24px, scrolling when it runs long.
             Column(
                 Modifier
                     .weight(1f, fill = false)
@@ -173,7 +172,7 @@ fun SlModal(
     }
 }
 
-/** `.sl-modal-header`: title, close button, hairline underneath. */
+/** The header: title, close button, hairline underneath. */
 @Composable
 private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?) {
     Row(
@@ -197,7 +196,7 @@ private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?) {
     }
 }
 
-/** `.sl-modal-close-btn`: an X in secondary text, a tinted pill while held. */
+/** The close button: an X in secondary text, a tinted pill while held. */
 @Composable
 private fun CloseButton(onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
@@ -212,7 +211,7 @@ private fun CloseButton(onClick: () -> Unit) {
             .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
             .semantics { contentDescription = "Close" }
             .drawBehind {
-                // SL's close glyph: two strokes corner to corner, 18px across.
+                // The close glyph: two strokes corner to corner, 18px across.
                 val half = 9.dp.toPx() * 0.9f
                 val c = center
                 val color = if (pressed) SpicyColors.TextPrimary else SpicyColors.TextSecondary
@@ -224,11 +223,11 @@ private fun CloseButton(onClick: () -> Unit) {
 }
 
 /**
- * SL's migration-card message: an icon in a tinted disc, a headline and a description, centred.
- * [icon] is optional; [title] is `.uc-title`, [description] `.udc-desc`.
+ * A message card: an icon in a tinted disc, a headline and a description, centred.
+ * [icon] is optional.
  */
 @Composable
-fun SlModalMessage(
+fun SpicyModalMessage(
     title: String,
     description: String?,
     icon: (@Composable () -> Unit)? = null,
@@ -249,7 +248,7 @@ fun SlModalMessage(
                 contentAlignment = Alignment.Center,
             ) { icon() }
         }
-        Text(title, style = SlModalTitleStyle.copy(textAlign = TextAlign.Center))
+        Text(title, style = SpicyModalTitleStyle.copy(textAlign = TextAlign.Center))
         if (description != null) {
             Text(
                 description,
@@ -262,9 +261,9 @@ fun SlModalMessage(
 
 /** `.uc-title` and `.uc-subtitle`, left-aligned, for a card-style pop-up with its own heading. */
 @Composable
-fun SlModalHeading(title: String, subtitle: String? = null) {
+fun SpicyModalHeading(title: String, subtitle: String? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S1)) {
-        Text(title, style = SlModalTitleStyle)
+        Text(title, style = SpicyModalTitleStyle)
         if (subtitle != null) {
             Text(subtitle, style = SpicyType.Body.copy(color = SpicyColors.TextSecondary, lineHeight = 1.45.em))
         }
@@ -272,17 +271,17 @@ fun SlModalHeading(title: String, subtitle: String? = null) {
 }
 
 /** `.uc-title`: 1.2rem semibold. */
-val SlModalTitleStyle = SpicyType.Title.copy(fontSize = 19.2.sp, fontWeight = FontWeight.SemiBold, lineHeight = 1.3.em, letterSpacing = (-0.015f).em)
+val SpicyModalTitleStyle = SpicyType.Title.copy(fontSize = 19.2.sp, fontWeight = FontWeight.SemiBold, lineHeight = 1.3.em, letterSpacing = (-0.015f).em)
 
 /** `.uc-divider`. */
 @Composable
-fun SlModalDivider() {
+fun SpicyModalDivider() {
     Box(Modifier.padding(vertical = SpicySpacing.S1).fillMaxWidth().height(1.dp).background(SpicyColors.Hairline))
 }
 
 /** `.uc-version-row`: "from -> to" on a tinted strip, the new version brighter. */
 @Composable
-fun SlVersionRow(from: String?, to: String?) {
+fun SpicyVersionRow(from: String?, to: String?) {
     Row(
         Modifier
             .padding(top = SpicySpacing.S1, bottom = SpicySpacing.S2)
@@ -311,7 +310,7 @@ fun SlVersionRow(from: String?, to: String?) {
  * new) in its place.
  */
 @Composable
-fun SlModalNotes(notes: List<String>, status: String? = null) {
+fun SpicyModalNotes(notes: List<String>, status: String? = null) {
     val text = SpicyType.Body.copy(color = SpicyColors.TextSecondary, lineHeight = 1.5.em)
     if (status != null || notes.isEmpty()) {
         Text(status ?: "", style = text)
@@ -328,18 +327,18 @@ fun SlModalNotes(notes: List<String>, status: String? = null) {
 }
 
 /** The update card's buttons: `.btn-primary`, `.btn-secondary`, `.btn-quiet`. */
-enum class SlButtonStyle { Primary, Secondary, Quiet }
+enum class SpicyButtonStyle { Primary, Secondary, Quiet }
 
 /**
  * An update-card button: rounded 8dp, semibold body text, shrinking to 0.97 while held.
  * [fill] stretches it across its row, like the migration card's.
  */
 @Composable
-fun SlModalButton(
+fun SpicyModalButton(
     text: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    style: SlButtonStyle = SlButtonStyle.Secondary,
+    style: SpicyButtonStyle = SpicyButtonStyle.Secondary,
     fill: Boolean = false,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -347,9 +346,9 @@ fun SlModalButton(
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(120), label = "modalButtonScale")
     val shape = RoundedCornerShape(SpicyRadii.Sm)
     val (background, color) = when (style) {
-        SlButtonStyle.Primary -> (if (pressed) Color.White.copy(alpha = 0.8f) else SpicyColors.Accent) to SpicyColors.TextOnFill
-        SlButtonStyle.Secondary -> (if (pressed) SpicyColors.TintBgPressed else SpicyColors.TintBg) to SpicyColors.TextPrimary
-        SlButtonStyle.Quiet -> (if (pressed) SpicyColors.TintBg else Color.Transparent) to
+        SpicyButtonStyle.Primary -> (if (pressed) Color.White.copy(alpha = 0.8f) else SpicyColors.Accent) to SpicyColors.TextOnFill
+        SpicyButtonStyle.Secondary -> (if (pressed) SpicyColors.TintBgPressed else SpicyColors.TintBg) to SpicyColors.TextPrimary
+        SpicyButtonStyle.Quiet -> (if (pressed) SpicyColors.TintBg else Color.Transparent) to
             (if (pressed) SpicyColors.TextPrimary else SpicyColors.TextSecondary)
     }
     Box(
@@ -360,12 +359,12 @@ fun SlModalButton(
             .clip(shape)
             .background(background)
             .then(
-                if (style == SlButtonStyle.Secondary) {
+                if (style == SpicyButtonStyle.Secondary) {
                     Modifier.border(1.dp, if (pressed) SpicyColors.HairlineStrong else SpicyColors.Hairline, shape)
                 } else Modifier,
             )
             .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
-            .padding(horizontal = if (style == SlButtonStyle.Quiet) 14.dp else 18.dp, vertical = 9.dp),
+            .padding(horizontal = if (style == SpicyButtonStyle.Quiet) 14.dp else 18.dp, vertical = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(text, style = SpicyType.Body.copy(color = color, fontWeight = FontWeight.SemiBold, letterSpacing = 0.01.em))
@@ -375,7 +374,7 @@ fun SlModalButton(
 /** `.uc-actions`: buttons end-aligned, wrapping onto a new line when they run out of room. */
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
-fun SlModalActions(content: @Composable () -> Unit) {
+fun SpicyModalActions(content: @Composable () -> Unit) {
     FlowRow(
         Modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2, Alignment.End),
@@ -385,9 +384,9 @@ fun SlModalActions(content: @Composable () -> Unit) {
 
 /** Space between a pop-up's message and its buttons. */
 @Composable
-fun SlModalGap() = Spacer(Modifier.height(SpicySpacing.S2))
+fun SpicyModalGap() = Spacer(Modifier.height(SpicySpacing.S2))
 
-/** `.sl-modal::before`: `rgba(22,22,22,.55)` over `blur(40px) saturate(1.5)`. */
+/** The plate: `rgba(22,22,22,.55)` over `blur(40px) saturate(1.5)`. */
 private val PLATE_FILL = Color(22, 22, 22).copy(alpha = 0.55f)
 private val PlateMaterial = HazeStyle(
     backgroundColor = Color.Black,

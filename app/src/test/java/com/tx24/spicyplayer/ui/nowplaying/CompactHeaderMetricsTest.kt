@@ -11,7 +11,7 @@ class CompactHeaderMetricsTest {
     private val metrics = CompactHeaderMetrics(width, height, density, lyricFontSizeSp = 411f * 0.07f)
 
     @Test
-    fun `bar, artwork and gap follow SL's compact NowBar ratios`() {
+    fun `bar, artwork and gap follow the compact header ratios`() {
         assertEquals(width * 0.05f, metrics.barTopPx, 0.01f)
         assertEquals(height * 0.15f, metrics.barHeightPx, 0.01f)
         assertEquals(metrics.barHeightPx, metrics.artSizePx, 0.01f)
@@ -28,8 +28,8 @@ class CompactHeaderMetricsTest {
     }
 
     @Test
-    fun `text keeps SL's size relative to compact lyrics`() {
-        // SL's compact lyrics at 411dp are clamp(48, 28.77, 64) = 48px next to a 40px title.
+    fun `text keeps its size relative to compact lyrics`() {
+        // Compact desktop lyrics at 411dp are clamp(48, 28.77, 64) = 48px next to a 40px title.
         val lyricSp = 411f * 0.07f
         assertEquals(lyricSp / 48f, metrics.scale, 0.0001f)
         assertEquals(40f / 48f, metrics.titleSizeSp / lyricSp, 0.0001f)
@@ -39,7 +39,7 @@ class CompactHeaderMetricsTest {
     }
 
     @Test
-    fun `wide pages hit SL's 4rem lyric cap`() {
+    fun `wide pages hit the 4rem lyric cap`() {
         val wide = CompactHeaderMetrics(1200f, 800f, 1f, lyricFontSizeSp = 56f)
         assertEquals(56f / 64f, wide.scale, 0.0001f)
     }

@@ -7,7 +7,7 @@ import com.tx24.spicyplayer.lyrics.spicy.models.Word
 
 /**
  * Splits sufficiently long syllables into per-letter timings for the "held word"
- * letter-by-letter emphasis, mirroring `spicy-lyrics/.../Emphasize.ts`.
+ * letter-by-letter emphasis.
  *
  * This runs at render time (not parse time) because letter capability depends on the
  * active [RenderConfig] (thresholds differ per quality mode) and on whether romanized
@@ -54,7 +54,7 @@ object LetterSynthesizer {
         val span = (windowEnd - windowStart).toFloat() / len
 
         // Every character — including punctuation — is split into its own timed letter and
-        // animated identically; the reference (Emphasize.ts) has no exclusion for punctuation.
+        // animated identically; punctuation isn't excluded.
         val letters = graphemes.mapIndexed { i, grapheme ->
             Letter(
                 char = grapheme,

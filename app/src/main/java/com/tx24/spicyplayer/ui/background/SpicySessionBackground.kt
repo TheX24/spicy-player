@@ -17,10 +17,14 @@ fun SpicySessionBackground(
     modifier: Modifier = Modifier,
     /** False draws a still background (low performance mode). */
     animate: Boolean = true,
+    /** The "Legacy" background instead of Kawarp. */
+    legacy: Boolean = false,
 ) {
     val softwareArtwork = rememberSessionArtwork(artwork, artworkUri, maxDimension = 256)?.bitmap
 
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    if (legacy) {
+        LegacyBackground(coverArtBitmap = softwareArtwork, modifier = modifier, animate = animate)
+    } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
         KawarpBackground(
             coverArtBitmap = softwareArtwork,
             modifier = modifier,

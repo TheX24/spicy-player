@@ -16,9 +16,8 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 
 /**
- * Musixmatch through its iOS app's door, like mild-lyrics' `_musixmatch`. The desktop app's door
- * no longer hands out tokens, and the shared token Spicetify ships answers every search with a
- * decoy track and gibberish lyrics.
+ * Musixmatch through its iOS app's door. The desktop app's door no longer hands out tokens, and
+ * widely shared tokens answer every search with a decoy track and gibberish lyrics.
  *
  * `token.get` gives a token to anyone who asks as the app, but a few requests in a row get a
  * captcha refusal for a while, so the token is kept in [tokenFile] and reused until Musixmatch

@@ -13,6 +13,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontVariation
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.ExperimentalTextApi
 import androidx.compose.ui.text.withStyle
 import com.tx24.spicyplayer.lyrics.spicy.models.interludeDotTimes
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
@@ -24,26 +29,34 @@ internal object LyricsLayoutCalculator {
     /** Scale of the active line in line-synced lyrics (reference: data-lyrics-type="Line" .line.Active). */
     internal const val ACTIVE_LINE_SCALE = 1.05f
 
-    internal val spicyFontFamily = FontFamily(
+    private val bundledFontFamily = FontFamily(
         Font(R.font.lyrics_regular, FontWeight.Normal),
         Font(R.font.lyrics_medium, FontWeight.Medium),
         Font(R.font.lyrics_semibold, FontWeight.SemiBold),
         Font(R.font.lyrics_bold, FontWeight.Bold)
     )
-    private val vazirmatnFontFamily = FontFamily(
-        Font(R.font.vazirmatn_variable, FontWeight.Normal),
-        Font(R.font.vazirmatn_variable, FontWeight.Medium),
-        Font(R.font.vazirmatn_variable, FontWeight.SemiBold),
-        Font(R.font.vazirmatn_variable, FontWeight.Bold),
-    )
-    private val georgianFontFamily = FontFamily(
-        Font(R.font.noto_sans_georgian_variable, FontWeight.Normal),
-        Font(R.font.noto_sans_georgian_variable, FontWeight.Medium),
-        Font(R.font.noto_sans_georgian_variable, FontWeight.SemiBold),
-        Font(R.font.noto_sans_georgian_variable, FontWeight.Bold),
+
+    /** The "Use system font" setting: the phone's own font for every script, in place of ours. */
+    internal var useSystemFont by mutableStateOf(false)
+
+    /** The font for lyrics and the text around them (the song header, the controls' times). */
+    internal val spicyFontFamily: FontFamily get() = if (useSystemFont) FontFamily.Default else bundledFontFamily
+    private val vazirmatnFontFamily = variableFamily(R.font.vazirmatn_variable)
+    private val georgianFontFamily = variableFamily(R.font.noto_sans_georgian_variable)
+
+    /**
+     * A variable font at each weight the renderer asks for. The weight has to be set on the
+     * font's `wght` axis: declared alone, every weight drew the file's default instance (400),
+     * so bold Arabic and Georgian lyrics came out Regular.
+     */
+    @OptIn(ExperimentalTextApi::class)
+    private fun variableFamily(resId: Int) = FontFamily(
+        listOf(FontWeight.Normal, FontWeight.Medium, FontWeight.SemiBold, FontWeight.Bold).map { weight ->
+            Font(resId, weight, variationSettings = FontVariation.Settings(FontVariation.weight(weight.weight)))
+        },
     )
 
-    private fun fontFamilyFor(text: String): FontFamily = when (ScriptFontSelector.select(text)) {
+    private fun fontFamilyFor(text: String): FontFamily = if (useSystemFont) FontFamily.Default else when (ScriptFontSelector.select(text)) {
         LyricScriptFont.DEFAULT -> spicyFontFamily
         LyricScriptFont.VAZIRMATN -> vazirmatnFontFamily
         LyricScriptFont.NOTO_SANS_GEORGIAN -> georgianFontFamily
@@ -69,9 +82,8 @@ internal object LyricsLayoutCalculator {
      * Whether a line's block should sit on the right edge of the lyrics column.
      *
      * Plain lines: right-aligned only if RTL. Duet lines normally put the primary voice (v1,
-     * `!oppositeAligned`) on the left and the guest on the right — but the reference CSS swaps
-     * that for RTL duets (`.line.rtl.OppositeAligned` gets the padding a plain `.line.rtl` would,
-     * and vice versa), so an RTL duet mirrors instead of stacking both voices on the same side.
+     * `!oppositeAligned`) on the left and the guest on the right — swapped for RTL duets, so an
+     * RTL duet mirrors instead of stacking both voices on the same side.
      */
     private fun resolveRightAligned(hasDuet: Boolean, isRtl: Boolean, oppositeAligned: Boolean, isSongwriter: Boolean): Boolean {
         if (isSongwriter) return false
@@ -175,7 +187,7 @@ internal object LyricsLayoutCalculator {
             )
             val zero = textMeasurer.measure(text = AnnotatedString("0"), style = gapStyle)
             // Word-synced lines are rows of word elements spaced by `margin-right: 0.32ch`; line-
-            // synced and static lines are plain text in the reference, spaced by a real space.
+            // synced and static lines are plain text, spaced by a real space.
             val textMode = lyricsType == LyricsType.Line || lyricsType == LyricsType.Static
             val wordGap = if (textMode) {
                 textMeasurer.measure(text = AnnotatedString("a a"), style = gapStyle).size.width -
@@ -188,7 +200,10 @@ internal object LyricsLayoutCalculator {
             // Every row sits on the line font's own baseline, like a CSS line box whose strut is
             // the primary font. Fallback glyphs (CJK) have taller line boxes and a lower baseline;
             // aligning only within the row let an all-CJK row sink toward the next line.
-            val rowBaseline = zero.firstBaseline
+            // CSS centres the font's box (ascent + descent) in the line height, splitting the
+            // difference as half-leading. Vazirmatn's box is 1.56em against a 1.18em line, so
+            // its baseline rises 0.19em from where the raw font metrics put it.
+            val rowBaseline = zero.firstBaseline + (metrics.lineHeightPx(fontSize.value) - zero.size.height) / 2f
 
             data class Piece(
                 val word: Word,
@@ -210,7 +225,7 @@ internal object LyricsLayoutCalculator {
                     fontSize = fontSize,
                     fontWeight = fontWeight,
                     color = Color.White,
-                    // Words move by a pixel or two and scale every frame. Like the reference's
+                    // Words move by a pixel or two and scale every frame. Like CSS's
                     // will-change: transform, render them unsnapped so they glide instead of
                     // stepping between whole pixel rows (the "bobbing" after a word is sung).
                     textMotion = TextMotion.Animated,
@@ -321,7 +336,7 @@ internal object LyricsLayoutCalculator {
             }
             
             // A lead with no words (its line is only background vocals) takes no room, so the
-            // background vocals sit where the line would, like the reference's empty lead element.
+            // background vocals sit where the line would.
             val totalHeight = when {
                 pieces.isEmpty() && !isBg -> 0f
                 allRows.isEmpty() -> explicitRowHeight

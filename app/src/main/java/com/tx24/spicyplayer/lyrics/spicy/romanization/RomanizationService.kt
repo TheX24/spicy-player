@@ -16,7 +16,7 @@ object Romanizers {
 }
 
 /**
- * On-device romanization, mirroring `spicy-lyrics/src/utils/Lyrics/ProcessLyrics.ts`: the
+ * On-device romanization: the
  * scripts present are detected across the whole song first (so a kanji-only syllable in a
  * Japanese song is read as Japanese, never pinyin), then each text is run through every
  * present-script romanizer whose characters it contains, in priority order. Japanese is read

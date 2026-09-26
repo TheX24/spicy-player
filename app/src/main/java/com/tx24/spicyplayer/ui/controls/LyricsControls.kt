@@ -84,7 +84,7 @@ import kotlinx.coroutines.launch
  * Transport state and actions for [LyricsControls].
  *
  * @param customActions the player's own buttons (shuffle, repeat, like, ...) as published in its
- * PlaybackState. Shuffle and repeat take SL's slots beside the skips; the rest become floating
+ * PlaybackState. Shuffle and repeat take the slots beside the skips; the rest become floating
  * buttons.
  */
 class PlaybackControlsState(
@@ -105,8 +105,8 @@ class PlaybackControlsState(
 
 /**
  * The lyrics screen's bottom controls, top to bottom: the timeline with its times underneath,
- * SL's playback row (shuffle, previous, play/pause, next, repeat) as plain glyphs, and SL's
- * floating ViewControls (romanize, the player's other actions, settings). Behind them, the lyrics
+ * the playback row (shuffle, previous, play/pause, next, repeat) as plain glyphs, and the
+ * floating glass buttons (romanize, the player's other actions, settings). Behind them, the lyrics
  * blur and darken towards the bottom, starting [SHADE_REACH] above the controls. While not
  * [interactive] (hidden), touches on the controls are swallowed.
  *
@@ -120,10 +120,14 @@ fun LyricsControls(
     onToggleRomanize: () -> Unit,
     onOpenSettings: () -> Unit,
     modifier: Modifier = Modifier,
+    expanded: Boolean = false,
+    onToggleExpanded: () -> Unit = {},
     interactive: Boolean = true,
     shown: () -> Float = { 1f },
     /** Height of the controls themselves, without the shade above them, in px. */
     onControlsHeight: (Int) -> Unit = {},
+    /** How much of the shade shows (1 = all), on top of [shown]. */
+    shade: () -> Float = { 1f },
 ) {
     val backdrop = LocalBackdrop.current
     Box(modifier.fillMaxWidth()) {
@@ -132,7 +136,7 @@ fun LyricsControls(
         Box(
             Modifier
                 .matchParentSize()
-                .graphicsLayer { alpha = shown() }
+                .graphicsLayer { alpha = shown() * shade() }
                 .then(
                     backdrop?.let {
                         Modifier.hazeEffect(it) {
@@ -162,7 +166,7 @@ fun LyricsControls(
                     awaitPointerEventScope { while (true) awaitPointerEvent() }
                 },
         ) {
-            ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings)
+            ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, expanded, onToggleExpanded)
             // Hidden controls swallow touches too: a touch there only brings them back, rather
             // than pressing a button nobody can see.
             if (!interactive) {
@@ -191,6 +195,8 @@ private fun ControlsColumn(
     romanized: Boolean,
     onToggleRomanize: () -> Unit,
     onOpenSettings: () -> Unit,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
 ) {
     val shuffle = controls.customActions.firstOrNull { it.kind == ActionKind.Shuffle }
     val repeat = controls.customActions.firstOrNull { it.kind == ActionKind.Repeat }
@@ -217,11 +223,11 @@ private fun ControlsColumn(
                     onClick = onToggleRomanize,
                     contentDescription = if (romanized) "Show original lyrics" else "Romanize lyrics",
                 ) {
-                    // SL shows what a tap switches to: "A" to go back, the kana mark to romanize.
+                    // Shows what a tap switches to: "A" to go back, the kana mark to romanize.
                     if (romanized) {
-                        Image(rememberVectorPainter(SlIcons.DisableRomanization), null, Modifier.size(19.dp))
+                        Image(rememberVectorPainter(SpicyIcons.DisableRomanization), null, Modifier.size(19.dp))
                     } else {
-                        Image(rememberVectorPainter(SlIcons.EnableRomanization), null, Modifier.size(17.dp))
+                        Image(rememberVectorPainter(SpicyIcons.EnableRomanization), null, Modifier.size(17.dp))
                     }
                 }
             }
@@ -231,10 +237,17 @@ private fun ControlsColumn(
                 }
             }
             GlassButton(onClick = controls.onResync, contentDescription = "Resync lyrics", size = FLOATING_SIZE) {
-                Image(rememberVectorPainter(SlIcons.Resync), null, Modifier.size(23.dp))
+                Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(23.dp))
+            }
+            GlassButton(
+                onClick = onToggleExpanded,
+                contentDescription = if (expanded) "Show lyrics" else "Show the cover",
+                size = FLOATING_SIZE,
+            ) {
+                Image(rememberVectorPainter(if (expanded) SpicyIcons.Collapse else SpicyIcons.Expand), null, Modifier.size(21.dp))
             }
             GlassButton(onClick = onOpenSettings, contentDescription = "Settings", size = FLOATING_SIZE) {
-                Image(rememberVectorPainter(SlIcons.Settings), null, Modifier.size(23.dp))
+                Image(rememberVectorPainter(SpicyIcons.Settings), null, Modifier.size(23.dp))
             }
         }
     }
@@ -242,7 +255,7 @@ private fun ControlsColumn(
 
 private val SIDE_MARGIN = 28.dp
 private val ROW_GAP = 24.dp
-/** Not SL (42): the floating buttons grew with the bigger transport so they don't look lost under it. */
+/** The floating buttons, sized to match the transport so they don't look lost under it. */
 private val FLOATING_SIZE = 48.dp
 private val BOTTOM_MARGIN = 84.dp
 /** How far above the controls the shade starts. */
@@ -306,19 +319,19 @@ private fun PlaybackRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         SideAction(shuffle, controls)
-        PressableGlyph(rememberVectorPainter(SlIcons.TrackSkip), SKIP_WIDTH, SlIcons.TrackSkip.aspect, "Previous", rotate = true, onClick = controls.onPrevious)
-        val playIcon = if (controls.isPlaying) SlIcons.Pause else SlIcons.Play
+        PressableGlyph(rememberVectorPainter(SpicyIcons.TrackSkip), SKIP_WIDTH, SpicyIcons.TrackSkip.aspect, "Previous", rotate = true, onClick = controls.onPrevious)
+        val playIcon = if (controls.isPlaying) SpicyIcons.Pause else SpicyIcons.Play
         PressableGlyph(
             rememberVectorPainter(playIcon), PLAY_WIDTH, playIcon.aspect,
             if (controls.isPlaying) "Pause" else "Play",
             onClick = controls.onPlayPause,
         )
-        PressableGlyph(rememberVectorPainter(SlIcons.TrackSkip), SKIP_WIDTH, SlIcons.TrackSkip.aspect, "Next", onClick = controls.onNext)
+        PressableGlyph(rememberVectorPainter(SpicyIcons.TrackSkip), SKIP_WIDTH, SpicyIcons.TrackSkip.aspect, "Next", onClick = controls.onNext)
         SideAction(repeat, controls)
     }
 }
 
-/** Not SL (42): bigger, like Apple Music's transport, which suits a thumb better. */
+/** Big, like Apple Music's transport, which suits a thumb. */
 private val SKIP_WIDTH = 52.dp
 private val PLAY_WIDTH = SKIP_WIDTH * (9.25f / 12f)
 private val SIDE_WIDTH = SKIP_WIDTH * (7f / 12f)
@@ -352,8 +365,7 @@ private val PressEasing = CubicBezierEasing(0.37f, 0f, 0.63f, 1f)
 private val CssEase = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
 
 /**
- * A `.PlaybackControl`: shrinks to `--ShrinkScale: 0.9` while held, then plays SL's 0.6 s
- * `pressAnimation` bounce on release.
+ * A transport button: shrinks to 0.9 while held, then plays a 0.6 s bounce on release.
  */
 @Composable
 private fun PressableGlyph(
@@ -423,7 +435,7 @@ private val PressBounce = keyframes {
     1f at 528 using CssEase
 }
 
-/** Times: SL's `--default-font-size` look (weight 500, 60% white, tabular figures). */
+/** Times: weight 500, 60% white, tabular figures. */
 private val TimeStyle = TextStyle(
     fontFamily = LyricsLayoutCalculator.spicyFontFamily,
     fontWeight = FontWeight.Medium,
@@ -433,7 +445,7 @@ private val TimeStyle = TextStyle(
 )
 
 /**
- * SL's glass slider (`Exp_NewProgressBar`): a frosted capsule whose white fill is the progress,
+ * The glass timeline: a frosted capsule whose white fill is the progress,
  * thickening while dragged. Seeks once, on release, because MediaSession seeks are slow and
  * seeking along the drag would make the lyrics jump about. Elapsed and total time sit underneath.
  */
@@ -518,8 +530,8 @@ internal fun formatClock(ms: Long): String {
     return if (hours > 0L) "%d:%02d:%02d".format(hours, minutes, seconds) else "%d:%02d".format(minutes, seconds)
 }
 
-/** SL's glyphs (`Styling/Icons.ts`) in white. */
-private object SlIcons {
+/** The controls' glyphs, in white. */
+internal object SpicyIcons {
     val TrackSkip = icon(
         35f, 20f,
         "M 19.467 19.905 C 20.008 19.905 20.463 19.746 21.005 19.426 L 33.61 12.023 C 34.533 11.482 35 10.817 35 9.993 C 35 9.158 34.545 8.53 33.61 7.977 L 21.005 0.574 C 20.463 0.254 19.998 0.094 19.456 0.094 C 18.374 0.094 17.475 0.917 17.475 2.418 L 17.475 9.49 C 17.315 8.898 16.873 8.408 16.135 7.977 L 3.529 0.574 C 3 0.254 2.533 0.094 1.993 0.094 C 0.911 0.094 0 0.917 0 2.418 L 0 17.582 C 0 19.083 0.91 19.906 1.993 19.906 C 2.533 19.906 3 19.746 3.529 19.426 L 16.135 12.023 C 16.861 11.593 17.315 11.088 17.475 10.485 L 17.475 17.582 C 17.475 19.083 18.386 19.906 19.467 19.906 L 19.467 19.905 Z",
@@ -548,6 +560,12 @@ private object SlIcons {
         "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z",
         "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0Z",
     )
+
+    /** Lucide's maximize-2, for growing the song header. */
+    val Expand = lucide("M15 3h6v6", "M9 21H3v-6", "M21 3l-7 7", "M3 21l7-7")
+
+    /** Lucide's minimize-2, for shrinking it back. */
+    val Collapse = lucide("M4 14h6v6", "M20 10h-6V4", "M14 10l7-7", "M3 21l7-7")
 
     /** Lucide's refresh-cw, for resyncing with the player. */
     val Resync = lucide(

@@ -42,7 +42,7 @@ import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.launch
 
 /**
- * The inside of SL's `.ViewControl` on a circle: a translucent fill, a 1px ring, and bright top
+ * The inside of a glass button on a circle: a translucent fill, a 1px ring, and bright top
  * and bottom highlights (the `inset 0 ±1px 0` shadows, which show as thin crescents). [fill]
  * changes when pressed. Pair with [glassCast] outside any clip.
  */
@@ -81,8 +81,8 @@ fun Modifier.glassCast(): Modifier = drawWithCache {
 }
 
 /**
- * A round glass button (SL's `.ViewControl`): [size] across, blurring the [LocalBackdrop] behind
- * it, scaling to 0.94 while held with SL's springy easing, and brightening its fill.
+ * A round glass button: [size] across, blurring the [LocalBackdrop] behind it, scaling to 0.94
+ * while held with a springy easing, and brightening its fill.
  */
 @Composable
 fun GlassButton(

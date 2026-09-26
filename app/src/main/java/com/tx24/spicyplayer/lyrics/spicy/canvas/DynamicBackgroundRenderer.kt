@@ -9,7 +9,7 @@ import android.graphics.ColorMatrixColorFilter
 import android.graphics.RectF
 
 /**
- * Renders the spicy-lyrics style dynamic background effect.
+ * Renders the rotating-circles dynamic background.
  *
  * Algorithm: 4 overlapping circles, each showing the same blurred, circular-cropped
  * album cover texture, rotating at different angular velocities and drawn with
@@ -20,11 +20,6 @@ import android.graphics.RectF
  * 2. Center     — center, radius = 0.75–1.0× largestAxis, rotation = +0.5× angle, alpha = 0.75
  * 3. Left       — bottom-left, radius = 0.75× largestAxis, rotation = +1.0× angle, alpha = 0.5
  * 4. Right      — top-right, radius = 0.5–0.65× largestAxis, rotation = -0.75× angle, alpha = 0.5
- *
- * Ported from:
- * - @spikerko/tools DynamicBackground.ts
- * - @spikerko/tools DBG_ThreeShaders.ts
- * - spicy-lyrics/css/DynamicBG/spicy-dynamic-bg.css (saturate 2.5, brightness 0.65)
  */
 class DynamicBackgroundRenderer {
 

@@ -38,13 +38,12 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 
 /**
- * 1:1 port of @kawarp/core 1.2.0 as configured by spicy-lyrics' dynamicBackground.ts.
+ * 1:1 port of @kawarp/core 1.2.0 (MIT), with the options in [SPICY_OPTIONS].
  *
  * Image-change path (KawarpBlurCore): tint → 8 Kawase passes at 128×128, stored as
  * RGBA_F16 "album" bitmaps (half-float FBO parity). Per-frame path: one fused AGSL
  * shader = the original's BLEND + DOMAIN_WARP + OUTPUT passes, PLUS the
- * `saturate(2.5) brightness(0.65)` CSS filter Spicetify applies to the canvas element
- * itself (spicy-dynamic-bg.css) — composed in one shader since blend/warp/output are
+ * `saturate(2.5) brightness(0.65)` filter over the whole canvas — composed in one shader since blend/warp/output are
  * pure functions of uv and the CSS filter is just a final per-pixel color transform.
  */
 private const val KAWARP_FUSED_AGSL = """
@@ -99,7 +98,7 @@ float hash(float3 p) {
 
 half4 main(float2 fragCoord) {
     // WebGL texcoords start at the bottom-left, and the cover is uploaded without flipping,
-    // so the reference shows it upside down (and the warp drifts accordingly). Same here.
+    // so it shows upside down (and the warp drifts accordingly), as in a browser. Same here.
     float2 vTexCoord = float2(fragCoord.x / uResolution.x, 1.0 - fragCoord.y / uResolution.y);
 
     // OUTPUT pass uv-scale, applied up front (warp is pure in uv, so order commutes)
@@ -145,8 +144,7 @@ half4 main(float2 fragCoord) {
     // clamps before CSS ever sees the pixels, same as here.
     color.rgb = clamp(color.rgb, half3(0.0), half3(1.0));
 
-    // spicy-dynamic-bg.css: `.spicy-dynamic-bg { filter: saturate(2.5) brightness(0.65); }`
-    // is applied directly to the canvas element by Spicetify, on top of the shader's own
+    // `filter: saturate(2.5) brightness(0.65)` over the whole canvas, on top of the shader's own
     // internal saturation/vignette/dither above. CSS saturate() is a luma-preserving mix
     // using Rec.709-ish weights (0.213/0.715/0.072), distinct from the shader's own 0.299/
     // 0.587/0.114 (Rec.601) — kept separate to match the spec exactly. Chained CSS filter
@@ -162,7 +160,7 @@ half4 main(float2 fragCoord) {
 }
 """
 
-/** spicy-lyrics `KawarpOptionsStatic`, verbatim. */
+/** The background's Kawarp options. */
 private val SPICY_OPTIONS = KawarpOptions(
     warpIntensity = 1f,
     blurPasses = 8,
@@ -178,7 +176,7 @@ private val SPICY_OPTIONS = KawarpOptions(
 private const val KAWARP_TRANSITION_DURATION_MS = 1000f
 
 /**
- * Stores the blurred album as half floats, like the reference's half-float FBOs. Written raw
+ * Stores the blurred album as half floats, like WebGL's half-float FBOs. Written raw
  * (premultiplied, sRGB-encoded) so nothing is rounded to 8 bits on the way, which bands.
  * The ShortBuffer holds the half floats' raw bits, which is what the HalfFloat lint flags.
  */
@@ -224,7 +222,7 @@ fun KawarpBackground(
     animate: Boolean = true,
     blurIntensity: Int = 60,
 ) {
-    // spicy-lyrics hardcodes blurPasses=8 (no UI slider); this app exposes one shared
+    // Kawarp's default is blurPasses=8; this app exposes one shared
     // slider for both engines. Kawase blur passes are much stronger per-step than the
     // legacy StackBlur radius, so scaling this the same way the legacy path does (0-100%
     // -> 0-20px) makes the slider's default (60%) way blurrier than intended for Kawarp.
@@ -306,7 +304,7 @@ fun KawarpBackground(
     }
     val shaderBrush = remember(shader) { ShaderBrush(shader) }
 
-    // Like the reference: drawn into a 300x150 layer that is then stretched over the page, rather
+    // Drawn into a 300x150 layer that is then stretched over the page, rather
     // than running the shader for every screen pixel (~60x the work on a phone).
     BoxWithConstraints(modifier.fillMaxSize()) {
         val stretchX = constraints.maxWidth / CANVAS_WIDTH.toFloat()
@@ -342,6 +340,6 @@ fun KawarpBackground(
     }
 }
 
-/** The reference's unsized WebGL canvas: the default 300x150 backbuffer. */
+/** An unsized WebGL canvas's default 300x150 backbuffer. */
 private const val CANVAS_WIDTH = 300
 private const val CANVAS_HEIGHT = 150

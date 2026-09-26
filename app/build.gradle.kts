@@ -1,12 +1,11 @@
 plugins {
     id("com.android.application")
-    id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
     namespace = "com.tx24.spicyplayer"
-    compileSdk = 35
+    compileSdk = 37
 
     fun localClientKey(): String {
         val dotEnv = rootProject.file(".env")
@@ -21,7 +20,7 @@ android {
     defaultConfig {
         applicationId = "com.tx24.spicyplayer.next"
         minSdk = 23
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "0.1.0"
         // A publishable (sl_pk_) key, made to ship in clients: SL rate-limits it per viewer IP.
@@ -31,6 +30,19 @@ android {
         }
         val key = clientKey.replace("\\", "\\\\").replace("\"", "\\\"")
         buildConfigField("String", "SPICY_LYRICS_CLIENT_KEY", "\"$key\"")
+    }
+
+    buildTypes {
+        getByName("release") {
+            // Shrunk and optimised: Compose runs noticeably slower unoptimised (debug builds are
+            // also interpreted at first), so judge smoothness on this build, not on debug.
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            // Without the release keystore (a local build), sign with the debug key so it
+            // installs over a debug build for testing. Never on CI: a release must fail unsigned.
+            if (System.getenv("CI") == null) signingConfig = signingConfigs.getByName("debug")
+        }
     }
 
     val releaseStore = System.getenv("ANDROID_RELEASE_KEYSTORE")
@@ -61,34 +73,29 @@ android {
         sourceCompatibility = JavaVersion.VERSION_11
         targetCompatibility = JavaVersion.VERSION_11
     }
-
-    kotlinOptions {
-        jvmTarget = "11"
-    }
 }
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
-    implementation(platform("androidx.compose:compose-bom:2024.09.03"))
-    implementation("androidx.activity:activity-compose:1.8.2")
+    implementation(platform("androidx.compose:compose-bom:2026.09.00"))
+    implementation("androidx.activity:activity-compose:1.13.0")
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.foundation:foundation")
     implementation("androidx.compose.material3:material3")
-    implementation("androidx.core:core-ktx:1.10.1")
-    implementation("androidx.compose.material:material-icons-extended")
+    implementation("androidx.core:core-ktx:1.19.1")
+    implementation("androidx.compose.material:material-icons-extended:1.7.8")
     // Backdrop blur for SL's glass controls (real blur on Android 12+, a tint below).
-    implementation("dev.chrisbanes.haze:haze:1.5.1")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.6.1")
-    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.6.1")
-    implementation("com.google.code.gson:gson:2.10.1")
-    implementation("io.coil-kt:coil-compose:2.4.0")
+    implementation("dev.chrisbanes.haze:haze:1.7.3")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.11.0")
+    implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
+    implementation("com.google.code.gson:gson:2.14.0")
+    implementation("io.coil-kt:coil-compose:2.7.0")
     implementation("com.jakewharton.timber:timber:5.0.1")
     implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
-    implementation("com.belerweb:pinyin4j:2.5.1")
-    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.1")
-    implementation("com.squareup.retrofit2:retrofit:2.9.0")
-    implementation("com.squareup.retrofit2:converter-gson:2.9.0")
-    implementation("com.squareup.okhttp3:okhttp:4.11.0")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
+    implementation("com.squareup.retrofit2:retrofit:3.0.0")
+    implementation("com.squareup.retrofit2:converter-gson:3.0.0")
+    implementation("com.squareup.okhttp3:okhttp:5.5.0")
     implementation("javax.inject:javax.inject:1")
     debugImplementation("androidx.compose.ui:ui-tooling")
     testImplementation("junit:junit:4.13.2")

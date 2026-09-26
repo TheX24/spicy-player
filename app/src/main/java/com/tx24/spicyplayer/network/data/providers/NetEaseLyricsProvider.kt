@@ -48,7 +48,7 @@ class NetEaseLyricsProvider @Inject constructor(private val client: OkHttpClient
         if (songs.isEmpty()) return ProviderResult.Miss
         // Word timing belongs to a release, not a song, and the search's favourite is often an
         // untimed or credits-only copy: take the first word-timed candidate, else the first with
-        // timed lines (mild-lyrics' `_netease`).
+        // timed lines.
         val lyrics = coroutineScope { songs.map { song -> async { lyrics(song.get("id").asString) } }.awaitAll() }
         // A copy whose lyric is only "纯音乐，请欣赏" (instrumental) says nothing about the others.
         lyrics.firstNotNullOfOrNull { data ->
@@ -91,7 +91,7 @@ class NetEaseLyricsProvider @Inject constructor(private val client: OkHttpClient
 
     private companion object {
         const val BASE = "https://music.163.com/api"
-        /** mild-lyrics' NE_TRIES: how many equally good candidates are worth a lyric request. */
+        /** How many equally good candidates are worth a lyric request. */
         const val TRIES = 3
         val TIMED_LINE = Regex("""^\[\d+:\d+(?:[.:]\d+)?]""")
         val ANY_STAMP = Regex("""\[[^\]]*]""")

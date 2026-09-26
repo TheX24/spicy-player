@@ -4,8 +4,7 @@ import com.tx24.spicyplayer.network.data.blend.BlendText.key
 import com.tx24.spicyplayer.network.data.blend.BlendText.lineText
 
 /**
- * A QQ Music, Kugou or NetEase document in the shape mild-lyrics' providers hand to a blend
- * (`_qrc_items`, `_krc_items`, `_ne_yrc`, `_ne_doc`): credit and title-card lines taken out,
+ * A QQ Music, Kugou or NetEase document in the shape a blend takes: credit and title-card lines taken out,
  * bracketed backing vocals lifted out of the lead into groups of their own, and lines whose
  * "word timing" is only the line's span divided evenly put back to line level.
  */
@@ -41,7 +40,7 @@ internal object BlendDonors {
     /**
      * Whether [lines] are only a note saying the track has no words, like NetEase's and Kugou's
      * "纯音乐，请欣赏" ("instrumental, please enjoy") stamped across the whole song: three lines at
-     * most besides credits, one of them saying it (mild-lyrics' `_instrumental`).
+     * most besides credits, one of them saying it.
      */
     fun isNoWordsNote(lines: List<String>): Boolean {
         val words = lines.map(String::trim).filter { it.isNotEmpty() && !isCredit(it) }

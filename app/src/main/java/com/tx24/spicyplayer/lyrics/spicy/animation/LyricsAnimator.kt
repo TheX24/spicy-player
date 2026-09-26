@@ -21,9 +21,7 @@ import kotlin.math.pow
 import kotlin.math.sin
 
 /**
- * Exact port of the reference animator (`spicy-lyrics/.../Animator/Lyrics/LyricsAnimator.ts`).
- *
- * Structure mirrors the original's per-frame `Animate(position)`:
+ * The lyrics animator, stepped once per frame with the playback position:
  * - Only **Active** lines have their word/letter/dot springs retargeted and stepped.
  * - **NotSung** lines are never touched — their words freeze at whatever state they last had
  *   (initially the resting state). There is no snap-to-resting reset pass.
@@ -53,7 +51,7 @@ class LyricsAnimator(
             }
         }
 
-    // ── Splines (control points verbatim from the reference) ──────────────────────────
+    // ── Splines ──────────────────────────────────────────────────────────────────────────
     private val scaleSpline = spline(0f to 0.95f, 0.7f to 1.0505f, 1f to 1f)
     private val glowSpline = spline(0f to 0f, 0.15f to 1f, 0.6f to 1f, 1f to 0f)
     private val dotScaleSpline = spline(0f to 0.75f, 0.7f to 1.05f, 1f to 1f)
@@ -225,8 +223,8 @@ class LyricsAnimator(
     /**
      * Computes the animation state for all lines at [currentTimeMs].
      *
-     * @param deltaTime seconds since the last frame (unclamped, like the reference).
-     * @param suppressBlur true from the user's first touch until auto-scroll resumes (reference: HideLineBlur).
+     * @param deltaTime seconds since the last frame (unclamped).
+     * @param suppressBlur true from the user's first touch until auto-scroll resumes.
      */
     fun animate(
         lines: List<Line>,
@@ -426,8 +424,7 @@ class LyricsAnimator(
     }
 
     /**
-     * Interlude dot-group visibility (the Compose replacement for the reference's musical-line
-     * height collapse + `.pre-hidden` class): 1 while active until 500ms before the line ends,
+     * Interlude dot-group visibility (the line's height collapse and its pre-hidden state): 1 while active until 500ms before the line ends,
      * 0 otherwise. Non-interlude lines have no line-level scale (reference Syllable mode).
      */
     private fun animateInterludeScale(
@@ -441,7 +438,7 @@ class LyricsAnimator(
         val target = if (isActive && !preHidden) 1f else 0f
         val animatable = lineScaleAnims.getOrPut(lineIdx) { Animatable(target) }
         if (animatable.targetValue != target) {
-            // The collapse (1→0, at pre-hidden) uses the reference's slower 0.4s dip-then-overshoot
+            // The collapse (1→0, at pre-hidden) uses a slower 0.4s dip-then-overshoot
             // curve; expansion (0→1, on activation) keeps the default line-transition tween.
             val duration = if (target == 0f) DOT_GROUP_COLLAPSE_MS else DOT_GROUP_EXPANSION_MS
             val easing = if (target == 0f) DOT_GROUP_COLLAPSE_EASING else SCALE_EASING
@@ -551,7 +548,7 @@ class LyricsAnimator(
         } else emptyList()
 
         return WordAnimState(
-            // Simple mode: word scale/glow springs are no-ops in the reference (CSS handles it).
+            // Simple mode: word scale and glow springs do nothing.
             scale = if (simple) 1f else currentScale,
             yOffset = currentYOffset,
             glow = if (simple) 0f else currentGlow,
@@ -788,7 +785,7 @@ class LyricsAnimator(
         )
     }
 
-    /** Songwriter credits render as plain, fully-swept text (a non-lyric element in the reference). */
+    /** Songwriter credits render as plain, fully-swept text (they aren't lyrics). */
     private fun songwriterWordState(word: Word): WordAnimState = WordAnimState(
         scale = 1f,
         yOffset = 0f,

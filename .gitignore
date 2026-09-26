@@ -12,3 +12,12 @@ local.properties
 *.iml
 .DS_Store
 captures/
+
+# Local development notes and tools that need the private reference checkouts.
+CLAUDE.md
+docs/architecture.md
+docs/settings.md
+docs/upstream-notes.md
+PUBLICATION_CHECKLIST.md
+tools/make_blend_fixtures.py
+app/src/test/java/com/tx24/spicyplayer/network/data/blend/BlendParityTest.kt

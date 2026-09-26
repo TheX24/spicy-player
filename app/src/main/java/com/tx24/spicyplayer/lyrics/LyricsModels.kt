@@ -30,6 +30,8 @@ sealed interface LyricsState {
         val songwriters: List<String>,
         val provider: String = "Spicy Lyrics",
         val lyricsType: com.tx24.spicyplayer.lyrics.spicy.models.LyricsType = com.tx24.spicyplayer.lyrics.spicy.models.LyricsType.Syllable,
+        /** The source brought its own romanization (TTML), which a human one from Genius doesn't replace. */
+        val sourceRomanized: Boolean = false,
     ) : LyricsState
     /** [message] is the headline, [detail] the smaller line under it (which sources, which codes). */
     data class Error(val message: String, val detail: String? = null) : LyricsState

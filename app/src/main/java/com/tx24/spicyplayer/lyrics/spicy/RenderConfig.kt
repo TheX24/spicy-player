@@ -17,17 +17,17 @@ data class RenderConfig(
     /** `--Vocal-NotSung-opacity` / `--Vocal-Sung-opacity`; Minimal's own values live in the animator. */
     val opacityNotSung: Float = if (simpleLyricsMode) 0.45f else 0.51f,
     val opacitySung: Float = if (simpleLyricsMode) 0.35f else 0.497f,
-    /** Simple deliberately retains the reference's distance blur. */
+    /** Simple mode deliberately keeps the distance blur. */
     val distanceBlurEnabled: Boolean = true,
-    /** Not in the reference: false drops every glow halo (low performance mode). */
+    /** False drops every glow halo (the Glow setting, low performance mode). */
     val glowEnabled: Boolean = true,
     /** Minimal is a line-visibility layer and does not disable word/letter motion. */
     val lettersEnabled: Boolean = true,
     val letterDurationThresholdMs: Long = if (simpleLyricsMode) 1050L else 1000L,
     val letterMaxLength: Int = if (simpleLyricsMode) 12 else Int.MAX_VALUE,
     /**
-     * Not in the reference: multiplies how far sung words and letters grow (their scale away
-     * from 1) and lift (their y offset). 1 is Spicy Lyrics' own motion.
+     * Multiplies how far sung words and letters grow (their scale away from 1) and lift
+     * (their y offset). 1 is the desktop amount.
      */
     val wordMotionBoost: Float = 1f,
 ) {

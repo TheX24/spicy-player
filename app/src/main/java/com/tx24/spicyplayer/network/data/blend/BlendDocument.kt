@@ -7,18 +7,18 @@ import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
 import java.util.Locale
 
 /*
- * The shape mild-lyrics blends in: Spicy Lyrics' JSON document (Content -> Lead/Background ->
- * Syllables), in seconds. Lines and groups are compared by identity, as mild-lyrics does with
- * id(), so they are plain classes rather than data classes.
+ * The shape blends work in: the Spicy Lyrics API's JSON document (Content -> Lead/Background ->
+ * Syllables), in seconds. Lines and groups are compared by identity, so they are plain classes
+ * rather than data classes.
  */
 
-/** One timed syllable. [partOfWord] is Spicy Lyrics' IsPartOfWord: it runs on into the next one. */
+/** One timed syllable. [partOfWord]: it runs on into the next one. */
 internal data class BlendSyllable(
     val text: String,
     val start: Double,
     val end: Double,
     val partOfWord: Boolean,
-    /** An onset nobody measured: shared out of a lump by character count (mild-lyrics' "Guess"). */
+    /** An onset nobody measured: shared out of a lump by character count. */
     val guess: Boolean = false,
 )
 
@@ -100,7 +100,7 @@ internal object BlendDocuments {
         return BlendDoc(lines, parsed.songwriters).takeIf { lines.isNotEmpty() }
     }
 
-    /** mild-lyrics' parse_lrc: each line ends at the next, held no longer than ten seconds. */
+    /** Reads LRC: each line ends at the next, held no longer than ten seconds. */
     fun fromLrc(text: String, plain: String? = null): BlendDoc? {
         val rows = mutableListOf<Pair<Double, String>>()
         for (raw in text.lines()) {

@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.material3.Icon
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -68,14 +70,14 @@ import com.tx24.spicyplayer.ui.theme.SpicyType
 import kotlin.math.roundToInt
 
 /*
- * SL's settings panel controls (`SettingsPanel/components.tsx`, `settings-panel.css`), with the
- * search from Pixel's fork: rows hide themselves when they don't match [LocalSettingsQuery].
+ * The settings screen's controls, with search built in: rows hide themselves when they don't
+ * match [LocalSettingsQuery].
  */
 
 /** What the settings search box holds; blank shows everything. */
 val LocalSettingsQuery = compositionLocalOf { "" }
 
-/** SL's `matches`: the label or the description contains the query, ignoring case. */
+/** Whether the label or the description contains the query, ignoring case. */
 fun settingMatches(query: String, vararg terms: String?): Boolean {
     val q = query.trim()
     return q.isEmpty() || terms.any { it?.contains(q, ignoreCase = true) == true }
@@ -88,7 +90,7 @@ fun Searchable(vararg terms: String?, content: @Composable () -> Unit) {
 }
 
 /**
- * `.sl-sp-section-title`: a headline over its rows, after a hairline unless [divider] is off.
+ * A section title: a headline over its rows, after a hairline unless [divider] is off.
  * Takes no room at all when every row under it is hidden by the search.
  */
 @Composable
@@ -134,7 +136,7 @@ fun SectionTitle(text: String, divider: Boolean = true) {
 }
 
 /**
- * `.sl-sp-row`: label and description on the left, the control on the right, or under them when
+ * A settings row: label and description on the left, the control on the right, or under them when
  * [stacked]. Tapping the row runs [onClick]. Hidden when it doesn't match the search.
  */
 @Composable
@@ -142,6 +144,7 @@ fun SettingRow(
     label: String,
     modifier: Modifier = Modifier,
     description: String? = null,
+    icon: ImageVector? = null,
     onClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     stacked: Boolean = false,
@@ -150,7 +153,7 @@ fun SettingRow(
     if (!settingMatches(LocalSettingsQuery.current, label, description)) return
     val interaction = remember { MutableInteractionSource() }
     RowFrame(
-        label, description, interaction, enabled, stacked,
+        label, description, icon, interaction, enabled, stacked,
         modifier.then(
             if (onClick != null && enabled) Modifier.clickable(interaction, indication = null, onClick = onClick) else Modifier,
         ),
@@ -158,7 +161,7 @@ fun SettingRow(
     )
 }
 
-/** A [SettingRow] with SL's toggle; the whole row flips it. */
+/** A [SettingRow] with a toggle; the whole row flips it. */
 @Composable
 fun ToggleRow(
     label: String,
@@ -166,20 +169,22 @@ fun ToggleRow(
     onCheckedChange: (Boolean) -> Unit,
     modifier: Modifier = Modifier,
     description: String? = null,
+    icon: ImageVector? = null,
     enabled: Boolean = true,
 ) {
     if (!settingMatches(LocalSettingsQuery.current, label, description)) return
     val interaction = remember { MutableInteractionSource() }
     RowFrame(
-        label, description, interaction, enabled, stacked = false,
+        label, description, icon, interaction, enabled, stacked = false,
         modifier = modifier.toggleable(checked, interaction, indication = null, enabled = enabled, role = Role.Switch, onValueChange = onCheckedChange),
-    ) { SlToggle(checked) }
+    ) { SpicyToggle(checked) }
 }
 
 @Composable
 private fun RowFrame(
     label: String,
     description: String?,
+    icon: ImageVector?,
     interaction: MutableInteractionSource,
     enabled: Boolean,
     stacked: Boolean,
@@ -200,35 +205,39 @@ private fun RowFrame(
         .alpha(if (enabled) 1f else DISABLED_ALPHA)
     if (stacked) {
         Column(frame, verticalArrangement = Arrangement.spacedBy(SpicySpacing.S3)) {
-            RowLabel(label, description, Modifier.fillMaxWidth())
+            RowLabel(label, description, Modifier.fillMaxWidth(), icon)
             control()
         }
     } else {
         Row(frame, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S4)) {
-            RowLabel(label, description, Modifier.weight(1f))
+            RowLabel(label, description, Modifier.weight(1f), icon)
             control()
         }
     }
 }
 
-/** `.sl-sp-label` over `.sl-sp-description`. */
+/** A row's label over its description, after an optional icon. */
 @Composable
-fun RowLabel(label: String, description: String?, modifier: Modifier = Modifier) {
-    Column(modifier, verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        Text(label, style = SpicyType.Body.copy(fontWeight = FontWeight.Medium))
-        if (description != null) Text(description, style = DescriptionStyle)
+fun RowLabel(label: String, description: String?, modifier: Modifier = Modifier, icon: ImageVector? = null) {
+    Row(modifier, horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3)) {
+        // Level with the label's first line, however long the description runs.
+        if (icon != null) Icon(icon, null, tint = SpicyColors.TextSecondary, modifier = Modifier.padding(top = 1.dp).size(20.dp))
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(label, style = SpicyType.Body.copy(fontWeight = FontWeight.Medium))
+            if (description != null) Text(description, style = DescriptionStyle)
+        }
     }
 }
 
-/** `.sl-sp-description`: caption in secondary text at 85%. */
+/** A row's description: caption in secondary text at 85%. */
 val DescriptionStyle = SpicyType.Caption.copy(color = SpicyColors.TextSecondary.copy(alpha = 0.6f * 0.85f), lineHeight = 1.4.em)
 
 /**
- * `.sl-sp-toggle`: state shows through brightness alone. Off is a dark groove with a cream knob,
+ * A toggle whose state shows through brightness alone. Off is a dark groove with a cream knob,
  * on a lit track with a white knob. Pass [onCheckedChange] only when nothing around it toggles.
  */
 @Composable
-fun SlToggle(checked: Boolean, modifier: Modifier = Modifier, onCheckedChange: ((Boolean) -> Unit)? = null) {
+fun SpicyToggle(checked: Boolean, modifier: Modifier = Modifier, onCheckedChange: ((Boolean) -> Unit)? = null) {
     val progress by animateFloatAsState(
         if (checked) 1f else 0f,
         tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal),
@@ -264,11 +273,11 @@ private val ToggleKnobOff = Color(245, 245, 245).copy(alpha = 0.78f)
 private fun lerp(a: Color, b: Color, t: Float) = androidx.compose.ui.graphics.lerp(a, b, t)
 
 /**
- * `.sl-sp-select`: a tinted pill showing the chosen label. SL leaves the list to the browser's
- * own `<select>`, whose options are dark text on white; this draws that list under the pill.
+ * A tinted pill showing the chosen label; tapped, it draws the list of options (dark text on
+ * white, like a browser's `<select>`) under the pill.
  */
 @Composable
-fun SlSelect(
+fun SpicySelect(
     value: String,
     options: List<String>,
     onChange: (String) -> Unit,
@@ -317,17 +326,17 @@ fun SlSelect(
     }
 }
 
-/** `.sl-sp-btn`: a flat tinted pill that shrinks to 0.97 while held. */
+/** A flat tinted pill that shrinks to 0.97 while held. */
 @Composable
-fun SlButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+fun SpicyButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     PressSurface(onClick, modifier, enabled) {
         Text(text, style = SpicyType.Caption.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.01.em))
     }
 }
 
-/** A square [SlButton] around an icon, e.g. the source cards' up and down. */
+/** A square [SpicyButton] around an icon, e.g. the source cards' up and down. */
 @Composable
-fun SlIconButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable () -> Unit) {
+fun SpicyIconButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, content: @Composable () -> Unit) {
     PressSurface(onClick, modifier.size(36.dp), enabled, horizontalPadding = 0.dp, content = { content() })
 }
 
@@ -359,9 +368,9 @@ private fun PressSurface(
     )
 }
 
-/** `.sl-sp-search-wrap` as a general text field: tinted, hairline ring, brighter while focused. */
+/** A text field: tinted, hairline ring, brighter while focused. */
 @Composable
-fun SlTextField(
+fun SpicyTextField(
     value: String,
     onValueChange: (String) -> Unit,
     placeholder: String,
@@ -403,10 +412,10 @@ fun SlTextField(
     )
 }
 
-/** `.sl-sp-search-wrap`: the magnifier, the field, and a clear button once there's text. */
+/** The search bar: the magnifier, the field, and a clear button once there's text. */
 @Composable
-fun SlSearchBar(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
-    SlTextField(
+fun SpicySearchBar(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
+    SpicyTextField(
         value = value,
         onValueChange = onValueChange,
         placeholder = "Search settings…",
@@ -439,11 +448,11 @@ fun SlSearchBar(value: String, onValueChange: (String) -> Unit, modifier: Modifi
 }
 
 /**
- * SL's bipolar `Slider`: a light groove with a centre tick, filled from zero out to the thumb, so
+ * A bipolar slider: a light groove with a centre tick, filled from zero out to the thumb, so
  * the fill's direction shows the sign. Under it, the value and a Reset once it's off [default].
  */
 @Composable
-fun SlBipolarSlider(
+fun SpicyBipolarSlider(
     value: Int,
     range: IntRange,
     step: Int,
@@ -530,7 +539,7 @@ fun SlBipolarSlider(
     }
 }
 
-/** A quiet outlined card (`.sl-sp-footer`, Pixel's source cards): hairline ring, large radius. */
+/** A quiet outlined card: hairline ring, large radius. */
 fun Modifier.outlinedCard(tinted: Boolean = false): Modifier {
     val shape = RoundedCornerShape(SpicyRadii.Lg)
     return clip(shape)
@@ -538,5 +547,5 @@ fun Modifier.outlinedCard(tinted: Boolean = false): Modifier {
         .border(1.dp, SpicyColors.Hairline, shape)
 }
 
-/** `.sl-sp-row--disabled`: label and control at 45%. */
+/** A disabled row: label and control at 45%. */
 const val DISABLED_ALPHA = 0.45f

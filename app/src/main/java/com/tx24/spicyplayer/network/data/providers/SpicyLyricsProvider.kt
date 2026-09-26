@@ -235,7 +235,7 @@ internal object SpicyLyricsTtmlConverter {
         return """<?xml version="1.0" encoding="UTF-8"?><tt xmlns="http://www.w3.org/ns/ttml" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" xmlns:spicy="https://spicylyrics.org/ns/ttml" itunes:timing="${if (wordTimed) "Word" else "Line"}"><head><metadata><iTunesMetadata xmlns="http://music.apple.com/lyric-ttml-internal"><songwriters>$writers</songwriters>${if (transliterations.isEmpty()) "" else "<transliterations><transliteration>$transliterations</transliteration></transliterations>"}</iTunesMetadata></metadata></head><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
     }
 
-    /** SL's per-syllable romanization as Apple-style spans; the parser matches them to syllables by timing. */
+    /** The API's per-syllable romanization as Apple-style spans; the parser matches them to syllables by timing. */
     private fun transliteration(lead: JsonArray?, backgrounds: JsonArray?): String? {
         fun romanSpans(syllables: JsonArray?) = syllables?.mapNotNull { element ->
             val syllable = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
@@ -265,7 +265,7 @@ internal object SpicyLyricsTtmlConverter {
             val group = element.takeIf { it.isJsonObject }?.asJsonObject ?: return@mapNotNull null
             spans(group.getAsJsonArray("Syllables")).takeIf(List<TimedText>::isNotEmpty)
         }.orEmpty()
-        // Like SL's IsLineEmpty, a line is dropped only when its lead and every background group
+        // A line is dropped only when its lead and every background group
         // are empty: a line can be background vocals alone (Industry Baby opens with one).
         if (leadSpans.isEmpty() && bgGroups.isEmpty()) return null
         val start = lead.number("StartTime") ?: (leadSpans + bgGroups.flatten()).minOf { it.start }

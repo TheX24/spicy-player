@@ -7,7 +7,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Expected values are mild-lyrics' own `_ne_bg` output for the same syllables. */
+/** Expected values are the original blend's output for the same syllables. */
 class BlendDonorsTest {
 
     /** One syllable every half second, each 0.4s long, like the Python run that made the expectations. */

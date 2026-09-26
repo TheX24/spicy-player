@@ -2,7 +2,7 @@ package com.tx24.spicyplayer.lyrics.spicy.canvas.kawarp
 
 /**
  * Options mirror @kawarp/core 1.2.0 `KawarpOptions` defaults exactly.
- * spicy-lyrics overrides at the call site (see KawarpBackground).
+ * The background overrides some at the call site (see KawarpBackground).
  */
 data class KawarpOptions(
     val warpIntensity: Float = 1.0f,

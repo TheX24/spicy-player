@@ -69,8 +69,8 @@ import com.tx24.spicyplayer.ui.components.LocalSettingsQuery
 import com.tx24.spicyplayer.ui.components.Searchable
 import com.tx24.spicyplayer.ui.components.SettingsSkeleton
 import com.tx24.spicyplayer.ui.components.SettingsSection
-import com.tx24.spicyplayer.ui.components.SlButton
-import com.tx24.spicyplayer.ui.components.SlSearchBar
+import com.tx24.spicyplayer.ui.components.SpicyButton
+import com.tx24.spicyplayer.ui.components.SpicySearchBar
 import com.tx24.spicyplayer.ui.components.outlinedCard
 import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
@@ -84,23 +84,6 @@ import dev.chrisbanes.haze.hazeEffect
 import kotlinx.coroutines.launch
 import kotlin.coroutines.cancellation.CancellationException
 
-/** The lyric look settings that live with the lyrics screen rather than the view model. Romanize is
- * left out: the lyrics screen has its own button for it. */
-class LyricsPreferences(
-    val originalWordMotion: Boolean,
-    val onOriginalWordMotionChange: (Boolean) -> Unit,
-    /** The boost "Original word motion" turns off, for its description. */
-    val wordMotionBoost: Float,
-    val lowPerformance: Boolean,
-    val onLowPerformanceChange: (Boolean) -> Unit,
-    val simpleLyricsMode: Boolean,
-    val onSimpleLyricsModeChange: (Boolean) -> Unit,
-    val simpleAnimationStyle: SimpleAnimationStyle,
-    val onSimpleAnimationStyleChange: (SimpleAnimationStyle) -> Unit,
-    val minimalLyricsMode: Boolean,
-    val onMinimalLyricsModeChange: (Boolean) -> Unit,
-)
-
 internal enum class SettingsPage(val title: String) {
     ThisSong("This song"),
     Lyrics("Lyrics"),
@@ -110,8 +93,8 @@ internal enum class SettingsPage(val title: String) {
 }
 
 /**
- * The settings, as SL's settings modal would sit on a phone: over the song's own background,
- * blurred and dimmed, and opening the way SL's modal does (fade in, 0.96 → 1 scale, 220 ms).
+ * The settings, over the song's own background, blurred and dimmed, opening like the pop-ups
+ * do (fade in, 0.96 → 1 scale, 220 ms).
  * The first page lists groups; each opens its own page, which slides in from the right.
  * Back, including Android's predictive back gesture, steps out one page at a time; on the first
  * page the gesture shrinks the whole screen toward the lyrics before it closes.
@@ -122,7 +105,7 @@ internal enum class SettingsPage(val title: String) {
 fun SettingsScreen(
     state: PlayerUiState,
     viewModel: ExternalPlaybackViewModel,
-    prefs: LyricsPreferences,
+    settings: AppSettings,
     backdrop: HazeState?,
     contentPadding: PaddingValues,
     onClosed: () -> Unit,
@@ -205,7 +188,7 @@ fun SettingsScreen(
             // Takes every touch, so nothing reaches the lyrics underneath.
             .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
     ) {
-        // SL's `.sl-modal-overlay` dim and the modal's blur, over the whole screen.
+        // The pop-up dim and blur, over the whole screen.
         Box(
             Modifier
                 .matchParentSize()
@@ -249,12 +232,12 @@ fun SettingsScreen(
                         translationX = -pageShift.value * width * HOME_PARALLAX
                         alpha = 1f - pageShift.value
                     },
-                    header = { SlSearchBar(query, { query = it }, Modifier.fillMaxWidth().padding(top = SpicySpacing.S4)) },
+                    header = { SpicySearchBar(query, { query = it }, Modifier.fillMaxWidth().padding(top = SpicySpacing.S4)) },
                 ) {
                     if (query.isBlank()) {
-                        HomeGroups(state, prefs, onOpen = ::show)
+                        HomeGroups(state, settings, onOpen = ::show)
                     } else {
-                        SearchResults(query, state, viewModel, prefs)
+                        SearchResults(query, state, viewModel, settings)
                     }
                 }
             }
@@ -275,7 +258,7 @@ fun SettingsScreen(
                         .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
                     header = { Spacer(Modifier.height(SpicySpacing.S2)) },
                 ) {
-                    PageContent(shown, state, viewModel, prefs)
+                    PageContent(shown, state, viewModel, settings)
                 }
             }
         }
@@ -283,10 +266,10 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun PageContent(page: SettingsPage, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, prefs: LyricsPreferences) {
+private fun PageContent(page: SettingsPage, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
     when (page) {
         SettingsPage.ThisSong -> ThisSongContent(state, viewModel)
-        SettingsPage.Lyrics -> LyricsContent(prefs)
+        SettingsPage.Lyrics -> LyricsContent(settings)
         SettingsPage.Sync -> SyncContent(state, viewModel)
         SettingsPage.Sources -> SourcesContent(state, viewModel)
         SettingsPage.Advanced -> AdvancedContent(state, viewModel)
@@ -346,15 +329,15 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 1, cards = true)
             SettingsSkeleton(rows = 2)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 5)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 8)
         SettingsPage.Sync -> SettingsSkeleton(rows = 1)
-        SettingsPage.Sources -> SettingsSkeleton(rows = 9, cards = true)
+        SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 5)
     }
 }
 
 @Composable
-private fun HomeGroups(state: PlayerUiState, prefs: LyricsPreferences, onOpen: (SettingsPage) -> Unit) {
+private fun HomeGroups(state: PlayerUiState, settings: AppSettings, onOpen: (SettingsPage) -> Unit) {
     Spacer(Modifier.height(SpicySpacing.S4))
     Column(Modifier.fillMaxWidth().outlinedCard()) {
         GroupRow(Icons.Rounded.MusicNote, SettingsPage.ThisSong.title, "${state.title} · ${lyricsSummary(state.lyrics)}") {
@@ -368,13 +351,15 @@ private fun HomeGroups(state: PlayerUiState, prefs: LyricsPreferences, onOpen: (
             SettingsPage.Lyrics.title,
             listOfNotNull(
                 when {
-                    prefs.simpleLyricsMode && prefs.minimalLyricsMode -> "Simple and Minimal"
-                    prefs.simpleLyricsMode -> "Simple"
-                    prefs.minimalLyricsMode -> "Minimal"
+                    settings.simpleLyricsMode && settings.minimalLyricsMode -> "Simple and Minimal"
+                    settings.simpleLyricsMode -> "Simple"
+                    settings.minimalLyricsMode -> "Minimal"
                     else -> null
                 },
-                if (prefs.originalWordMotion) "Original word motion" else "Boosted word motion",
-                "low performance".takeIf { prefs.lowPerformance },
+                if (settings.originalWordMotion) "Original word motion" else "Boosted word motion",
+                "${settings.lyricsSize.label.lowercase()} text".takeIf { settings.lyricsSize != LyricsSize.Default },
+                "system font".takeIf { settings.systemFont },
+                "low performance".takeIf { settings.lowPerformance },
             ).joinToString().replaceFirstChar(Char::uppercase),
         ) { onOpen(SettingsPage.Lyrics) }
         GroupDivider()
@@ -428,7 +413,7 @@ private fun GroupDivider() {
     Box(Modifier.fillMaxWidth().height(1.dp).background(SpicyColors.Hairline))
 }
 
-/** SL's `.sl-sp-footer`: the build's identity and a way out to the project. */
+/** The footer card: the build's identity and a way out to the project. */
 @Composable
 private fun AboutCard() {
     val context = LocalContext.current
@@ -441,22 +426,22 @@ private fun AboutCard() {
                 Text("Spicy Player Next", style = SpicyType.Headline)
                 Text("Version ${BuildConfig.VERSION_NAME} · test build", style = SpicyType.Footnote.copy(color = SpicyColors.TextSecondary))
             }
-            SlButton("GitHub", onClick = {
+            SpicyButton("GitHub", onClick = {
                 runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL))) }
             })
         }
     }
 }
 
-/** Every page's rows at once, each hiding unless it matches; SL's search, across Pixel's tabs. */
+/** Every page's rows at once, each hiding unless it matches the search. */
 @Composable
-private fun SearchResults(query: String, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, prefs: LyricsPreferences) {
+private fun SearchResults(query: String, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
     CompositionLocalProvider(LocalSettingsQuery provides query) {
         EmptyOr(
             content = {
                 Column(Modifier.fillMaxWidth()) {
                     SettingsPage.entries.forEach { page ->
-                        SettingsSection(page.title) { PageContent(page, state, viewModel, prefs) }
+                        SettingsSection(page.title) { PageContent(page, state, viewModel, settings) }
                     }
                     AboutCardSpacer()
                 }
@@ -495,7 +480,7 @@ private fun EmptyOr(content: @Composable () -> Unit, empty: @Composable () -> Un
 internal fun Int.signed(): String = if (this > 0) "+$this" else toString()
 internal fun Long.signed(): String = if (this > 0) "+$this" else toString()
 
-/** SL's settings modal: the page dims to 45% black over a strong blur of the lyrics. */
+/** Behind settings, the page dims to 45% black over a strong blur of the lyrics. */
 private val SettingsBackdrop = HazeStyle(
     backgroundColor = Color.Black,
     tints = listOf(HazeTint(Color.Black.copy(alpha = 0.45f))),
@@ -506,7 +491,7 @@ private val SettingsBackdrop = HazeStyle(
 
 private const val BACKDROP_INPUT_SCALE = 1f / 3f
 
-/** `.sl-modal-overlay-animated:not(.Active) .sl-modal { transform: scale(0.96) }`. */
+/** The scale a pop-up opens from and closes to. */
 private const val MODAL_CLOSED_SCALE = 0.96f
 
 /** Material's predictive back for a full screen: down to 90%, nudged 8dp away from the edge. */

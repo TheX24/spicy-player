@@ -1,7 +1,7 @@
 package com.tx24.spicyplayer.lyrics.spicy.canvas
 
 /**
- * Where a lyric line wraps, matching how the reference's browser lays it out.
+ * Where a lyric line wraps, matching how a browser lays out the same line.
  *
  * Word-synced lines are a `flex-wrap: wrap` row of word elements. Syllables written without a
  * space between them sit in a `.word-group` (`white-space: nowrap`), so a group moves to the next
@@ -24,7 +24,7 @@ internal object LineWrapper {
     /**
      * @param wordGap space between words on a row.
      * @param trailingGap space a word also needs after itself to fit (a left-aligned word
-     *   element's `::after` margin; 0 where the reference uses column-gap or plain text).
+     *   element's `::after` margin; 0 for column-gap or plain text).
      * @return row start indices, then [pieces].size.
      */
     fun breaks(
