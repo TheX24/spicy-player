@@ -97,6 +97,10 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.11.0")
     implementation("com.google.code.gson:gson:2.14.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
+    // Animated covers: Apple Music's looping HLS artwork, muted, with a disk cache.
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
+    implementation("androidx.media3:media3-exoplayer-hls:1.11.1")
+    implementation("androidx.media3:media3-database:1.11.1")
     implementation("com.jakewharton.timber:timber:5.0.1")
     implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")

@@ -81,6 +81,7 @@ data class PlayerUiState(
     val sourcePackage: String? = null,
     val title: String = "Nothing playing",
     val artist: String = "Start playback in another app",
+    val album: String = "",
     val durationMs: Long = 0L,
     val isPlaying: Boolean = false,
     val canSeek: Boolean = false,
@@ -809,6 +810,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
                 ?: "Unknown artist",
+            album = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
             durationMs = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0L) ?: 0L,
             isPlaying = isPlaying,
             canSeek = if (inBetween) previous.canSeek else playback?.actions?.and(PlaybackState.ACTION_SEEK_TO) != 0L && playback != null,

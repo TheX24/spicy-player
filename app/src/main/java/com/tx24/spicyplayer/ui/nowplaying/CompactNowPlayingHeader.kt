@@ -48,6 +48,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.drawText
@@ -100,6 +101,9 @@ private val CoverEnterEasing = CubicBezierEasing(0.835f, -0.008f, 0.149f, 0.866f
  *
  * The cover's gestures: drag it sideways to skip (left for the next song, right for the
  * previous), double-tap it to play or pause.
+ *
+ * With [animatedCover] on, a record that has an animated cover on Apple Music loops it in place
+ * of the still one.
  */
 @Composable
 fun CompactNowPlayingHeader(
@@ -111,9 +115,12 @@ fun CompactNowPlayingHeader(
     isPlaying: Boolean = true,
     onPlayPause: () -> Unit = {},
     onSkip: (TrackDirection) -> Unit = {},
+    animatedCover: Boolean = false,
 ) {
     val density = LocalDensity.current
     val artwork = rememberSessionArtwork(info.artwork, info.artworkUri, maxDimension = ARTWORK_MAX_PX)
+    val motionQuery = MotionCoverQuery(info.artists, info.album, info.title)
+    val motionUrl = rememberMotionCoverUrl(animatedCover, motionQuery)
     // Everything moves in the layout and draw phases, so the transition doesn't recompose the header.
     fun p() = if (expanded == null) 0f else expansion()
     fun artSize() = lerp(metrics.artSizePx, expanded?.artSizePx ?: metrics.artSizePx, p())
@@ -123,6 +130,8 @@ fun CompactNowPlayingHeader(
         Box(modifier.fillMaxSize()) {
             HeaderArtwork(
                 artwork = artwork,
+                motionUrl = motionUrl,
+                motionQuery = motionQuery,
                 direction = info.direction,
                 metrics = metrics,
                 cornerFraction = { lerp(CompactHeaderMetrics.ART_CORNER_FRACTION, CompactHeaderMetrics.NOWBAR_CORNER_FRACTION, p()) },
@@ -376,6 +385,8 @@ private fun MarqueeLine(text: String, style: TextStyle, color: Color, containerW
 @Composable
 private fun HeaderArtwork(
     artwork: SessionArtwork?,
+    motionUrl: String?,
+    motionQuery: MotionCoverQuery,
     direction: TrackDirection,
     metrics: CompactHeaderMetrics,
     cornerFraction: () -> Float,
@@ -388,6 +399,9 @@ private fun HeaderArtwork(
     val blur = remember { Animatable(0f) }
     // +1 slides the new cover in from the right, -1 from the left.
     var enterFrom by remember { mutableFloatStateOf(1f) }
+    var failedMotionUrl by remember { mutableStateOf<String?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
 
     LaunchedEffect(artwork?.fingerprint) {
         // Keep the last cover when the player has none to show.
@@ -479,6 +493,19 @@ private fun HeaderArtwork(
                         )
                     }
                 }
+            }
+            if (motionUrl != null && motionUrl != failedMotionUrl) {
+                MotionCoverVideo(
+                    url = motionUrl,
+                    // Hidden while a cover change slides in, so the old record's loop never plays
+                    // over the new cover.
+                    visible = incoming == null && current != null,
+                    onFailed = {
+                        failedMotionUrl = motionUrl
+                        scope.launch { forgetMotionCover(context, motionQuery) }
+                    },
+                    modifier = Modifier.fillMaxSize(),
+                )
             }
             incoming?.let { next ->
                 val bitmap = remember(next) { next.bitmap.asImageBitmap() }

@@ -28,12 +28,14 @@ class AppSettings(private val prefs: SharedPreferences) {
 
     var distanceBlur by boolean("distanceBlur", true)
     var glow by boolean("glow", true)
-    /** Drops the costliest effects: the moving background, glass blur, and lyric blur and glow. */
+    /** Drops the costliest effects: the moving background, animated cover, glass blur, and lyric blur and glow. */
     var lowPerformance by boolean("lowPerformance", false)
 
     var legacyBackground by boolean("legacyBackground", false)
     var staticBackground by boolean("staticBackground", false)
     var expandWithoutLyrics by boolean("expandWithoutLyrics", false)
+    /** The record's looping Apple Music cover in place of the still one, where it has one. */
+    var animatedCover by boolean("animatedCover", false)
 
     var keepScreenOn by boolean("keepScreenOn", true)
     /** The screen's full refresh rate (90/120 Hz) instead of 60 Hz, which costs battery. */

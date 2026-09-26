@@ -343,7 +343,7 @@ private fun LyricsApp(
                     headerMetrics.expanded(pageHeight - controlsHeightPx)
                 }
                 CompactNowPlayingHeader(
-                    info = NowPlayingInfo(state.title, state.artist, state.artwork, state.artworkUri, state.trackDirection),
+                    info = NowPlayingInfo(state.title, state.artist, state.album, state.artwork, state.artworkUri, state.trackDirection),
                     metrics = headerMetrics,
                     modifier = Modifier.padding(belowTop),
                     expansion = { expansion },
@@ -351,6 +351,7 @@ private fun LyricsApp(
                     isPlaying = state.isPlaying,
                     onPlayPause = viewModel::playPause,
                     onSkip = { direction -> if (direction == TrackDirection.Forward) viewModel.skipNext() else viewModel.skipPrevious() },
+                    animatedCover = settings.animatedCover && !lowPerformance,
                 )
                 // The header sits in what the glass and the shade blur, so the shade blurs it
                 // rather than painting the blurred page over it.

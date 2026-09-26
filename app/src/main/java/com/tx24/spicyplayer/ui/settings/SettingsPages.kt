@@ -226,6 +226,14 @@ internal fun AppearanceContent(settings: AppSettings) {
         description = "Grow the song header into the big cover when a song has no lyrics.",
         icon = Icons.Rounded.Album,
     )
+    ToggleRow(
+        label = "Animated Cover",
+        checked = settings.animatedCover && !settings.lowPerformance,
+        onCheckedChange = { settings.animatedCover = it },
+        description = "Play the album's animated cover from Apple Music, where it has one.",
+        icon = Icons.Rounded.Animation,
+        enabled = !settings.lowPerformance,
+    )
     SettingsSection("Effects") {
         ToggleRow(
             label = "Blur distant lines",
@@ -274,7 +282,7 @@ internal fun ScreenContent(settings: AppSettings) {
             label = "Low performance mode",
             checked = settings.lowPerformance,
             onCheckedChange = { settings.lowPerformance = it },
-            description = "Stills the background and turns off blur and glow, for smoother lyrics on slower phones.",
+            description = "Stills the background and cover and turns off blur and glow, for smoother lyrics on slower phones.",
             icon = Icons.Rounded.Speed,
         )
     }

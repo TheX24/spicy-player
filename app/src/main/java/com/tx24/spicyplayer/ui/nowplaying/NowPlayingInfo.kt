@@ -7,11 +7,13 @@ import android.graphics.Bitmap
  * depends on this and survives the rework of the playback layer.
  *
  * @param artists the session's artist string as published; several are joined with ", ".
+ * @param album the session's album name, empty when it has none.
  * @param direction which way the player moved to reach this track, for the cover change.
  */
 data class NowPlayingInfo(
     val title: String,
     val artists: String,
+    val album: String = "",
     val artwork: Bitmap? = null,
     val artworkUri: String? = null,
     val direction: TrackDirection = TrackDirection.Forward,

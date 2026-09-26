@@ -344,7 +344,7 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 2)
         }
         SettingsPage.Lyrics -> SettingsSkeleton(rows = 7)
-        SettingsPage.Appearance -> SettingsSkeleton(rows = 5)
+        SettingsPage.Appearance -> SettingsSkeleton(rows = 6)
         SettingsPage.Screen -> SettingsSkeleton(rows = 4)
         SettingsPage.Sync -> SettingsSkeleton(rows = 1)
         SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
@@ -384,6 +384,7 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
             listOf(
                 if (settings.legacyBackground) "Legacy background" else "Dynamic background",
                 "still".takeIf { settings.staticBackground || settings.lowPerformance },
+                "animated cover".takeIf { settings.animatedCover && !settings.lowPerformance },
                 "no blur".takeIf { !settings.distanceBlur || settings.lowPerformance },
                 "no glow".takeIf { !settings.glow || settings.lowPerformance },
             ).filterNotNull().joinToString(),
