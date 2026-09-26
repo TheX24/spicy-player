@@ -41,7 +41,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalDensity
-import com.tx24.spicyplayer.lyrics.fadingEdge
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
 import com.tx24.spicyplayer.lyrics.spicy.ScrollConfig
 import com.tx24.spicyplayer.lyrics.spicy.animation.LineAnimState
@@ -93,6 +96,12 @@ fun LyricsView(
     onFrameTick: ((Long) -> Unit)? = null,
     // Paused, the frame loop rests once nothing moves, looking in a few times a second for a seek.
     isPlaying: Boolean = true,
+    /** Shared with the screen: the scroll-to-active button and the pinned credits. */
+    viewState: LyricsViewState? = null,
+    /** Credits drawn pinned by the screen instead of after the lyrics. */
+    pinnedFooter: PinnedFooterMode = PinnedFooterMode.Off,
+    /** How far up from the bottom the lyrics are covered (pinned credits); they fade out above it. */
+    maskBottomPx: () -> Float = { 0f },
 ) {
     val textMeasurer = rememberTextMeasurer()
     // What is on screen: lines and their layouts, swapped together once new layouts are measured.
@@ -157,69 +166,42 @@ fun LyricsView(
         val footerSlot = footerMetrics.contentSlot(false, false, false)
         val lineGapUpdated by rememberUpdatedState(footerMetrics.lineGapPx)
         val rowHeightUpdated by rememberUpdatedState(footerMetrics.lineHeightPx(footerMetrics.baseFontSizeSp))
-        // Matched to a Spicy Lyrics screenshot, relative to the lyric size L: "Written by" 0.47L,
-        // the rest ~0.34L (its Mixed.css), all in the lyrics font; gaps ~0.45L above the block
-        // and 0.2-0.3L between rows; the avatar ~1.4x the credit text, right after the name.
-        // CREDIT_SCALE enlarges it all a little for a phone screen. L is the synced lyric size
-        // whatever the lyrics type, so static lyrics (drawn smaller) get the same credits.
+        // Credits are sized from the synced lyric size whatever the lyrics type, so static lyrics
+        // (drawn smaller) get the same credits.
         val creditBaseSp = remember(canvasWidth, density.density, fontSizeScale) {
-            LyricsLayoutMetrics(canvasWidth, density.density, LyricsType.Syllable, fontSizeScale).baseFontSizeSp
+            creditBaseSp(canvasWidth, density.density, fontSizeScale)
         }
         scrollManager.pxPerReferencePx = creditBaseSp * density.density / REFERENCE_LYRIC_SIZE_PX
-        val footerLayouts = remember(footer, creditBaseSp, footerSlot.widthPx, canvasWidth, LyricsLayoutCalculator.useSystemFont) {
-            val lyricPx = creditBaseSp * density.density
-            val constraints = Constraints(maxWidth = footerSlot.widthPx.roundToInt().coerceAtLeast(1))
-            footer.lines().mapIndexed { index, line ->
-                val (size, alpha, margin) = when (line.kind) {
-                    FooterLine.Kind.WRITERS -> Triple(0.47f, 0.7f, 0.25f)
-                    FooterLine.Kind.PROVIDER -> Triple(0.34f, 0.55f, 0.25f)
-                    FooterLine.Kind.NOTE -> Triple(0.35f, 0.65f, 0.3f)
-                    FooterLine.Kind.CONTRIBUTOR -> Triple(0.34f, 1f, 0.2f)
-                }
-                val fontSp = creditBaseSp * size * CREDIT_SCALE
-                val text = if (line.kind == FooterLine.Kind.CONTRIBUTOR && line.label != null && line.name != null) {
-                    // "Made by " dimmer, then the bold, underlined "@name" (.song-info-profile-section).
-                    buildAnnotatedString {
-                        withStyle(SpanStyle(color = Color.White.copy(alpha = 0.6f))) { append("${line.label} ") }
-                        withStyle(SpanStyle(
-                            color = Color.White.copy(alpha = 0.75f),
-                            fontWeight = FontWeight.Bold,
-                            textDecoration = TextDecoration.Underline,
-                        )) { append("@${line.name}") }
-                    }
-                } else AnnotatedString(line.text)
-                val avatar = if (line.avatarUrl != null) fontSp * density.density * 1.4f else 0f
-                val layout = textMeasurer.measure(
-                    text,
-                    TextStyle(
-                        fontFamily = LyricsLayoutCalculator.spicyFontFamily,
-                        fontSize = fontSp.sp,
-                        fontWeight = if (line.kind == FooterLine.Kind.NOTE) FontWeight.Bold else FontWeight.SemiBold,
-                    ),
-                    constraints = Constraints(maxWidth = (constraints.maxWidth - avatar).roundToInt().coerceAtLeast(1)),
-                )
-                FooterRow(
-                    line, layout, alpha,
-                    marginTop = lyricPx * (if (index == 0) 0.45f else margin),
-                    height = maxOf(layout.size.height.toFloat(), avatar),
-                    avatarSize = avatar,
-                    avatarGap = 2f * density.density,
-                )
-            }
+        // The rows the screen pins are drawn there instead.
+        val footerLines = remember(footer, pinnedFooter) { footer.lines().filterNot { pinnedFooter.pins(it.kind) } }
+        val fontKey = LyricsLayoutCalculator.fontKey
+        val footerLayouts = remember(footerLines, creditBaseSp, footerSlot.widthPx, canvasWidth, fontKey) {
+            measureFooterRows(footerLines, textMeasurer, creditBaseSp, density.density, footerSlot.widthPx)
         }
         val footerHeight = footerLayouts.sumOf { (it.marginTop + it.height).toDouble() }.toFloat()
         val footerHeightUpdated by rememberUpdatedState(footerHeight)
-        val avatars by produceState(emptyMap<String, ImageBitmap>(), footer) {
-            value = footer.lines().mapNotNull(FooterLine::avatarUrl).distinct().mapNotNull { url ->
-                loadAvatar(context, url)?.let { url to it }
-            }.toMap()
+        val avatars = rememberFooterAvatars(footerLines)
+        if (viewState != null) {
+            SideEffect { viewState.shownFooter = footer }
+            DisposableEffect(viewState) {
+                onDispose {
+                    viewState.shownFooter = null
+                    viewState.activeLineDirection = null
+                }
+            }
+            LaunchedEffect(viewState.scrollToActiveRequests) {
+                if (viewState.scrollToActiveRequests == 0) return@LaunchedEffect
+                scrollManager.returnToActive()
+                wake.trySend(Unit)
+            }
         }
+        val viewStateUpdated by rememberUpdatedState(viewState)
+        val maskBottomUpdated by rememberUpdatedState(maskBottomPx)
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
         // A newer key cancels a measurement still running, so only the latest one lands.
-        val useSystemFont = LyricsLayoutCalculator.useSystemFont
-        LaunchedEffect(lines, letterConfig, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, useSystemFont) {
+        LaunchedEffect(lines, letterConfig, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, fontKey) {
             suspend fun measure(romanized: Boolean): MeasuredLyrics {
-                val key = MeasureKey(letterConfig, canvasWidth, fontSizeScale, romanized, incomingType, useSystemFont)
+                val key = MeasureKey(letterConfig, canvasWidth, fontSizeScale, romanized, incomingType, fontKey)
                 measuredCache[key]?.let { return it }
                 return withContext(Dispatchers.Default) {
                     // Per-letter emphasis for held words (mode-dependent thresholds, romanized
@@ -227,6 +209,7 @@ fun LyricsView(
                     val display = if (incomingType == LyricsType.Syllable) LetterSynthesizer.apply(lines, letterConfig, romanized) else lines
                     MeasuredLyrics(display, LyricsLayoutCalculator.calculateLineLayouts(
                         display, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanized, letterConfig.isSimple,
+                        letterConfig.wideDuetPadding,
                     ))
                 }.also { measuredCache[key] = it }
             }
@@ -356,6 +339,24 @@ fun LyricsView(
                             (minOf(bottom, canvasHeightUpdated) - maxOf(top, 0f)).coerceAtLeast(0f)
                         } ?: Float.POSITIVE_INFINITY
 
+                        // Scrolled away by hand with the line being sung out of sight: which way it lies.
+                        viewStateUpdated?.let { shared ->
+                            val directionIndex = if (isStatic || !scrollManager.hideLineBlur) null
+                                else targetIndex ?: currentLayouts.indices.firstOrNull { i ->
+                                    currentLayouts[i].line.startMs > currentTime && !currentLayouts[i].isBackground
+                                } ?: currentLayouts.lastIndex
+                            val direction = directionIndex?.let { index ->
+                                val top = centerYUpdated + scrollManager.animScrollY + newDynamicYOffsets[index]
+                                val viewBottom = canvasHeightUpdated - maskBottomUpdated()
+                                when {
+                                    top + currentLayouts[index].height <= 0f -> ActiveLineDirection.Above
+                                    top >= viewBottom -> ActiveLineDirection.Below
+                                    else -> null
+                                }
+                            }
+                            if (shared.activeLineDirection != direction) shared.activeLineDirection = direction
+                        }
+
                         // 3. Step the scroll spring and handle user overrides.
                         val lastLayout = currentLayouts.lastOrNull()
                         // Credits scroll into reach too, most visibly when static lyrics are scrolled by hand.
@@ -379,33 +380,37 @@ fun LyricsView(
             }
         }
 
-        // The sole renderer mask: transparent through 16dp, ramping to opaque at 64dp,
-        // with a symmetric bottom edge.
+        // The sole renderer mask: transparent through 16dp, ramping to opaque at 64dp, with a
+        // symmetric bottom edge. Pinned credits lift the bottom edge above them: the lyrics fade
+        // out over the 48dp just above.
         val maskStops = lyricsMaskStops(canvasHeight, density.density)
-        val fadeBrush = remember(maskStops) {
-            Brush.verticalGradient(
-                0f to Color.Transparent,
-                maskStops.outerTop to Color.Transparent,
-                maskStops.innerTop to Color.Black,
-                maskStops.innerBottom to Color.Black,
-                maskStops.outerBottom to Color.Transparent,
-                1f to Color.Transparent,
-            )
-        }
+        val fadeBrush = remember(maskStops) { maskBrush(maskStops) }
+        val pinnedFadePx = PINNED_FADE_DP * density.density
 
         // Where each credit row sits below the last line, in content space (before scrolling).
         // Shared by drawing and tapping so a tap always lands on what was drawn.
-        fun footerRowTops(): List<Float> {
-            var y = lineLayouts.lastOrNull()?.let { layout ->
+        fun footerRowTops(): List<Float> = footerRowTops(
+            footerLayouts,
+            lineLayouts.lastOrNull()?.let { layout ->
                 dynamicYOffsets.getOrElse(lineLayouts.lastIndex) { layout.yOffset } + layout.height
-            } ?: 0f
-            return footerLayouts.map { row -> (y + row.marginTop).also { y = it + row.height } }
-        }
+            } ?: 0f,
+        )
 
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .fadingEdge(fadeBrush)
+                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                .drawWithContent {
+                    drawContent()
+                    val covered = maskBottomUpdated()
+                    val brush = if (covered <= 0f) fadeBrush else maskBrush(
+                        maskStops.copy(
+                            innerBottom = ((size.height - covered - pinnedFadePx) / size.height).coerceIn(maskStops.innerTop, 1f),
+                            outerBottom = ((size.height - covered) / size.height).coerceIn(maskStops.innerTop, 1f),
+                        ),
+                    )
+                    drawRect(brush = brush, blendMode = BlendMode.DstIn)
+                }
                 .pointerInput(scrollManager) {
                     // Interaction: Dragging.
                     detectDragGestures(
@@ -424,10 +429,8 @@ fun LyricsView(
                         val adjustedTapY = tapOffset.y - (centerYUpdated + currentScrollY)
 
                         // A credit with a profile opens it.
-                        footerLayouts.zip(footerRowTops()).firstOrNull { (row, top) ->
-                            row.line.profileUrl != null && adjustedTapY in top..(top + row.height)
-                        }?.let { (row, _) ->
-                            runCatching { uriHandler.openUri(row.line.profileUrl!!) }
+                        footerProfileAt(footerLayouts, footerRowTops(), adjustedTapY)?.let { url ->
+                            runCatching { uriHandler.openUri(url) }
                             return@detectTapGestures
                         }
 
@@ -489,32 +492,22 @@ fun LyricsView(
                 }
             }
 
-            footerLayouts.zip(footerRowTops()).forEach { (row, top) ->
-                val y = top + scrollOffset
-                val x = footerSlot.startPx
-                val textHeight = row.text.size.height.toFloat()
-                drawText(
-                    textLayoutResult = row.text,
-                    color = Color.White,
-                    alpha = row.alpha,
-                    topLeft = Offset(x, y + (row.height - textHeight) / 2f),
-                )
-                // The avatar follows the name, a 24px circle.
-                row.line.avatarUrl?.let { avatars[it] }?.let { avatar ->
-                    val ax = x + row.text.size.width + row.avatarGap
-                    val ay = y + (row.height - row.avatarSize) / 2f
-                    clipPath(Path().apply { addOval(Rect(ax, ay, ax + row.avatarSize, ay + row.avatarSize)) }) {
-                        drawImage(
-                            avatar,
-                            dstOffset = IntOffset(ax.roundToInt(), ay.roundToInt()),
-                            dstSize = IntSize(row.avatarSize.roundToInt(), row.avatarSize.roundToInt()),
-                        )
-                    }
-                }
-            }
+            drawFooterRows(footerLayouts, footerRowTops().map { it + scrollOffset }, footerSlot.startPx, avatars)
         }
     }
 }
+
+private fun maskBrush(stops: LyricsMaskStops) = Brush.verticalGradient(
+    0f to Color.Transparent,
+    stops.outerTop to Color.Transparent,
+    stops.innerTop to Color.Black,
+    stops.innerBottom to Color.Black,
+    stops.outerBottom to Color.Transparent,
+    1f to Color.Transparent,
+)
+
+/** Pinned credits: the lyrics fade out over this much just above them. */
+private const val PINNED_FADE_DP = 48f
 
 private data class MeasureKey(
     val config: RenderConfig,
@@ -522,7 +515,7 @@ private data class MeasureKey(
     val fontSizeScale: Float,
     val romanize: Boolean,
     val type: LyricsType,
-    val systemFont: Boolean,
+    val fontKey: String,
 )
 
 private class MeasuredLyrics(val lines: List<Line>, val layouts: List<LineLayout>)
@@ -540,29 +533,8 @@ private const val REST_AFTER_STILL_FRAMES = 30
 /** How often a resting frame loop looks for a change (a seek while paused). */
 private const val REST_POLL_MS = 150L
 
-/** Scales the credits up from their desktop proportions, for a phone screen. */
-private const val CREDIT_SCALE = 1.15f
 /** The desktop lyric size (its 3.5rem cap), in CSS px. */
 private const val REFERENCE_LYRIC_SIZE_PX = 56f
-
-private class FooterRow(
-    val line: FooterLine,
-    val text: TextLayoutResult,
-    val alpha: Float,
-    val marginTop: Float,
-    val height: Float,
-    val avatarSize: Float,
-    val avatarGap: Float,
-)
-
-private suspend fun loadAvatar(context: Context, url: String): ImageBitmap? = try {
-    val request = ImageRequest.Builder(context).data(url).size(128).allowHardware(false).build()
-    (Coil.imageLoader(context).execute(request) as? SuccessResult)?.drawable?.toBitmap()?.asImageBitmap()
-} catch (cancelled: CancellationException) {
-    throw cancelled
-} catch (_: Exception) {
-    null
-}
 
 /**
  * Calculates the horizontal starting position of a line based on its alignment and the presence of duets.

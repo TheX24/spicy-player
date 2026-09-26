@@ -24,7 +24,16 @@ import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.HideImage
 import androidx.compose.material.icons.rounded.Height
 import androidx.compose.material.icons.rounded.FormatSize
+import androidx.compose.material.icons.rounded.FormatIndentIncrease
 import androidx.compose.material.icons.rounded.FontDownload
+import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.PushPin
+import androidx.compose.material.icons.rounded.VerticalAlignCenter
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Flare
 import androidx.compose.material.icons.rounded.Speed
@@ -186,6 +195,13 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
         description = "The desktop amount of grow and lift on sung words. Off: ${AppSettings.WORD_MOTION_BOOST}×, which reads better on a phone.",
         icon = Icons.Rounded.Height,
     )
+    ToggleRow(
+        label = "Duet Line Padding",
+        checked = settings.duetLinePadding,
+        onCheckedChange = { settings.duetLinePadding = it },
+        description = "Indents lyrics lines on the side they lean away from when a song has duet lines, so the two voices read as separate columns. Disable to give every line the same slight padding.",
+        icon = Icons.Rounded.FormatIndentIncrease,
+    )
     SettingsSection("Text") {
         SettingRow(label = "Lyrics size", description = "Make the lyrics smaller or bigger than the screen's default.", icon = Icons.Rounded.FormatSize) {
             SpicySelect(
@@ -195,13 +211,21 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
                 onChange = { settings.lyricsSize = LyricsSize.valueOf(it) },
             )
         }
-        ToggleRow(
-            label = "Use System Font",
-            checked = settings.systemFont,
-            onCheckedChange = { settings.systemFont = it },
-            description = "Use your phone's font instead of the lyrics font.",
-            icon = Icons.Rounded.FontDownload,
-        )
+        LyricsFontRows(settings)
+    }
+    SettingsSection("Credits") {
+        SettingRow(
+            label = "Pinned Lyrics Footer",
+            description = "Keep source and community credits visible. Full also pins writers.",
+            icon = Icons.Rounded.PushPin,
+        ) {
+            SpicySelect(
+                value = settings.pinnedFooter.name,
+                options = PinnedFooterMode.entries.map { it.name },
+                labels = PinnedFooterMode.entries.map { it.label },
+                onChange = { settings.pinnedFooter = PinnedFooterMode.valueOf(it) },
+            )
+        }
     }
     SettingsSection("Scrolling") {
         ToggleRow(
@@ -229,6 +253,13 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
             )
         }
         ToggleRow(
+            label = "Show Scroll to Active Button",
+            checked = settings.showScrollToActive,
+            onCheckedChange = { settings.showScrollToActive = it },
+            description = "Show an arrow when the active lyric is outside the viewport.",
+            icon = Icons.Rounded.VerticalAlignCenter,
+        )
+        ToggleRow(
             label = "Smooth Scrolling",
             checked = settings.smoothScrolling,
             onCheckedChange = { settings.smoothScrolling = it },
@@ -237,6 +268,59 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
         )
     }
 }
+
+/**
+ * The lyrics font: ours, the phone's, or a font file picked from the phone. Choosing Custom with
+ * nothing picked yet opens the picker.
+ */
+@Composable
+private fun LyricsFontRows(settings: AppSettings) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var failed by remember { mutableStateOf(false) }
+    val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val imported = LyricsFontFile.import(context, uri)
+            failed = imported == null
+            if (imported != null) {
+                settings.customFontFile = imported.fileName
+                settings.customFontName = imported.displayName
+                settings.lyricsFont = LyricsFont.Custom
+            }
+        }
+    }
+    val pick = { picker.launch(FONT_MIME_TYPES) }
+    val hasCustom = settings.customFontFile.isNotBlank()
+    SettingRow(label = "Lyrics Font", description = "Draw the lyrics in their own font, your phone's, or any font file on your phone.", icon = Icons.Rounded.FontDownload) {
+        SpicySelect(
+            value = settings.lyricsFont.name,
+            options = LyricsFont.entries.map { it.name },
+            labels = LyricsFont.entries.map { if (it == LyricsFont.Custom && hasCustom) settings.customFontName else it.label },
+            onChange = { choice ->
+                val font = LyricsFont.valueOf(choice)
+                if (font == LyricsFont.Custom && !hasCustom) pick() else settings.lyricsFont = font
+            },
+        )
+    }
+    SettingRow(
+        label = "Font File",
+        description = when {
+            failed -> "That file isn't a font Android can read. Pick a .ttf or .otf file."
+            hasCustom -> "Using ${settings.customFontName}."
+            else -> "Pick a .ttf or .otf font file from your phone."
+        },
+        icon = Icons.Rounded.FolderOpen,
+    ) {
+        SpicyButton(if (hasCustom) "Change" else "Choose", onClick = pick)
+    }
+}
+
+/** Font files come labelled all sorts of ways, so the picker offers these (and checks the file). */
+private val FONT_MIME_TYPES = arrayOf(
+    "font/*", "application/font-sfnt", "application/x-font-ttf", "application/x-font-otf",
+    "application/vnd.ms-opentype", "application/octet-stream",
+)
 
 @Composable
 internal fun AppearanceContent(settings: AppSettings) {

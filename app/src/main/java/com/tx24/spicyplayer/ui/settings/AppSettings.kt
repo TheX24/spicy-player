@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
+import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
@@ -24,7 +25,14 @@ class AppSettings(private val prefs: SharedPreferences) {
     var minimalLyricsMode by boolean("minimalLyricsMode", false)
     var originalWordMotion by boolean("originalWordMotion", false)
     var lyricsSize by enum("lyricsSize", LyricsSize.Default)
-    var systemFont by boolean("systemFont", false)
+    /** Carries over the old "Use System Font" switch. */
+    var lyricsFont by enum("lyricsFont", if (prefs.getBoolean("systemFont", false)) LyricsFont.System else LyricsFont.Default)
+    /** The picked font's file in the app's storage (`LyricsFontFile`), and the name it came with. */
+    var customFontFile by string("customFontFile", "")
+    var customFontName by string("customFontName", "")
+    var showScrollToActive by boolean("showScrollToActive", true)
+    var pinnedFooter by enum("pinnedFooter", PinnedFooterMode.Off)
+    var duetLinePadding by boolean("duetLinePadding", true)
 
     var scrollLeadEnabled by boolean("scrollLeadEnabled", false)
     var scrollLeadMs by int("scrollLeadMs", 250)
@@ -57,6 +65,9 @@ class AppSettings(private val prefs: SharedPreferences) {
 
     private fun boolean(key: String, default: Boolean) =
         Setting(prefs.getBoolean(key, default)) { prefs.edit().putBoolean(key, it).apply() }
+
+    private fun string(key: String, default: String) =
+        Setting(prefs.getString(key, default) ?: default) { prefs.edit().putString(key, it).apply() }
 
     private fun int(key: String, default: Int) =
         Setting(prefs.getInt(key, default)) { prefs.edit().putInt(key, it).apply() }

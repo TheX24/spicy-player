@@ -343,7 +343,7 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 1, cards = true)
             SettingsSkeleton(rows = 2)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 10)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 14)
         SettingsPage.Appearance -> SettingsSkeleton(rows = 6)
         SettingsPage.Screen -> SettingsSkeleton(rows = 5)
         SettingsPage.Sync -> SettingsSkeleton(rows = 2)
@@ -374,7 +374,11 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
                 },
                 if (settings.originalWordMotion) "Original word motion" else "Boosted word motion",
                 "${settings.lyricsSize.label.lowercase()} text".takeIf { settings.lyricsSize != LyricsSize.Default },
-                "system font".takeIf { settings.systemFont },
+                when (settings.lyricsFont) {
+                    LyricsFont.Default -> null
+                    LyricsFont.System -> "system font"
+                    LyricsFont.Custom -> settings.customFontName.ifBlank { "custom font" }
+                },
             ).joinToString().replaceFirstChar(Char::uppercase),
         ) { onOpen(SettingsPage.Lyrics) }
         GroupDivider()

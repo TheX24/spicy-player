@@ -45,6 +45,8 @@ data class RenderConfig(
      * (their y offset). 1 is the desktop amount.
      */
     val wordMotionBoost: Float = 1f,
+    /** Duet Line Padding: duet lines inset 15cqw on the side they lean away from, not 5cqw. */
+    val wideDuetPadding: Boolean = true,
     val scroll: ScrollConfig = ScrollConfig(),
 ) {
     val isSimple: Boolean get() = simpleLyricsMode

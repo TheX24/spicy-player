@@ -36,11 +36,24 @@ internal object LyricsLayoutCalculator {
         Font(R.font.lyrics_bold, FontWeight.Bold)
     )
 
-    /** The "Use system font" setting: the phone's own font for every script, in place of ours. */
-    internal var useSystemFont by mutableStateOf(false)
+    /**
+     * The Lyrics Font setting: the phone's font or one the user picked, for every script, in
+     * place of ours. Null keeps ours.
+     */
+    internal var fontOverride by mutableStateOf<FontFamily?>(null)
+        private set
+
+    /** Names [fontOverride], so measured lyrics can tell a font change from none. */
+    internal var fontKey by mutableStateOf("")
+        private set
+
+    internal fun setFont(family: FontFamily?, key: String) {
+        fontOverride = family
+        fontKey = key
+    }
 
     /** The font for lyrics and the text around them (the song header, the controls' times). */
-    internal val spicyFontFamily: FontFamily get() = if (useSystemFont) FontFamily.Default else bundledFontFamily
+    internal val spicyFontFamily: FontFamily get() = fontOverride ?: bundledFontFamily
     private val vazirmatnFontFamily = variableFamily(R.font.vazirmatn_variable)
     private val georgianFontFamily = variableFamily(R.font.noto_sans_georgian_variable)
 
@@ -56,7 +69,7 @@ internal object LyricsLayoutCalculator {
         },
     )
 
-    private fun fontFamilyFor(text: String): FontFamily = if (useSystemFont) FontFamily.Default else when (ScriptFontSelector.select(text)) {
+    private fun fontFamilyFor(text: String): FontFamily = fontOverride ?: when (ScriptFontSelector.select(text)) {
         LyricScriptFont.DEFAULT -> spicyFontFamily
         LyricScriptFont.VAZIRMATN -> vazirmatnFontFamily
         LyricScriptFont.NOTO_SANS_GEORGIAN -> georgianFontFamily
@@ -104,6 +117,7 @@ internal object LyricsLayoutCalculator {
         fontSizeScale: Float = 1.0f,
         romanize: Boolean = false,
         simpleMode: Boolean = false,
+        wideDuet: Boolean = true,
     ): List<LineLayout> {
 
         val layouts = mutableListOf<LineLayout>()
@@ -166,7 +180,7 @@ internal object LyricsLayoutCalculator {
                     RtlDetector.isRtl(nextLine.words.joinToString(" ") { displayText(it, romanizes(nextLine, romanize)) })
                 val dotsRightAligned = resolveRightAligned(hasDuet, nextLineIsRtl, nextLineAlignment, isSongwriter = false)
 
-                val slot = metrics.contentSlot(hasDuet, nextLineIsRtl, nextLineAlignment)
+                val slot = metrics.contentSlot(hasDuet, nextLineIsRtl, nextLineAlignment, wideDuet)
                 layouts.add(LineLayout(line, dotLayouts, currentY, dotH, totalDotsW, totalDotsW, true, isBg,
                     nextLineAlignment, false, nextLineIsRtl, dotsRightAligned, slot.startPx, slot.widthPx))
                 currentY += 0f // Interludes collapse when not active.
@@ -178,7 +192,7 @@ internal object LyricsLayoutCalculator {
             val romanizeLine = romanizes(line, romanize)
             val lineIsRtl = RtlDetector.isRtl(line.words.joinToString(" ") { displayText(it, romanizeLine) })
             val lineFontFamily = fontFamilyFor(line.words.joinToString(" ") { displayText(it, romanizeLine) })
-            val contentSlot = metrics.contentSlot(hasDuet, lineIsRtl, line.oppositeAligned)
+            val contentSlot = metrics.contentSlot(hasDuet, lineIsRtl, line.oppositeAligned, wideDuet)
             // An active line-synced line grows 1.05x away from its aligned edge. The reference
             // wraps it inside a 5cqw padding that the growth fills; here it must wrap narrower
             // so the enlarged line still ends at the margin instead of running past it.

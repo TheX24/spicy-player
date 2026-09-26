@@ -195,6 +195,11 @@ internal class ScrollManager(
         takeBackControl(targetIndex = null, y = animScrollY)
     }
 
+    /** The scroll-to-active button: auto-scroll takes over again and glides back to the line. */
+    fun returnToActive() {
+        takeBackControl(targetIndex = null, y = animScrollY)
+    }
+
     /** Steps the glide toward [goal], starting a new one from [y] when the goal moves. */
     private fun glide(y: Float, goal: Float, dt: Float): Float {
         if (smoothScrolling) return springGlide(y, goal, dt)

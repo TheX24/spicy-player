@@ -87,6 +87,15 @@ import androidx.compose.foundation.layout.width
 import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutMetrics
 import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsView
+import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsViewState
+import com.tx24.spicyplayer.lyrics.spicy.canvas.ActiveLineDirection
+import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
+import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedLyricsFooter
+import com.tx24.spicyplayer.ui.components.GlassButton
+import com.tx24.spicyplayer.ui.settings.LyricsFont
+import com.tx24.spicyplayer.ui.settings.LyricsFontFile
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsCredit
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
@@ -186,8 +195,22 @@ private fun LyricsApp(
         ready.lines.any { line -> line.words.any { it.romanized != null } }
     } == true
     val romanize = settings.romanize && romanizationAvailable
-    val systemFont = settings.systemFont
-    SideEffect { LyricsLayoutCalculator.useSystemFont = systemFont }
+    // The lyrics font: ours, the phone's, or the file picked in settings (ours again if it's gone).
+    val lyricsFont = settings.lyricsFont
+    val customFontFile = settings.customFontFile
+    val fontFamily = remember(lyricsFont, customFontFile) {
+        when (lyricsFont) {
+            LyricsFont.Default -> null
+            LyricsFont.System -> FontFamily.Default
+            LyricsFont.Custom -> LyricsFontFile.family(context, customFontFile)
+        }
+    }
+    SideEffect {
+        LyricsLayoutCalculator.setFont(fontFamily, if (fontFamily == null) "" else "$lyricsFont:$customFontFile")
+    }
+    // Shared with the lyrics: the scroll-to-active button and the pinned credits.
+    val lyricsViewState = remember { LyricsViewState() }
+    val pinnedFooter = settings.pinnedFooter
     // Awake while the music plays, so the lyrics can be followed without touching the phone.
     val view = LocalView.current
     val keepAwake = settings.keepScreenOn && state.isPlaying
@@ -230,6 +253,7 @@ private fun LyricsApp(
         minimalLyricsMode = settings.minimalLyricsMode,
         simpleAnimationStyle = settings.simpleAnimationStyle,
         wordMotionBoost = settings.wordMotionBoost,
+        wideDuetPadding = settings.duetLinePadding,
         distanceBlurEnabled = settings.distanceBlur && !lowPerformance,
         glowEnabled = settings.glow && !lowPerformance,
         scroll = ScrollConfig(
@@ -305,12 +329,19 @@ private fun LyricsApp(
                     bottom = padding.calculateBottomPadding(),
                 )
                 var controlsHeightPx by remember { mutableIntStateOf(0) }
+                // Pinned credits sit just above whatever covers the bottom: the controls while they
+                // show, else the screen's edge. The lyrics fade out above them.
+                var pinnedHeightPx by remember { mutableIntStateOf(0) }
+                val pinnedGapPx = with(LocalDensity.current) { PINNED_FOOTER_GAP.toPx() }
+                val pinnedClearPx = with(LocalDensity.current) { 8.dp.toPx() }
                 // While the controls show, a notice centres in the space they leave above them.
                 val noticeBottomPx by animateFloatAsState(
                     if (controlsVisible) controlsHeightPx.toFloat() else 0f,
                     tween(SpicyMotion.CONTROLS_FADE_MS),
                     label = "noticeBottom",
                 )
+                // Read where it's drawn only: it moves every frame the controls fade.
+                val pinnedBottomPx = { noticeBottomPx + pinnedGapPx }
                 // Everything the glass controls blur.
                 Box(Modifier.fillMaxSize().then(backdrop?.let { Modifier.hazeSource(it) } ?: Modifier)) {
                     SpicySessionBackground(
@@ -343,6 +374,9 @@ private fun LyricsApp(
                             activeLineTopPx = headerMetrics.activeLineTopPx.takeUnless { hideHeader },
                             centredLiftPx = 30f * headerMetrics.lyricsScale * headerMetrics.density + controlsHeightPx / 2f,
                             noticeBottomPx = { noticeBottomPx },
+                            viewState = lyricsViewState,
+                            pinnedFooter = pinnedFooter,
+                            maskBottomPx = { if (pinnedHeightPx > 0) pinnedBottomPx() + pinnedHeightPx + pinnedClearPx else 0f },
                             config = renderConfig,
                             fontSizeScale = settings.lyricsSize.scale,
                             modifier = Modifier.weight(1f),
@@ -417,6 +451,31 @@ private fun LyricsApp(
                         modifier = Modifier.align(Alignment.BottomCenter).padding(padding),
                     )
                 }
+                // Over the controls' shade rather than under it, so neither blurs nor covers them.
+                PinnedLyricsFooter(
+                    state = lyricsViewState,
+                    mode = pinnedFooter,
+                    fontSizeScale = settings.lyricsSize.scale,
+                    onHeight = { pinnedHeightPx = it },
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(belowTop)
+                        .graphicsLayer {
+                            translationY = -pinnedBottomPx()
+                            alpha = 1f - expansion
+                        },
+                )
+                CompositionLocalProvider(LocalBackdrop provides backdrop?.takeUnless { lowPerformance }) {
+                    ScrollToActiveButton(
+                        direction = lyricsViewState.activeLineDirection.takeIf {
+                            settings.showScrollToActive && !headerExpanded && !showSettings
+                        },
+                        onClick = lyricsViewState::scrollToActive,
+                        topPx = if (hideHeader) headerMetrics.barTopPx else headerMetrics.lyricsTopPx,
+                        bottomPx = { pinnedBottomPx() + if (pinnedHeightPx > 0) pinnedHeightPx + pinnedClearPx else 0f },
+                        modifier = Modifier.padding(belowTop),
+                    )
+                }
             }
         }
 
@@ -475,6 +534,8 @@ private fun setPreferredRefreshRate(window: Window, hz: Float?) {
 }
 
 private const val CONTROLS_IDLE_MS = 3_000L
+/** Pinned credits' distance above the controls or the screen's edge (20px + 1.25rem). */
+private val PINNED_FOOTER_GAP = 20.dp
 private const val CONTROLS_SHOW_MS = 350
 private const val CONTROLS_HIDE_MS = 700
 private val CssEaseOut = CubicBezierEasing(0f, 0f, 0.58f, 1f)
@@ -511,6 +572,62 @@ private fun LyricsNotice(message: String, detail: String?, bottomPx: () -> Float
                     ),
                 )
             }
+        }
+    }
+}
+
+/**
+ * The arrow that takes the lyrics back to the line being sung once it has been scrolled out of
+ * sight: at the top when the line is below, at the bottom (above the controls and pinned
+ * credits) when it's above, pointing its way. It fades in over 0.2 s and grows from 0.92 with a
+ * little overshoot.
+ */
+@Composable
+private fun ScrollToActiveButton(
+    direction: ActiveLineDirection?,
+    onClick: () -> Unit,
+    topPx: Float,
+    bottomPx: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    // Keeps its place and arrow while it fades out.
+    var shownDirection by remember { mutableStateOf(ActiveLineDirection.Below) }
+    if (direction != null) shownDirection = direction
+    val visible = direction != null
+    val alpha by animateFloatAsState(if (visible) 1f else 0f, tween(200), label = "scrollToActiveAlpha")
+    val scale by animateFloatAsState(
+        if (visible) 1f else 0.92f,
+        tween(160, easing = CubicBezierEasing(0.34f, 1.56f, 0.64f, 1f)),
+        label = "scrollToActiveScale",
+    )
+    val above = shownDirection == ActiveLineDirection.Above
+    val rotation by animateFloatAsState(if (above) 180f else 0f, tween(200), label = "scrollToActiveArrow")
+    if (alpha == 0f && !visible) return
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        // clamp(2rem, 8cqh, 6rem) from the lyrics' top or bottom edge.
+        val edge = (maxHeight * 0.08f).coerceIn(32.dp, 96.dp)
+        val top = with(density) { topPx.toDp() } + edge
+        GlassButton(
+            onClick = { if (visible) onClick() },
+            contentDescription = if (above) "Scroll up to active lyric" else "Scroll down to active lyric",
+            size = 48.dp,
+            modifier = Modifier
+                .align(if (above) Alignment.BottomEnd else Alignment.TopEnd)
+                .padding(end = 24.dp, top = if (above) 0.dp else top)
+                .graphicsLayer {
+                    if (above) translationY = -(bottomPx() + edge.toPx())
+                    this.alpha = alpha
+                    scaleX = scale
+                    scaleY = scale
+                },
+        ) {
+            Icon(
+                Icons.Rounded.KeyboardArrowDown,
+                null,
+                Modifier.size(28.dp).graphicsLayer { rotationZ = rotation },
+                tint = SpicyColors.TextPrimary,
+            )
         }
     }
 }
@@ -622,6 +739,9 @@ private fun LyricsPanel(
     activeLineTopPx: Float?,
     centredLiftPx: Float,
     noticeBottomPx: () -> Float,
+    viewState: LyricsViewState,
+    pinnedFooter: PinnedFooterMode,
+    maskBottomPx: () -> Float,
     config: RenderConfig,
     fontSizeScale: Float,
     modifier: Modifier = Modifier,
@@ -629,7 +749,10 @@ private fun LyricsPanel(
     // The loading skeleton: up as soon as the lookup starts, over whatever the panel
     // shows, fading in over 0.2s and out over 0.25s (ease-out).
     Box(modifier) {
-        LyricsPanelContent(lyrics, currentTimeMs, onSeek, romanize, isPlaying, activeLineTopPx, centredLiftPx, noticeBottomPx, config, fontSizeScale, Modifier.fillMaxSize())
+        LyricsPanelContent(
+            lyrics, currentTimeMs, onSeek, romanize, isPlaying, activeLineTopPx, centredLiftPx, noticeBottomPx,
+            viewState, pinnedFooter, maskBottomPx, config, fontSizeScale, Modifier.fillMaxSize(),
+        )
         AnimatedVisibility(
             visible = lyrics == LyricsState.Loading,
             enter = fadeIn(tween(200, easing = CssEaseOut)),
@@ -660,6 +783,9 @@ private fun LyricsPanelContent(
     activeLineTopPx: Float?,
     centredLiftPx: Float,
     noticeBottomPx: () -> Float,
+    viewState: LyricsViewState,
+    pinnedFooter: PinnedFooterMode,
+    maskBottomPx: () -> Float,
     config: RenderConfig,
     fontSizeScale: Float,
     modifier: Modifier = Modifier,
@@ -701,6 +827,9 @@ private fun LyricsPanelContent(
                 lyricsType = lyrics.lyricsType,
                 config = config,
                 fontSizeScale = fontSizeScale,
+                viewState = viewState,
+                pinnedFooter = pinnedFooter,
+                maskBottomPx = maskBottomPx,
                 footer = remember(lyrics) {
                     LyricsFooter(
                         songwriters = lyrics.songwriters,

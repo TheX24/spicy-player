@@ -20,14 +20,19 @@ internal data class LyricsLayoutMetrics(
 
     fun lineHeightPx(fontSizeSp: Float): Float = fontSizeSp * density * lineHeightMultiplier
 
-    fun contentSlot(hasDuet: Boolean, isRtl: Boolean, oppositeAligned: Boolean): ContentSlot {
+    /**
+     * Duet lines are inset on the side they lean away from: 15cqw with Duet Line Padding, so the
+     * two voices read as columns, else the 5cqw every other line gets.
+     */
+    fun contentSlot(hasDuet: Boolean, isRtl: Boolean, oppositeAligned: Boolean, wideDuet: Boolean = true): ContentSlot {
         if (!hasDuet) {
             return ContentSlot(viewportWidthPx * 0.05f, viewportWidthPx * 0.90f)
         }
+        val inset = if (wideDuet) 0.15f else 0.05f
         val startsAtInset = if (isRtl) !oppositeAligned else oppositeAligned
         return ContentSlot(
-            if (startsAtInset) viewportWidthPx * 0.15f else viewportWidthPx * 0.05f,
-            viewportWidthPx * 0.80f,
+            viewportWidthPx * (if (startsAtInset) inset else 0.05f),
+            viewportWidthPx * (0.95f - inset),
         )
     }
 }
