@@ -460,6 +460,7 @@ fun SpicyBipolarSlider(
     modifier: Modifier = Modifier,
     default: Int = 0,
     unit: String? = null,
+    enabled: Boolean = true,
 ) {
     val clamped = value.coerceIn(range)
     val currentOnChange by rememberUpdatedState(onValueChange)
@@ -477,10 +478,12 @@ fun SpicyBipolarSlider(
             Modifier
                 .fillMaxWidth()
                 .height(32.dp)
-                .pointerInput(Unit) {
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
                     detectTapGestures { currentOnChange(valueAt(it.x, size.width.toFloat(), thumbR.toPx())) }
                 }
-                .pointerInput(Unit) {
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val slop = awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ -> change.consume() }
@@ -526,7 +529,7 @@ fun SpicyBipolarSlider(
                 style = SpicyType.Caption.copy(fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"),
                 modifier = Modifier.weight(1f),
             )
-            if (clamped != default) {
+            if (clamped != default && enabled) {
                 Text(
                     "Reset",
                     style = SpicyType.Caption.copy(fontWeight = FontWeight.Medium, color = SpicyColors.TextSecondary),

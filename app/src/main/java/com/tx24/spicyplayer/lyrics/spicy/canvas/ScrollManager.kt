@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.CubicBezierEasing
+import com.tx24.spicyplayer.lyrics.spicy.animation.SpringSimulation
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -20,6 +21,10 @@ import kotlin.math.sqrt
  * smooth scroll (cc ScrollOffsetAnimationCurve, M143+): cubic-bezier(0.4, 0, 0, 1) over
  * sqrt(distance in px) / 60 seconds, at most 1.5s. The curve is front-loaded (~86% of the move
  * by halfway, against 50% for ease-in-out), so the line lands early and then settles softly.
+ *
+ * With [smoothScrolling] a critically damped spring moves the view instead. It never overshoots,
+ * settles in about 0.8s, and keeps its speed when the line changes mid-move, so back-to-back
+ * lines read as one continuous motion.
  */
 internal class ScrollManager(
     /**
@@ -55,6 +60,17 @@ internal class ScrollManager(
     private var glideTo = 0f
     private var glideElapsed = 0f
     private var glideDuration = 0f
+
+    /** Smooth Scrolling. Switching it mid-move hands the move to the other mode from where it is. */
+    var smoothScrolling = false
+        set(value) {
+            if (field == value) return
+            field = value
+            settle(animScrollY)
+        }
+    private val spring = SpringSimulation(0f, SMOOTH_SCROLL_FREQUENCY, SMOOTH_SCROLL_DAMPING)
+    private var springActive = false
+    private var springLast = 0f
 
     fun reset() {
         settle(0f)
@@ -181,6 +197,7 @@ internal class ScrollManager(
 
     /** Steps the glide toward [goal], starting a new one from [y] when the goal moves. */
     private fun glide(y: Float, goal: Float, dt: Float): Float {
+        if (smoothScrolling) return springGlide(y, goal, dt)
         if (abs(goal - glideTo) > 0.5f) {
             glideFrom = y
             glideTo = goal
@@ -194,8 +211,31 @@ internal class ScrollManager(
         return glideFrom + (glideTo - glideFrom) * GLIDE_EASING.transform(t)
     }
 
+    /**
+     * Steps the spring toward [goal]. A new goal mid-move keeps the spring's speed; from rest it
+     * starts still at [y].
+     */
+    private fun springGlide(y: Float, goal: Float, dt: Float): Float {
+        if (!springActive) {
+            if (abs(goal - y) < SMOOTH_SCROLL_SETTLE_PX) return goal
+            spring.setGoal(y, replacePosition = true)
+            springActive = true
+            springLast = y
+        }
+        spring.setGoal(goal)
+        val position = spring.step(dt.coerceAtMost(MAX_SPRING_STEP_S))
+        val moved = abs(position - springLast)
+        springLast = position
+        if (abs(position - goal) < SMOOTH_SCROLL_SETTLE_PX && moved < SMOOTH_SCROLL_SETTLE_SPEED) {
+            springActive = false
+            return goal
+        }
+        return position
+    }
+
     /** Stops any glide with the view resting at [y]. */
     private fun settle(y: Float) {
+        springActive = false
         glideFrom = y
         glideTo = y
         glideElapsed = 0f
@@ -227,5 +267,13 @@ internal class ScrollManager(
          */
         const val MAX_GLIDE_FRAMES = 90f
         val GLIDE_EASING = CubicBezierEasing(0.4f, 0f, 0f, 1f)
+        /** Smooth Scrolling's spring: critically damped, so it never overshoots the line. */
+        const val SMOOTH_SCROLL_FREQUENCY = 1f
+        const val SMOOTH_SCROLL_DAMPING = 1f
+        /** The spring is done once this close (px) to the goal and moving slower than this per frame. */
+        const val SMOOTH_SCROLL_SETTLE_PX = 0.25f
+        const val SMOOTH_SCROLL_SETTLE_SPEED = 0.05f
+        /** A long frame steps the spring at most this far, so a stall doesn't finish the move in one jump. */
+        const val MAX_SPRING_STEP_S = 0.05f
     }
 }

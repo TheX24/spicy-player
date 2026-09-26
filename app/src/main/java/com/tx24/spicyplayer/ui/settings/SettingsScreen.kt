@@ -284,7 +284,7 @@ private fun PageContent(page: SettingsPage, state: PlayerUiState, viewModel: Ext
         SettingsPage.Lyrics -> LyricsContent(state, viewModel, settings)
         SettingsPage.Appearance -> AppearanceContent(settings)
         SettingsPage.Screen -> ScreenContent(settings)
-        SettingsPage.Sync -> SyncContent(state, viewModel)
+        SettingsPage.Sync -> SyncContent(state, viewModel, settings)
         SettingsPage.Sources -> SourcesContent(state, viewModel)
         SettingsPage.Advanced -> AdvancedContent(state, viewModel, updater, settings)
     }
@@ -343,10 +343,10 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 1, cards = true)
             SettingsSkeleton(rows = 2)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 7)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 10)
         SettingsPage.Appearance -> SettingsSkeleton(rows = 6)
         SettingsPage.Screen -> SettingsSkeleton(rows = 5)
-        SettingsPage.Sync -> SettingsSkeleton(rows = 1)
+        SettingsPage.Sync -> SettingsSkeleton(rows = 2)
         SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 6)
     }

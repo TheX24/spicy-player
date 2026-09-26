@@ -26,6 +26,11 @@ class AppSettings(private val prefs: SharedPreferences) {
     var lyricsSize by enum("lyricsSize", LyricsSize.Default)
     var systemFont by boolean("systemFont", false)
 
+    var scrollLeadEnabled by boolean("scrollLeadEnabled", false)
+    var scrollLeadMs by int("scrollLeadMs", 250)
+    var smoothScrolling by boolean("smoothScrolling", false)
+    var seekFadeCompensation by boolean("seekFadeCompensation", true)
+
     var distanceBlur by boolean("distanceBlur", true)
     var glow by boolean("glow", true)
     /** Drops the costliest effects: the moving background, animated cover, glass blur, and lyric blur and glow. */
@@ -52,6 +57,9 @@ class AppSettings(private val prefs: SharedPreferences) {
 
     private fun boolean(key: String, default: Boolean) =
         Setting(prefs.getBoolean(key, default)) { prefs.edit().putBoolean(key, it).apply() }
+
+    private fun int(key: String, default: Int) =
+        Setting(prefs.getInt(key, default)) { prefs.edit().putInt(key, it).apply() }
 
     private inline fun <reified E : Enum<E>> enum(key: String, default: E) =
         Setting(runCatching { enumValueOf<E>(prefs.getString(key, null)!!) }.getOrDefault(default)) {

@@ -42,6 +42,9 @@ import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
+import androidx.compose.material.icons.rounded.KeyboardDoubleArrowUp
+import androidx.compose.material.icons.rounded.Waves
+import androidx.compose.material.icons.rounded.FastRewind
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -200,6 +203,39 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
             icon = Icons.Rounded.FontDownload,
         )
     }
+    SettingsSection("Scrolling") {
+        ToggleRow(
+            label = "Early Scroll",
+            checked = settings.scrollLeadEnabled,
+            onCheckedChange = { settings.scrollLeadEnabled = it },
+            description = "Start scrolling to the next line slightly before it becomes active, so the move feels less abrupt.",
+            icon = Icons.Rounded.KeyboardDoubleArrowUp,
+        )
+        SettingRow(
+            label = "Early Scroll Time",
+            description = "How early the next line is scrolled to, before it becomes active.",
+            icon = Icons.Rounded.Timer,
+            enabled = settings.scrollLeadEnabled,
+            stacked = true,
+        ) {
+            SpicyBipolarSlider(
+                value = settings.scrollLeadMs,
+                range = 0..800,
+                step = 10,
+                onValueChange = { settings.scrollLeadMs = it },
+                default = 250,
+                unit = "ms",
+                enabled = settings.scrollLeadEnabled,
+            )
+        }
+        ToggleRow(
+            label = "Smooth Scrolling",
+            checked = settings.smoothScrolling,
+            onCheckedChange = { settings.smoothScrolling = it },
+            description = "Makes the lyrics scroll smoothly.",
+            icon = Icons.Rounded.Waves,
+        )
+    }
 }
 
 @Composable
@@ -297,7 +333,7 @@ internal fun ScreenContent(settings: AppSettings) {
 }
 
 @Composable
-internal fun SyncContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
+internal fun SyncContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
     SettingRow(
         label = "Lyric delay",
         description = "Saved for ${state.outputLabel}. Move it right if the lyrics run ahead of the song.",
@@ -318,6 +354,13 @@ internal fun SyncContent(state: PlayerUiState, viewModel: ExternalPlaybackViewMo
             }
         }
     }
+    ToggleRow(
+        label = "Seek Fade-in Compensation",
+        checked = settings.seekFadeCompensation,
+        onCheckedChange = { settings.seekFadeCompensation = it },
+        description = "Tapping a line jumps 300ms before it, so the player's fade-in doesn't cut off the start. Best for rap or fast-paced songs.",
+        icon = Icons.Rounded.FastRewind,
+    )
 }
 
 @Composable

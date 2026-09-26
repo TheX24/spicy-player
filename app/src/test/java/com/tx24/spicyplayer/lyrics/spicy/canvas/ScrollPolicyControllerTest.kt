@@ -64,4 +64,22 @@ class ScrollPolicyControllerTest {
         assertEquals(1, target(lines, 3_000))
         assertEquals(2, target(lines, 5_700))
     }
+
+    @Test fun earlyScrollPicksTheNextLineAheadOfTime() {
+        val lines = listOf(lead(0, 1_000), lead(1_000, 2_000))
+        val policy = ScrollPolicyController()
+        policy.decide(lines, 500, leadMs = 250)
+        assertEquals(0, policy.decide(lines, 700, leadMs = 250).targetIndex)
+        val early = policy.decide(lines, 800, leadMs = 250)
+        assertEquals(1, early.targetIndex)
+        assertEquals(ScrollMotion.SMOOTH, early.motion)
+    }
+
+    @Test fun earlyScrollDoesNotMakeASeekOutOfTheLead() {
+        val lines = listOf(lead(0, 1_000), lead(1_000, 2_000))
+        val policy = ScrollPolicyController()
+        policy.decide(lines, 500)
+        // Turning the lead on mid-song moves the scroll time by 800ms, under the 1s seek threshold.
+        assertEquals(ScrollMotion.SMOOTH, policy.decide(lines, 516, leadMs = 800).motion)
+    }
 }

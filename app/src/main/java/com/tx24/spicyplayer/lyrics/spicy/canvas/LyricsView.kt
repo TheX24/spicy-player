@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.platform.LocalDensity
 import com.tx24.spicyplayer.lyrics.fadingEdge
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
+import com.tx24.spicyplayer.lyrics.spicy.ScrollConfig
 import com.tx24.spicyplayer.lyrics.spicy.animation.LineAnimState
 import com.tx24.spicyplayer.lyrics.spicy.animation.LyricsAnimator
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
@@ -107,8 +108,8 @@ fun LyricsView(
     val footer = shown?.footer ?: incomingFooter
     val coroutineScope = rememberCoroutineScope()
 
-    // Letter synthesis only reads the mode-dependent thresholds, not the motion boost.
-    val letterConfig = config.copy(wordMotionBoost = 1f)
+    // Letter synthesis only reads the mode-dependent thresholds, not the motion boost or scrolling.
+    val letterConfig = config.copy(wordMotionBoost = 1f, scroll = ScrollConfig())
     // Measured lyrics for these lines, per variant (romanized or not, width, size...). The other
     // romanization variant is measured ahead, so the romanize button swaps in a finished layout.
     val measuredCache = remember(lines) { HashMap<MeasureKey, MeasuredLyrics>() }
@@ -125,12 +126,14 @@ fun LyricsView(
     val lineLayoutsUpdated by rememberUpdatedState(lineLayouts)
     val onFrameTickUpdated by rememberUpdatedState(onFrameTick)
     val isPlayingUpdated by rememberUpdatedState(isPlaying)
+    val scrollConfigUpdated by rememberUpdatedState(config.scroll)
 
     val scrollPolicy = remember(shownId) { ScrollPolicyController() }
     // Read by the drag handler, written by the frame loop.
     val contentHeightForDrag = remember(shownId) { FloatArray(1) }
     val density = LocalDensity.current
     val scrollManager = remember(shownId) { ScrollManager().also { it.reset() } }
+    scrollManager.smoothScrolling = config.scroll.smooth
     // Wakes a resting frame loop at once (a drag or tap), rather than at its next look.
     val wake = remember(shownId) { Channel<Unit>(Channel.CONFLATED) }
     val context = LocalContext.current
@@ -291,14 +294,18 @@ fun LyricsView(
                         if (settledYScratch.size != currentLayouts.size) {
                             settledYScratch = FloatArray(currentLayouts.size)
                         }
+                        // Early Scroll picks its line ahead of the song, so it also has to judge
+                        // which interludes are open at that time, or the target moves again when
+                        // the dots really open or close.
+                        val scrollTime = currentTime + scrollConfigUpdated.leadMs
                         for (i in currentLayouts.indices) {
                             val layout = currentLayouts[i]
                             val state = animStates.getOrNull(i)
 
                             if (layout.isInterlude) {
                                 val line = layout.line
-                                val open = if (currentTime >= line.startMs &&
-                                    currentTime <= line.endMs - LyricsAnimator.PRE_HIDDEN_DOT_LINE_MS) 1f else 0f
+                                val open = if (scrollTime >= line.startMs &&
+                                    scrollTime <= line.endMs - LyricsAnimator.PRE_HIDDEN_DOT_LINE_MS) 1f else 0f
                                 settledYScratch[i] = layout.yOffset + settledY + rowHeightUpdated / 2f * open
                                 settledY += (rowHeightUpdated + lineGapUpdated) * open
                             } else {
@@ -325,7 +332,7 @@ fun LyricsView(
 
                         // 2. Resolve the lead/background overlap policy, then anchor
                         // that one line: its centre at the focus point, or its top (compact mode).
-                        val decision = scrollPolicy.decide(currentLines, currentTime)
+                        val decision = scrollPolicy.decide(currentLines, currentTime, leadMs = scrollConfigUpdated.leadMs)
                         // A lead with no words of its own (the line is only background vocals)
                         // has no height; its background vocals stand in for it.
                         val targetIndex = decision.targetIndex?.let { index ->
@@ -433,7 +440,13 @@ fun LyricsView(
                             if (adjustedTapY >= layoutDynamicY && adjustedTapY <= layoutDynamicY + layout.height) {
                                 if (layout.isInterlude || layout.isSongwriter) continue
                                 if (layout.line.words.isNotEmpty()) {
-                                    onSeekWord(layout.line.startMs)
+                                    // From the first sung word, which can come after the line's own start.
+                                    val start = layout.line.words.first().startMs
+                                    onSeekWord(
+                                        if (scrollConfigUpdated.seekFadeCompensation) {
+                                            (start - ScrollConfig.SEEK_FADE_COMPENSATION_MS).coerceAtLeast(0L)
+                                        } else start
+                                    )
                                     scrollManager.onSeek()
                                     wake.trySend(Unit)
                                 }

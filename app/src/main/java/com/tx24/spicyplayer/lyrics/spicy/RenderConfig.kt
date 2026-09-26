@@ -2,6 +2,21 @@ package com.tx24.spicyplayer.lyrics.spicy
 
 enum class SimpleAnimationStyle { CALCULATE, ANIMATE }
 
+/** How the lyrics follow the song and answer a tap. None of it changes how lines are measured. */
+data class ScrollConfig(
+    /** Early Scroll: the view picks its line as if the song were this far ahead. 0 is off. */
+    val leadMs: Long = 0L,
+    /** Smooth Scrolling: a spring moves the view, carrying its speed into the next line. */
+    val smooth: Boolean = false,
+    /** Seek Fade-in Compensation: tapping a line seeks [SEEK_FADE_COMPENSATION_MS] before it. */
+    val seekFadeCompensation: Boolean = false,
+) {
+    companion object {
+        /** Players fade audio in for about this long after a seek, swallowing a line's first syllable. */
+        const val SEEK_FADE_COMPENSATION_MS = 300L
+    }
+}
+
 data class RenderConfig(
     val simpleLyricsMode: Boolean,
     /** Already scoped to a fullscreen, non-compact surface by the caller. */
@@ -30,6 +45,7 @@ data class RenderConfig(
      * (their y offset). 1 is the desktop amount.
      */
     val wordMotionBoost: Float = 1f,
+    val scroll: ScrollConfig = ScrollConfig(),
 ) {
     val isSimple: Boolean get() = simpleLyricsMode
     val isMinimal: Boolean get() = minimalLyricsMode

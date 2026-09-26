@@ -22,14 +22,19 @@ internal class ScrollPolicyController {
         lastTargetIndex = null
     }
 
-    fun decide(lines: List<Line>, timeMs: Long, explicitSeek: Boolean = false): ScrollDecision {
+    /**
+     * @param leadMs Early Scroll: the line is picked as if the song were this far ahead, so the
+     * view starts moving before the line lights up. Seeks are still judged on the real time.
+     */
+    fun decide(lines: List<Line>, timeMs: Long, explicitSeek: Boolean = false, leadMs: Long = 0L): ScrollDecision {
         val replayToZero = initialized && timeMs <= 100L && lastTimeMs > 1_000L
         val largeSeek = initialized && abs(timeMs - lastTimeMs) > 1_000L
         val jumped = !initialized || explicitSeek || replayToZero || largeSeek
+        val scrollTimeMs = timeMs + leadMs.coerceAtLeast(0L)
         // Between lines the view stays on the last target; only a jump into
         // a gap needs somewhere to land.
-        val target = selectTargetIndex(lines, timeMs)
-            ?: if (jumped) lastStartedIndex(lines, timeMs) else lastTargetIndex
+        val target = selectTargetIndex(lines, scrollTimeMs)
+            ?: if (jumped) lastStartedIndex(lines, scrollTimeMs) else lastTargetIndex
         val motion = when {
             target == null -> ScrollMotion.NONE
             jumped -> ScrollMotion.SNAP

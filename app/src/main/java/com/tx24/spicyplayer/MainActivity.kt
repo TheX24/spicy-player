@@ -67,6 +67,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
+import com.tx24.spicyplayer.lyrics.spicy.ScrollConfig
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -231,6 +232,11 @@ private fun LyricsApp(
         wordMotionBoost = settings.wordMotionBoost,
         distanceBlurEnabled = settings.distanceBlur && !lowPerformance,
         glowEnabled = settings.glow && !lowPerformance,
+        scroll = ScrollConfig(
+            leadMs = if (settings.scrollLeadEnabled) settings.scrollLeadMs.coerceAtLeast(0).toLong() else 0L,
+            smooth = settings.smoothScrolling,
+            seekFadeCompensation = settings.seekFadeCompensation,
+        ),
     )
     var showSettings by remember { mutableStateOf(false) }
     // Android before 12 can't blur, so nothing blurs the page there: the glass and pop-ups fall

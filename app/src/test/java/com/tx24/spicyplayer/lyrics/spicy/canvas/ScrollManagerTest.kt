@@ -98,4 +98,41 @@ class ScrollManagerTest {
         assertTrue(scroll.hideLineBlur)
         assertNotEquals(start, scroll.animScrollY)
     }
+
+    @Test fun smoothScrollingSpringsToTheLineWithoutOvershooting() {
+        scroll.smoothScrolling = true
+        frames(0.1f, 0, 0f)
+        var furthest = 0f
+        repeat(150) {
+            frames(1f / 60f, 1, -400f)
+            furthest = minOf(furthest, scroll.animScrollY)
+        }
+        assertTrue(furthest >= -400f)
+        assertEquals(-400f, scroll.animScrollY, 0.01f)
+    }
+
+    @Test fun smoothScrollingCarriesItsSpeedIntoTheNextLine() {
+        val glide = ScrollManager(clockMs = { now })
+        scroll.smoothScrolling = true
+        for (manager in listOf(scroll, glide)) {
+            manager.updateScroll(1f / 60f, height, 0, 0f)
+            repeat(12) { manager.updateScroll(1f / 60f, height, 1, -400f) }
+        }
+        // Mid-move the line changes again: the spring's next step keeps going at speed, the
+        // glide starts over from a standstill.
+        val springBefore = scroll.animScrollY
+        val glideBefore = glide.animScrollY
+        scroll.updateScroll(1f / 60f, height, 2, -800f)
+        glide.updateScroll(1f / 60f, height, 2, -800f)
+        assertTrue(springBefore - scroll.animScrollY > glideBefore - glide.animScrollY)
+    }
+
+    @Test fun switchingSmoothScrollingOffMidMoveStillLands() {
+        scroll.smoothScrolling = true
+        frames(0.1f, 0, 0f)
+        frames(0.1f, 1, -400f)
+        scroll.smoothScrolling = false
+        frames(2f, 1, -400f)
+        assertEquals(-400f, scroll.animScrollY, 0.01f)
+    }
 }
