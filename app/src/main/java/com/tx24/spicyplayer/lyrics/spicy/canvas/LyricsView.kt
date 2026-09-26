@@ -82,6 +82,8 @@ fun LyricsView(
     // When set, the active line's top (not its centre) is kept this far below the view's top,
     // ("Top" scrolling); focusAnchorFraction is then unused.
     activeLineTopPx: Float? = null,
+    // Without activeLineTopPx, the active line's centre sits this far above the focus anchor.
+    focusLiftPx: Float = 0f,
     // Invoked with the raw frame-nanos at the top of this view's own animation frame, before
     // currentTimeMs() is read. Lets a caller (e.g. the playback clock smoothing in
     // SpicyLyricsPlayer) piggyback on this view's single withFrameNanos loop instead of running
@@ -138,8 +140,14 @@ fun LyricsView(
         val canvasWidth = constraints.maxWidth.toFloat()
         val canvasHeight = constraints.maxHeight.toFloat()
         // Compact fullscreen keeps the active lyric in the upper portion of the viewport.
-        val centerY = activeLineTopPx ?: ScrollPolicyController.anchorY(canvasHeight, focusAnchorFraction)
+        val centerY = activeLineTopPx ?: (ScrollPolicyController.anchorY(canvasHeight, focusAnchorFraction) - focusLiftPx)
         val alignTop = activeLineTopPx != null
+        // The frame loop and tap handler outlive a change of anchor (the header shown or hidden
+        // mid-song), so they read the latest one; a change also wakes a resting loop to re-anchor.
+        val centerYUpdated by rememberUpdatedState(centerY)
+        val alignTopUpdated by rememberUpdatedState(alignTop)
+        val canvasHeightUpdated by rememberUpdatedState(canvasHeight)
+        LaunchedEffect(centerY, alignTop) { wake.trySend(Unit) }
         val footerMetrics = remember(canvasWidth, density.density, fontSizeScale, lyricsType) {
             LyricsLayoutMetrics(canvasWidth, density.density, lyricsType, fontSizeScale)
         }
@@ -329,16 +337,16 @@ fun LyricsView(
                             // An interlude's offset is already the centre of its dots, in a row
                             // one lyric line tall.
                             val half = when {
-                                alignTop -> if (currentLayouts[index].isInterlude) -rowHeightUpdated / 2f else 0f
+                                alignTopUpdated -> if (currentLayouts[index].isInterlude) -rowHeightUpdated / 2f else 0f
                                 currentLayouts[index].isInterlude -> 0f
                                 else -> currentLayouts[index].height / 2f
                             }
                             -(settledYScratch[index] + half)
                         }
                         val targetVisiblePx = targetIndex?.let { index ->
-                            val top = centerY + scrollManager.animScrollY + newDynamicYOffsets[index]
+                            val top = centerYUpdated + scrollManager.animScrollY + newDynamicYOffsets[index]
                             val bottom = top + currentLayouts[index].height
-                            (minOf(bottom, canvasHeight) - maxOf(top, 0f)).coerceAtLeast(0f)
+                            (minOf(bottom, canvasHeightUpdated) - maxOf(top, 0f)).coerceAtLeast(0f)
                         } ?: Float.POSITIVE_INFINITY
 
                         // 3. Step the scroll spring and handle user overrides.
@@ -406,7 +414,7 @@ fun LyricsView(
                 .pointerInput(isStatic, footerLayouts, shown) {
                     detectTapGestures { tapOffset ->
                         val currentScrollY = scrollManager.animScrollY
-                        val adjustedTapY = tapOffset.y - (centerY + currentScrollY)
+                        val adjustedTapY = tapOffset.y - (centerYUpdated + currentScrollY)
 
                         // A credit with a profile opens it.
                         footerLayouts.zip(footerRowTops()).firstOrNull { (row, top) ->

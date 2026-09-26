@@ -104,6 +104,9 @@ private val CoverEnterEasing = CubicBezierEasing(0.835f, -0.008f, 0.149f, 0.866f
  *
  * With [animatedCover] on, a record that has an animated cover on Apple Music loops it in place
  * of the still one.
+ *
+ * With [hidden] on there is no compact bar: the expanded view fades in and out in place instead
+ * of growing out of it. [interactive] off lets touches through to the lyrics.
  */
 @Composable
 fun CompactNowPlayingHeader(
@@ -116,6 +119,8 @@ fun CompactNowPlayingHeader(
     onPlayPause: () -> Unit = {},
     onSkip: (TrackDirection) -> Unit = {},
     animatedCover: Boolean = false,
+    hidden: Boolean = false,
+    interactive: Boolean = true,
 ) {
     val density = LocalDensity.current
     val artwork = rememberSessionArtwork(info.artwork, info.artworkUri, maxDimension = ARTWORK_MAX_PX)
@@ -123,18 +128,20 @@ fun CompactNowPlayingHeader(
     val motionUrl = rememberMotionCoverUrl(animatedCover, motionQuery)
     // Everything moves in the layout and draw phases, so the transition doesn't recompose the header.
     fun p() = if (expanded == null) 0f else expansion()
-    fun artSize() = lerp(metrics.artSizePx, expanded?.artSizePx ?: metrics.artSizePx, p())
-    fun artLeft() = lerp(metrics.contentStartPx, expanded?.artLeftPx ?: 0f, p())
-    fun artTop() = lerp(metrics.barTopPx, expanded?.artTopPx ?: 0f, p())
+    // Hidden, the layout stays expanded and only the opacity follows the transition.
+    fun layoutP() = if (hidden && expanded != null) 1f else p()
+    fun artSize() = lerp(metrics.artSizePx, expanded?.artSizePx ?: metrics.artSizePx, layoutP())
+    fun artLeft() = lerp(metrics.contentStartPx, expanded?.artLeftPx ?: 0f, layoutP())
+    fun artTop() = lerp(metrics.barTopPx, expanded?.artTopPx ?: 0f, layoutP())
     with(density) {
-        Box(modifier.fillMaxSize()) {
+        Box(modifier.fillMaxSize().graphicsLayer { alpha = if (hidden) p() else 1f }) {
             HeaderArtwork(
                 artwork = artwork,
                 motionUrl = motionUrl,
                 motionQuery = motionQuery,
                 direction = info.direction,
                 metrics = metrics,
-                cornerFraction = { lerp(CompactHeaderMetrics.ART_CORNER_FRACTION, CompactHeaderMetrics.NOWBAR_CORNER_FRACTION, p()) },
+                cornerFraction = { lerp(CompactHeaderMetrics.ART_CORNER_FRACTION, CompactHeaderMetrics.NOWBAR_CORNER_FRACTION, layoutP()) },
                 modifier = Modifier
                     .layout { measurable, _ ->
                         val size = artSize().roundToInt().coerceAtLeast(1)
@@ -142,9 +149,9 @@ fun CompactNowPlayingHeader(
                         layout(size, size) { placeable.place(0, 0) }
                     }
                     .offset { IntOffset(artLeft().roundToInt(), artTop().roundToInt()) }
-                    .coverGestures(isPlaying, onPlayPause, onSkip),
+                    .then(if (interactive) Modifier.coverGestures(isPlaying, onPlayPause, onSkip) else Modifier),
             )
-            HeaderMetadata(
+            if (!hidden) HeaderMetadata(
                 title = info.title,
                 artists = info.artists,
                 titleStyle = headerTextStyle(FontWeight.Bold, metrics.titleSizeSp, metrics.titleLineHeightSp),
@@ -176,7 +183,7 @@ fun CompactNowPlayingHeader(
                                 (artTop() + size * 1.05f).roundToInt(),
                             )
                         }
-                        .graphicsLayer { alpha = ((p() - (1f - TEXT_SWAP)) / TEXT_SWAP).coerceIn(0f, 1f) }
+                        .graphicsLayer { alpha = ((layoutP() - (1f - TEXT_SWAP)) / TEXT_SWAP).coerceIn(0f, 1f) }
                         .width(expanded.artSizePx.toDp())
                         .height(expanded.textHeightPx.toDp()),
                 )

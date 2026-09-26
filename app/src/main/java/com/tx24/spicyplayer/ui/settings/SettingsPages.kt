@@ -21,6 +21,7 @@ import androidx.compose.material.icons.rounded.AutoFixOff
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.VisibilityOff
+import androidx.compose.material.icons.rounded.HideImage
 import androidx.compose.material.icons.rounded.Height
 import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.FontDownload
@@ -269,6 +270,13 @@ internal fun ScreenContent(settings: AppSettings) {
         onCheckedChange = { settings.autoHideControls = it },
         description = "Fade the controls out a few seconds after the last touch. A touch brings them back.",
         icon = Icons.Rounded.TouchApp,
+    )
+    ToggleRow(
+        label = "Hide the song header",
+        checked = settings.hideHeader,
+        onCheckedChange = { settings.hideHeader = it },
+        description = "Show only the lyrics, centred on the page. The expand button still opens the big cover.",
+        icon = Icons.Rounded.HideImage,
     )
     SettingsSection("Performance") {
         ToggleRow(

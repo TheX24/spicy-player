@@ -345,7 +345,7 @@ private fun PageSkeleton(page: SettingsPage) {
         }
         SettingsPage.Lyrics -> SettingsSkeleton(rows = 7)
         SettingsPage.Appearance -> SettingsSkeleton(rows = 6)
-        SettingsPage.Screen -> SettingsSkeleton(rows = 4)
+        SettingsPage.Screen -> SettingsSkeleton(rows = 5)
         SettingsPage.Sync -> SettingsSkeleton(rows = 1)
         SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 6)

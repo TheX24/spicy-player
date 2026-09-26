@@ -38,6 +38,8 @@ class AppSettings(private val prefs: SharedPreferences) {
     var animatedCover by boolean("animatedCover", false)
 
     var keepScreenOn by boolean("keepScreenOn", true)
+    /** No song header: the lyrics fill the page and scroll with the active line near the centre. */
+    var hideHeader by boolean("hideHeader", false)
     /** The screen's full refresh rate (90/120 Hz) instead of 60 Hz, which costs battery. */
     var highRefreshRate by boolean("highRefreshRate", false)
     var autoHideControls by boolean("autoHideControls", true)

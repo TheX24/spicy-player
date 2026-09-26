@@ -180,6 +180,7 @@ private fun LyricsApp(
     val context = LocalContext.current
     val settings = remember { AppSettings(context.getSharedPreferences("ui", Context.MODE_PRIVATE)) }
     val lowPerformance = settings.lowPerformance
+    val hideHeader = settings.hideHeader
     val romanizationAvailable = (state.lyrics as? LyricsState.Ready)?.let { ready ->
         ready.lines.any { line -> line.words.any { it.romanized != null } }
     } == true
@@ -321,14 +322,20 @@ private fun LyricsApp(
                             // Expanding, the lyrics fade out under the cover.
                             .graphicsLayer { alpha = 1f - expansion },
                     ) {
-                        Spacer(Modifier.height(with(LocalDensity.current) { headerMetrics.lyricsTopPx.toDp() }))
+                        // Without the header, the lyrics start just under the camera instead.
+                        val lyricsTopPx = if (hideHeader) headerMetrics.barTopPx else headerMetrics.lyricsTopPx
+                        Spacer(Modifier.height(with(LocalDensity.current) { lyricsTopPx.toDp() }))
                         LyricsPanel(
                             lyrics = state.lyrics,
                             currentTimeMs = viewModel::currentLyricPositionMs,
                             onSeek = viewModel::seekTo,
                             romanize = romanize,
                             isPlaying = state.isPlaying,
-                            activeLineTopPx = headerMetrics.activeLineTopPx,
+                            // Compact scrolling keeps the active line near the top; without the
+                            // header, full-page scrolling centres it, 30px high (`GetScrollType`), in the
+                            // space above the controls (whether or not they are showing, so it holds still).
+                            activeLineTopPx = headerMetrics.activeLineTopPx.takeUnless { hideHeader },
+                            centredLiftPx = 30f * headerMetrics.lyricsScale * headerMetrics.density + controlsHeightPx / 2f,
                             noticeBottomPx = { noticeBottomPx },
                             config = renderConfig,
                             fontSizeScale = settings.lyricsSize.scale,
@@ -339,6 +346,8 @@ private fun LyricsApp(
                 if (headerExpanded) {
                     Box(Modifier.fillMaxSize().pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } })
                 }
+                // Hidden, the header only shows while the big cover is open or fading.
+                val headerShowing by remember { derivedStateOf { expansion > 0f } }
                 val expandedHeader = remember(headerMetrics, controlsHeightPx) {
                     headerMetrics.expanded(pageHeight - controlsHeightPx)
                 }
@@ -351,7 +360,9 @@ private fun LyricsApp(
                     isPlaying = state.isPlaying,
                     onPlayPause = viewModel::playPause,
                     onSkip = { direction -> if (direction == TrackDirection.Forward) viewModel.skipNext() else viewModel.skipPrevious() },
-                    animatedCover = settings.animatedCover && !lowPerformance,
+                    animatedCover = settings.animatedCover && !lowPerformance && (!hideHeader || headerShowing),
+                    hidden = hideHeader,
+                    interactive = !hideHeader || headerExpanded,
                 )
                 // The header sits in what the glass and the shade blur, so the shade blurs it
                 // rather than painting the blurred page over it.
@@ -603,6 +614,7 @@ private fun LyricsPanel(
     romanize: Boolean,
     isPlaying: Boolean,
     activeLineTopPx: Float?,
+    centredLiftPx: Float,
     noticeBottomPx: () -> Float,
     config: RenderConfig,
     fontSizeScale: Float,
@@ -611,7 +623,7 @@ private fun LyricsPanel(
     // The loading skeleton: up as soon as the lookup starts, over whatever the panel
     // shows, fading in over 0.2s and out over 0.25s (ease-out).
     Box(modifier) {
-        LyricsPanelContent(lyrics, currentTimeMs, onSeek, romanize, isPlaying, activeLineTopPx, noticeBottomPx, config, fontSizeScale, Modifier.fillMaxSize())
+        LyricsPanelContent(lyrics, currentTimeMs, onSeek, romanize, isPlaying, activeLineTopPx, centredLiftPx, noticeBottomPx, config, fontSizeScale, Modifier.fillMaxSize())
         AnimatedVisibility(
             visible = lyrics == LyricsState.Loading,
             enter = fadeIn(tween(200, easing = CssEaseOut)),
@@ -640,6 +652,7 @@ private fun LyricsPanelContent(
     romanize: Boolean,
     isPlaying: Boolean,
     activeLineTopPx: Float?,
+    centredLiftPx: Float,
     noticeBottomPx: () -> Float,
     config: RenderConfig,
     fontSizeScale: Float,
@@ -677,6 +690,8 @@ private fun LyricsPanelContent(
                 romanize = romanize,
                 isPlaying = isPlaying,
                 activeLineTopPx = activeLineTopPx,
+                focusAnchorFraction = 0.5f,
+                focusLiftPx = centredLiftPx,
                 lyricsType = lyrics.lyricsType,
                 config = config,
                 fontSizeScale = fontSizeScale,
