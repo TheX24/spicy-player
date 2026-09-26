@@ -6,6 +6,7 @@ import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.network.data.*
 import com.tx24.spicyplayer.network.data.providers.*
 import com.tx24.spicyplayer.network.data.spotify.AnonymousSpotifyCatalogSearch
+import com.tx24.spicyplayer.network.data.spotify.SharedSpotify
 import com.tx24.spicyplayer.network.data.spotify.SpotifyTrackResolver
 import com.tx24.spicyplayer.network.service.LyricsService
 import java.io.File
@@ -27,7 +28,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         .readTimeout(12, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
-    private val providers: Set<RemoteLyricsProvider> = createProviders(client, gson, clientKey, context.cacheDir)
+    private val providers: Set<RemoteLyricsProvider> =
+        createProviders(client, gson, clientKey, context.cacheDir, SharedSpotify.resolver)
     private val source = RemoteLyricsSource(providers, ProviderCooldownTracker())
 
     val descriptors: List<LyricsSourceDescriptor> = providers.map(RemoteLyricsProvider::descriptor)
@@ -114,8 +116,13 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     companion object {
         /** Every source the app asks, built on [client]. Also used by the live source check test. */
-        fun createProviders(client: OkHttpClient, gson: Gson, clientKey: String, cacheDir: File? = null): Set<RemoteLyricsProvider> {
-            val spotifyResolver = SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(client, gson))
+        fun createProviders(
+            client: OkHttpClient,
+            gson: Gson,
+            clientKey: String,
+            cacheDir: File? = null,
+            spotifyResolver: SpotifyTrackResolver = SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(client, gson)),
+        ): Set<RemoteLyricsProvider> {
             val lrclib = Retrofit.Builder()
                 .baseUrl(LyricsService.BASE_URL)
                 // LRCLIB asks clients to identify themselves; its Cloudflare front answers OkHttp's

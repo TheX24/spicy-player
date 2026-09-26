@@ -27,3 +27,13 @@ enum class TrackDirection { Forward, Backward }
  * like, as the system media controls show them. Players swap the icon to show the state.
  */
 data class SessionCustomAction(val action: String, val name: String, val icon: Bitmap?)
+
+/**
+ * The release year beside the artists, where [position] puts it. While [pending] (still looked
+ * up) the header keeps room for it, so the artists don't jump when it arrives.
+ */
+data class ReleaseYear(
+    val year: String?,
+    val pending: Boolean,
+    val position: com.tx24.spicyplayer.ui.settings.ReleaseYearPosition,
+)

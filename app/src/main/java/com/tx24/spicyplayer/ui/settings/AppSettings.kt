@@ -44,8 +44,18 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** Drops the costliest effects: the moving background, animated cover, glass blur, and lyric blur and glow. */
     var lowPerformance by boolean("lowPerformance", false)
 
-    var legacyBackground by boolean("legacyBackground", false)
+    /** Carries over the old Default/Legacy switch. */
+    var backgroundType by enum(
+        "backgroundType",
+        if (prefs.getBoolean("legacyBackground", false)) BackgroundType.Legacy else BackgroundType.Default,
+    )
+    /** How much the image backgrounds ([BackgroundType.image]) are blurred, in dp (0..67). */
+    var backgroundBlur by int("backgroundBlur", 0)
+    /** The moving background speeds up and slows down with the song's tempo, loudness and beats. */
+    var beatReactiveBackground by boolean("beatReactiveBackground", true)
+    /** Holds the moving backgrounds (Default, Legacy) still. */
     var staticBackground by boolean("staticBackground", false)
+    var releaseYearPosition by enum("releaseYearPosition", ReleaseYearPosition.Off)
     var expandWithoutLyrics by boolean("expandWithoutLyrics", false)
     /** The record's looping Apple Music cover in place of the still one, where it has one. */
     var animatedCover by boolean("animatedCover", false)
@@ -91,6 +101,32 @@ class AppSettings(private val prefs: SharedPreferences) {
         const val WORD_MOTION_BOOST = 1.25f
     }
 }
+
+/**
+ * What fills the screen behind the lyrics: the moving cover ([Default], [Legacy]), a still image
+ * ([Auto] and [ArtistHeader]: the artist's Spotify header, else the cover; [CoverArt]), or the
+ * cover's colours ([Color]).
+ */
+enum class BackgroundType(val label: String) {
+    Default("Default"),
+    Legacy("Legacy"),
+    Auto("Auto"),
+    ArtistHeader("Artist Header"),
+    CoverArt("Cover Art"),
+    Color("Color");
+
+    /** A still picture, which the blur setting softens. */
+    val image get() = this == Auto || this == ArtistHeader || this == CoverArt
+    val usesArtistHeader get() = this == Auto || this == ArtistHeader
+    /** Moves on its own (and can be held still). */
+    val moving get() = this == Default || this == Legacy
+}
+
+/** The strongest [AppSettings.backgroundBlur]. */
+const val MAX_BACKGROUND_BLUR = 67
+
+/** Where the song's release year shows beside the artists, if at all. */
+enum class ReleaseYearPosition(val label: String) { Off("Off"), Left("Left"), Right("Right") }
 
 /** The lyric text size against the default, which follows the screen width. */
 enum class LyricsSize(val scale: Float, val label: String) {

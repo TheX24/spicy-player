@@ -30,6 +30,11 @@ import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsResolution
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
 import com.tx24.spicyplayer.network.data.TrackNameCleaner
+import com.tx24.spicyplayer.network.data.ItunesReleaseYear
+import com.tx24.spicyplayer.network.data.spotify.AudioAnalysis
+import com.tx24.spicyplayer.network.data.spotify.LocalTrackMetadata
+import com.tx24.spicyplayer.network.data.spotify.SharedSpotify
+import com.tx24.spicyplayer.lyrics.spicy.canvas.kawarp.BackgroundSpeed
 import com.tx24.spicyplayer.ui.nowplaying.SessionCustomAction
 import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
 import java.security.MessageDigest
@@ -113,6 +118,20 @@ data class PlayerUiState(
     val humanRomanizations: Boolean = true,
     /** A Spotify Free limit to explain, until dismissed. */
     val limitNotice: PlayerLimit? = null,
+    /** The song's release year, when asked for ([ExternalPlaybackViewModel.setTrackExtrasWanted]) and found. */
+    val releaseYear: String? = null,
+    /** Still looking the year up: the header keeps room for it meanwhile. */
+    val releaseYearPending: Boolean = false,
+    /** The lead artist's Spotify header image, when asked for and they have one. */
+    val artistHeaderUrl: String? = null,
+    val artistHeaderPending: Boolean = false,
+)
+
+/** The lookups beyond the lyrics that the screen currently shows. */
+data class TrackExtrasWanted(
+    val releaseYear: Boolean = false,
+    val artistHeader: Boolean = false,
+    val beats: Boolean = false,
 )
 
 class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(application) {
@@ -185,6 +204,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var trackChangedAt = Long.MIN_VALUE / 2
     /** Resync on a player that can't seek: the next fresh report re-anchors the clock outright. */
     private var resyncOnNextReport = false
+
+    private val spotifyExtras = SharedSpotify.extras(application.cacheDir)
+    private val itunesYear = ItunesReleaseYear(okhttp3.OkHttpClient())
+    private var extrasWanted = TrackExtrasWanted()
+    private var extrasJob: Job? = null
+    /** The playing song's audio analysis, for the beat-reactive background. */
+    @Volatile private var audioAnalysis: AudioAnalysis? = null
 
     private val controllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = updateFromController(metadataChanged = true)
@@ -462,20 +488,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     fun loadLyrics(spotifyIdInput: String? = null, settle: Boolean = false, force: Boolean = false) {
         val metadata = controller?.metadata ?: return
         val identity = metadata.lyricsKey()
-        val names = TrackNameCleaner.clean(
-            title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
-                ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE).orEmpty(),
-            artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST)
-                ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST).orEmpty(),
-        )
-        val request = LyricsLookupRequest(
-            artist = names.artist,
-            title = names.title,
-            album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
-            durationSeconds = (metadata.getLong(MediaMetadata.METADATA_KEY_DURATION) / 1_000L).coerceAtLeast(0L).toInt(),
-            spotifyTrackId = spotifyIdInput?.spotifyTrackId()
-                ?: manualSpotifyId
-                ?: mutableState.value.detectedSpotifyId,
+        val request = lookupRequest(
+            metadata,
+            spotifyIdInput?.spotifyTrackId() ?: manualSpotifyId ?: mutableState.value.detectedSpotifyId,
         )
         if (request.title.isBlank() || request.artist.isBlank()) {
             mutableState.value = mutableState.value.copy(lyrics = LyricsNotices.missingMetadata)
@@ -527,6 +542,23 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     )
                 }
         }
+    }
+
+    /** What the sources are asked for [metadata]: its names cleaned up for lookup. */
+    private fun lookupRequest(metadata: MediaMetadata, spotifyTrackId: String?): LyricsLookupRequest {
+        val names = TrackNameCleaner.clean(
+            title = metadata.getString(MediaMetadata.METADATA_KEY_TITLE)
+                ?: metadata.getString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE).orEmpty(),
+            artist = metadata.getString(MediaMetadata.METADATA_KEY_ARTIST)
+                ?: metadata.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST).orEmpty(),
+        )
+        return LyricsLookupRequest(
+            artist = names.artist,
+            title = names.title,
+            album = metadata.getString(MediaMetadata.METADATA_KEY_ALBUM).orEmpty(),
+            durationSeconds = (metadata.getLong(MediaMetadata.METADATA_KEY_DURATION) / 1_000L).coerceAtLeast(0L).toInt(),
+            spotifyTrackId = spotifyTrackId,
+        )
     }
 
     /**
@@ -856,7 +888,81 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     ?: metadata?.description?.iconUri?.toString()
             } else mutableState.value.artworkUri,
         )
-        if (lyricsChanged) loadLyrics(settle = true)
+        if (lyricsChanged) {
+            loadExtras()
+            loadLyrics(settle = true)
+        }
+    }
+
+    /**
+     * What the screen currently shows that needs a lookup beyond the lyrics: the release year,
+     * the artist's header image, the beats for the background. Asking for something new looks it
+     * up for the song playing; nothing is fetched that isn't asked for.
+     */
+    fun setTrackExtrasWanted(wanted: TrackExtrasWanted) {
+        val added = (wanted.releaseYear && !extrasWanted.releaseYear) ||
+            (wanted.artistHeader && !extrasWanted.artistHeader) ||
+            (wanted.beats && !extrasWanted.beats)
+        extrasWanted = wanted
+        if (added) loadExtras()
+    }
+
+    /**
+     * How fast the background should move right now by the song's beats and loudness, or null when
+     * there is no analysis for it (the background then keeps its normal speed).
+     */
+    fun backgroundSpeed(): Float? {
+        val analysis = audioAnalysis ?: return null
+        return BackgroundSpeed.at(currentPositionMs() / 1000f, analysis)
+    }
+
+    private fun loadExtras() {
+        extrasJob?.cancel()
+        audioAnalysis = null
+        val metadata = controller?.metadata
+        val wanted = extrasWanted
+        val sessionYear = metadata?.sessionYear()
+        val request = metadata?.let { lookupRequest(it, manualSpotifyId ?: mutableState.value.detectedSpotifyId) }
+            ?.takeIf { it.title.isNotBlank() && it.artist.isNotBlank() }
+        mutableState.value = mutableState.value.copy(
+            releaseYear = sessionYear,
+            releaseYearPending = wanted.releaseYear && sessionYear == null && request != null,
+            artistHeaderUrl = null,
+            artistHeaderPending = wanted.artistHeader && request != null,
+        )
+        val needYear = wanted.releaseYear && sessionYear == null
+        if (request == null || !(needYear || wanted.artistHeader || wanted.beats)) return
+        // Skipping through songs, only the one that stays is looked up.
+        val skipping = SystemClock.elapsedRealtime() - lastTrackChangeAt < TRACK_SETTLE_MS
+        extrasJob = viewModelScope.launch {
+            if (skipping) delay(TRACK_SETTLE_MS)
+            val track = LocalTrackMetadata(request.title, request.artist, request.album, request.durationSeconds * 1_000L)
+            val trackIds = withContext(Dispatchers.IO) { spotifyExtras.trackIds(track, request.spotifyTrackId) }
+            val trackId = trackIds.firstOrNull()
+            if (wanted.beats && trackId != null) launch {
+                audioAnalysis = withContext(Dispatchers.IO) { spotifyExtras.audioAnalysis(trackId) }
+            }
+            if (wanted.artistHeader) launch {
+                val artistId = trackId?.let { withContext(Dispatchers.IO) { spotifyExtras.details(it) } }?.artistIds?.firstOrNull()
+                val url = if (trackId != null && artistId != null) {
+                    withContext(Dispatchers.IO) { spotifyExtras.artistHeaderUrl(artistId, trackId) }
+                } else null
+                mutableState.value = mutableState.value.copy(artistHeaderUrl = url, artistHeaderPending = false)
+            }
+            if (needYear) {
+                val year = withContext(Dispatchers.IO) {
+                    spotifyExtras.releaseYear(trackIds)
+                        ?: itunesYear.find(request.title, request.artist, request.album, request.durationSeconds * 1_000L)
+                }
+                mutableState.value = mutableState.value.copy(releaseYear = year, releaseYearPending = false)
+            }
+        }
+    }
+
+    /** The year the player itself gives for the song, if any. */
+    private fun MediaMetadata.sessionYear(): String? {
+        getLong(MediaMetadata.METADATA_KEY_YEAR).takeIf { it in 1000L..9999L }?.let { return it.toString() }
+        return getString(MediaMetadata.METADATA_KEY_DATE)?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }
     }
 
     private fun startTicker() = viewModelScope.launch {

@@ -222,6 +222,8 @@ fun KawarpBackground(
     isPlaying: Boolean = true,
     animate: Boolean = true,
     blurIntensity: Int = 60,
+    /** How fast to move while playing, read every frame; null (or returning null) is the normal speed. */
+    speed: (() -> Float?)? = null,
 ) {
     // Kawarp's default is blurPasses=8; this app exposes one shared
     // slider for both engines. Kawase blur passes are much stronger per-step than the
@@ -242,10 +244,8 @@ fun KawarpBackground(
     var nextAlbum by remember { mutableStateOf(blackAlbum) }
     var frameTick by remember { mutableLongStateOf(0L) }
 
-    // playpause handler from dynamicBackground.ts: paused -> 0.1, playing -> 1
-    LaunchedEffect(isPlaying) {
-        engine.targetAnimationSpeed = if (isPlaying) 1f else 0.1f
-    }
+    // Paused: a tenth of the speed. Playing: the song's beat-driven speed where there is one, else 1.
+    val latestSpeed by rememberUpdatedState(speed)
 
     // dynamicBackground.ts bumps transitionDuration 500 → 1000 after 2×500ms.
     LaunchedEffect(Unit) {
@@ -289,6 +289,7 @@ fun KawarpBackground(
             if (!isPlayingUpdated && engine.currentAnimationSpeed < PAUSED_SPEED_SETTLED &&
                 engine.blendFactor(System.currentTimeMillis()) >= 1f) delay(PAUSED_FRAME_MS)
             withFrameNanos { now ->
+                engine.targetAnimationSpeed = if (isPlayingUpdated) latestSpeed?.invoke() ?: 1f else 0.1f
                 if (last != 0L) engine.tick((now - last) / 1_000_000_000f)
                 last = now
                 frameTick = now // invalidate the Canvas

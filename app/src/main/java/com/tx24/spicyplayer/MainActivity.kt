@@ -115,6 +115,10 @@ import com.tx24.spicyplayer.ui.controls.PlaybackControlsState
 import com.tx24.spicyplayer.ui.nowplaying.CompactHeaderMetrics
 import com.tx24.spicyplayer.ui.nowplaying.CompactNowPlayingHeader
 import com.tx24.spicyplayer.ui.nowplaying.NowPlayingInfo
+import com.tx24.spicyplayer.ui.nowplaying.ReleaseYear
+import com.tx24.spicyplayer.ui.settings.BackgroundType
+import com.tx24.spicyplayer.ui.settings.ReleaseYearPosition
+import com.tx24.spicyplayer.playback.TrackExtrasWanted
 import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
 import androidx.compose.animation.core.spring
 import com.tx24.spicyplayer.ui.settings.AppSettings
@@ -285,6 +289,17 @@ private fun LyricsApp(
     }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
+    val backgroundType = settings.backgroundType
+    // Only what's on screen is looked up: the moving Kawarp background's beats, the artist's
+    // header for the header backgrounds, the year where it shows.
+    val beatReactive = backgroundType == BackgroundType.Default && settings.beatReactiveBackground &&
+        !settings.staticBackground && !lowPerformance && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val extrasWanted = TrackExtrasWanted(
+        releaseYear = settings.releaseYearPosition != ReleaseYearPosition.Off,
+        artistHeader = backgroundType.usesArtistHeader,
+        beats = beatReactive,
+    )
+    LaunchedEffect(extrasWanted) { viewModel.setTrackExtrasWanted(extrasWanted) }
     LaunchedEffect(Unit) { updater.checkOnLaunch(settings.includePrereleases) }
     val update by updater.state.collectAsState()
 
@@ -349,8 +364,12 @@ private fun LyricsApp(
                         artworkUri = state.artworkUri,
                         isPlaying = state.isPlaying,
                         modifier = Modifier.fillMaxSize(),
+                        type = backgroundType,
                         animate = !lowPerformance && !settings.staticBackground,
-                        legacy = settings.legacyBackground,
+                        blurDp = settings.backgroundBlur,
+                        artistHeaderUrl = state.artistHeaderUrl,
+                        artistHeaderPending = state.artistHeaderPending,
+                        speed = if (beatReactive) viewModel::backgroundSpeed else null,
                     )
                     Column(
                         Modifier
@@ -393,6 +412,7 @@ private fun LyricsApp(
                 }
                 CompactNowPlayingHeader(
                     info = NowPlayingInfo(state.title, state.artist, state.album, state.artwork, state.artworkUri, state.trackDirection),
+                    releaseYear = ReleaseYear(state.releaseYear, state.releaseYearPending, settings.releaseYearPosition),
                     metrics = headerMetrics,
                     modifier = Modifier.padding(belowTop),
                     expansion = { expansion },

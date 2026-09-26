@@ -59,6 +59,12 @@ class AnonymousSpotifyCatalogSearch constructor(
         withContext(Dispatchers.IO) { session() }
     }
 
+    /** The anonymous web-player token, for other calls on the same contract. */
+    suspend fun accessToken(): String = withContext(Dispatchers.IO) { session().accessToken }
+
+    /** Drops [token] after Spotify turned it down, so the next [accessToken] fetches a fresh one. */
+    fun rejectToken(token: String) = invalidate(token)
+
     private suspend fun searchOnceWithTokenRetry(query: String): List<SpotifyTrackCandidate> {
         val firstSession = session()
         val firstResponse = executeSearch(query, firstSession.accessToken)

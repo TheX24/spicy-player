@@ -345,7 +345,7 @@ private fun PageSkeleton(page: SettingsPage) {
         }
         SettingsPage.Lyrics -> SettingsSkeleton(rows = 14)
         SettingsPage.Appearance -> SettingsSkeleton(rows = 6)
-        SettingsPage.Screen -> SettingsSkeleton(rows = 5)
+        SettingsPage.Screen -> SettingsSkeleton(rows = 6)
         SettingsPage.Sync -> SettingsSkeleton(rows = 2)
         SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 6)
@@ -386,8 +386,11 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
             Icons.Rounded.Palette,
             SettingsPage.Appearance.title,
             listOf(
-                if (settings.legacyBackground) "Legacy background" else "Dynamic background",
-                "still".takeIf { settings.staticBackground || settings.lowPerformance },
+                when (settings.backgroundType) {
+                    BackgroundType.Default -> "Dynamic background"
+                    else -> "${settings.backgroundType.label} background"
+                },
+                "still".takeIf { settings.backgroundType.moving && (settings.staticBackground || settings.lowPerformance) },
                 "animated cover".takeIf { settings.animatedCover && !settings.lowPerformance },
                 "no blur".takeIf { !settings.distanceBlur || settings.lowPerformance },
                 "no glow".takeIf { !settings.glow || settings.lowPerformance },

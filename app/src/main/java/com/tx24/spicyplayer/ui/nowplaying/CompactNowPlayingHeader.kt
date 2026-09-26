@@ -83,6 +83,8 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Constraints
 import com.tx24.spicyplayer.ui.controls.SpicyIcons
+import com.tx24.spicyplayer.ui.settings.ReleaseYearPosition
+import androidx.compose.foundation.layout.Row
 
 /** CSS's default `ease` timing, for a plain `transition: opacity 0.24s`. */
 private val CssEase = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
@@ -105,6 +107,8 @@ private val CoverEnterEasing = CubicBezierEasing(0.835f, -0.008f, 0.149f, 0.866f
  * With [animatedCover] on, a record that has an animated cover on Apple Music loops it in place
  * of the still one.
  *
+ * [releaseYear] shows the song's year before or after the artists, where set.
+ *
  * With [hidden] on there is no compact bar: the expanded view fades in and out in place instead
  * of growing out of it. [interactive] off lets touches through to the lyrics.
  */
@@ -121,7 +125,16 @@ fun CompactNowPlayingHeader(
     animatedCover: Boolean = false,
     hidden: Boolean = false,
     interactive: Boolean = true,
+    releaseYear: ReleaseYear? = null,
 ) {
+    val year = releaseYear?.takeIf { it.position != ReleaseYearPosition.Off }?.let { y ->
+        when {
+            y.year != null -> YearLabel(y.year, y.position == ReleaseYearPosition.Left, shown = true)
+            // `.ArtistYear.pending { visibility: hidden }` with a stand-in year holding its room.
+            y.pending -> YearLabel("0000", y.position == ReleaseYearPosition.Left, shown = false)
+            else -> null
+        }
+    }
     val density = LocalDensity.current
     val artwork = rememberSessionArtwork(info.artwork, info.artworkUri, maxDimension = ARTWORK_MAX_PX)
     val motionQuery = MotionCoverQuery(info.artists, info.album, info.title)
@@ -154,6 +167,7 @@ fun CompactNowPlayingHeader(
             if (!hidden) HeaderMetadata(
                 title = info.title,
                 artists = info.artists,
+                year = year,
                 titleStyle = headerTextStyle(FontWeight.Bold, metrics.titleSizeSp, metrics.titleLineHeightSp),
                 artistsStyle = headerTextStyle(FontWeight.Normal, metrics.artistsSizeSp, metrics.artistsLineHeightSp),
                 titleWidthPx = metrics.textWidthPx,
@@ -168,6 +182,7 @@ fun CompactNowPlayingHeader(
                 HeaderMetadata(
                     title = info.title,
                     artists = info.artists,
+                    year = year,
                     titleStyle = headerTextStyle(FontWeight.Bold, expanded.titleSizeSp, expanded.titleLineHeightSp),
                     artistsStyle = headerTextStyle(FontWeight.Normal, expanded.artistsSizeSp, expanded.artistsLineHeightSp),
                     // `.SongName { max-width: 85cqw }`, `.Artists { max-width: 80cqw }`.
@@ -296,13 +311,14 @@ private val CoverReturn = spring<Float>(dampingRatio = 0.9f, stiffness = 500f)
 private const val COVER_FLING_DP = 1_000f
 
 /**
- * Song name over artists. On a change it fades out, swaps the text at 350 ms, and fades back
- * in 80 ms later.
+ * Song name over artists (and the year, if shown). On a song change it fades out, swaps the text
+ * at 350 ms, and fades back in 80 ms later; the year arriving later just takes its place.
  */
 @Composable
 private fun HeaderMetadata(
     title: String,
     artists: String,
+    year: YearLabel?,
     titleStyle: TextStyle,
     artistsStyle: TextStyle,
     titleWidthPx: Float,
@@ -310,11 +326,12 @@ private fun HeaderMetadata(
     centered: Boolean,
     modifier: Modifier,
 ) {
-    var shown by remember { mutableStateOf(title to artists) }
+    var shown by remember { mutableStateOf(ShownMetadata(title, artists, year)) }
     val alpha = remember { Animatable(1f) }
-    LaunchedEffect(title, artists) {
-        val next = title to artists
-        if (next == shown) {
+    LaunchedEffect(title, artists, year) {
+        val next = ShownMetadata(title, artists, year)
+        if (next.title == shown.title && next.artists == shown.artists) {
+            shown = next
             alpha.animateTo(1f, tween(METADATA_FADE_MS, easing = CssEase))
             return@LaunchedEffect
         }
@@ -330,8 +347,69 @@ private fun HeaderMetadata(
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = if (centered) Alignment.CenterHorizontally else Alignment.Start,
     ) {
-        MarqueeLine(shown.first, titleStyle, Color.White.copy(alpha = 0.95f), titleWidthPx)
-        MarqueeLine(shown.second, artistsStyle, Color.White.copy(alpha = 0.7f), artistsWidthPx)
+        MarqueeLine(shown.title, titleStyle, Color.White.copy(alpha = 0.95f), titleWidthPx)
+        ArtistsRow(shown.artists, shown.year, artistsStyle, Color.White.copy(alpha = 0.7f), artistsWidthPx)
+    }
+}
+
+private data class ShownMetadata(val title: String, val artists: String, val year: YearLabel?)
+
+/** The year beside the artists: [before] them or after, [shown] or only holding its room. */
+private data class YearLabel(val text: String, val before: Boolean, val shown: Boolean)
+
+/**
+ * The artists, with the year before or after them when there is one. The year keeps still, set
+ * off by a smaller, fainter middle dot; the artists scroll in the room left beside it.
+ */
+@Composable
+private fun ArtistsRow(artists: String, year: YearLabel?, style: TextStyle, color: Color, containerWidthPx: Float) {
+    if (year == null) {
+        MarqueeLine(artists, style, color, containerWidthPx)
+        return
+    }
+    val measurer = rememberTextMeasurer()
+    val yearLayout = remember(year.text, style) { measurer.measure(year.text, style, maxLines = 1, softWrap = false) }
+    // `::before/::after { content: "\00B7"; font-size: .82em; margin: 0 .55em; opacity: .78 }`.
+    val dotStyle = remember(style) { style.copy(fontSize = style.fontSize * 0.82f) }
+    val dotLayout = remember(dotStyle) { measurer.measure("\u00B7", dotStyle, maxLines = 1, softWrap = false) }
+    val density = LocalDensity.current
+    val dotMargin = with(density) { dotStyle.fontSize.toPx() * 0.55f }
+    // The year sits where the artists' text would start (or end) without it.
+    val outerPad = if (year.before) HeaderMarquee.spanStartPaddingPx(containerWidthPx) else HeaderMarquee.spanEndPaddingPx(containerWidthPx)
+    val yearWidth = outerPad + yearLayout.size.width + dotMargin * 2 + dotLayout.size.width
+    val height = maxOf(yearLayout.size.height, dotLayout.size.height)
+    val yearLabel = @Composable {
+        Canvas(
+            Modifier
+                .width(with(density) { yearWidth.toDp() })
+                .height(with(density) { height.toDp() })
+                .graphicsLayer { alpha = if (year.shown) 1f else 0f },
+        ) {
+            val dotTop = (size.height - dotLayout.size.height) / 2f
+            val yearTop = (size.height - yearLayout.size.height) / 2f
+            val dotColor = color.copy(alpha = color.alpha * 0.78f)
+            if (year.before) {
+                drawText(yearLayout, color, Offset(outerPad, yearTop))
+                drawText(dotLayout, dotColor, Offset(outerPad + yearLayout.size.width + dotMargin, dotTop))
+            } else {
+                drawText(dotLayout, dotColor, Offset(dotMargin, dotTop))
+                drawText(yearLayout, color, Offset(dotMargin * 2 + dotLayout.size.width, yearTop))
+            }
+        }
+    }
+    val room = (containerWidthPx - yearWidth).coerceAtLeast(1f)
+    // `.Artists.has-year-before > span { padding-left: .5cqw }`, and the matching mask stops.
+    val halfCqw = containerWidthPx * 0.005f
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        if (year.before) yearLabel()
+        MarqueeLine(
+            artists, style, color, room,
+            padStart = if (year.before) halfCqw else HeaderMarquee.spanStartPaddingPx(containerWidthPx),
+            padEndPx = if (year.before) HeaderMarquee.spanEndPaddingPx(containerWidthPx) else halfCqw,
+            maskStartPx = containerWidthPx * (if (year.before) 0.01f else 0.02f),
+            maskEndPx = containerWidthPx * (if (year.before) 0.02f else 0.01f),
+        )
+        if (!year.before) yearLabel()
     }
 }
 
@@ -340,11 +418,20 @@ private val CssLineHeight = LineHeightStyle(LineHeightStyle.Alignment.Center, Li
 
 /** One `.SongName`/`.Artists` row: a single line that scrolls per [HeaderMarquee] when it overflows. */
 @Composable
-private fun MarqueeLine(text: String, style: TextStyle, color: Color, containerWidthPx: Float) {
+private fun MarqueeLine(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    containerWidthPx: Float,
+    padStart: Float = HeaderMarquee.spanStartPaddingPx(containerWidthPx),
+    padEndPx: Float = HeaderMarquee.spanEndPaddingPx(containerWidthPx),
+    /** How far in from each side the edge fades reach while the text scrolls; null: the usual. */
+    maskStartPx: Float? = null,
+    maskEndPx: Float? = null,
+) {
     val measurer = rememberTextMeasurer()
     val layout = remember(text, style) { measurer.measure(text, style, maxLines = 1, softWrap = false) }
-    val padStart = HeaderMarquee.spanStartPaddingPx(containerWidthPx)
-    val spanWidth = padStart + layout.size.width + HeaderMarquee.spanEndPaddingPx(containerWidthPx)
+    val spanWidth = padStart + layout.size.width + padEndPx
     val elementWidth = minOf(spanWidth, containerWidthPx)
     val overflows = spanWidth > containerWidthPx
 
@@ -358,7 +445,10 @@ private fun MarqueeLine(text: String, style: TextStyle, color: Color, containerW
         }
     }
 
-    val (maskStart, maskEnd) = HeaderMarquee.maskStops(containerWidthPx, elementWidth)
+    val (maskStart, maskEnd) = if (maskStartPx != null && maskEndPx != null && elementWidth > 0f) {
+        val start = (maskStartPx / elementWidth).coerceIn(0f, 1f)
+        start to ((elementWidth - maskEndPx) / elementWidth).coerceIn(start, 1f)
+    } else HeaderMarquee.maskStops(containerWidthPx, elementWidth)
     val density = LocalDensity.current
     Canvas(
         Modifier

@@ -38,6 +38,9 @@ import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Flare
 import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Wallpaper
+import androidx.compose.material.icons.rounded.BlurLinear
+import androidx.compose.material.icons.rounded.GraphicEq
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.MotionPhotosPaused
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.StayCurrentPortrait
@@ -324,22 +327,55 @@ private val FONT_MIME_TYPES = arrayOf(
 
 @Composable
 internal fun AppearanceContent(settings: AppSettings) {
-    SettingRow(label = "Background Type", description = "Choose the dynamic or legacy background.", icon = Icons.Rounded.Wallpaper) {
+    val type = settings.backgroundType
+    SettingRow(
+        label = "Background Type",
+        description = "Choose the dynamic, legacy, static image, or color background.",
+        icon = Icons.Rounded.Wallpaper,
+    ) {
         SpicySelect(
-            value = if (settings.legacyBackground) "legacy" else "default",
-            options = listOf("default", "legacy"),
-            labels = listOf("Default", "Legacy"),
-            onChange = { settings.legacyBackground = it == "legacy" },
+            value = type.name,
+            options = BackgroundType.entries.map { it.name },
+            labels = BackgroundType.entries.map { it.label },
+            onChange = { settings.backgroundType = BackgroundType.valueOf(it) },
         )
     }
-    ToggleRow(
-        label = "Static Background",
-        checked = settings.staticBackground || settings.lowPerformance,
-        onCheckedChange = { settings.staticBackground = it },
-        description = "Hold the background still instead of animating it.",
-        icon = Icons.Rounded.MotionPhotosPaused,
-        enabled = !settings.lowPerformance,
-    )
+    if (type.image) {
+        SettingRow(
+            label = "Background Blur",
+            description = "Soften the static background image.",
+            icon = Icons.Rounded.BlurLinear,
+            stacked = true,
+        ) {
+            SpicyBipolarSlider(
+                value = settings.backgroundBlur,
+                range = 0..MAX_BACKGROUND_BLUR,
+                step = 1,
+                onValueChange = { settings.backgroundBlur = it },
+                unit = "dp",
+            )
+        }
+    }
+    if (type.moving) {
+        ToggleRow(
+            label = "Still Background",
+            checked = settings.staticBackground || settings.lowPerformance,
+            onCheckedChange = { settings.staticBackground = it },
+            description = "Hold the background still instead of animating it.",
+            icon = Icons.Rounded.MotionPhotosPaused,
+            enabled = !settings.lowPerformance,
+        )
+    }
+    if (type == BackgroundType.Default) {
+        ToggleRow(
+            label = "Move with the Music",
+            checked = settings.beatReactiveBackground && !settings.staticBackground && !settings.lowPerformance,
+            onCheckedChange = { settings.beatReactiveBackground = it },
+            description = "Speed the background up and down with the song's tempo, loudness and beats, where Spotify has them.",
+            icon = Icons.Rounded.GraphicEq,
+            enabled = !settings.staticBackground && !settings.lowPerformance,
+        )
+    }
     ToggleRow(
         label = "Show the cover without lyrics",
         checked = settings.expandWithoutLyrics,
@@ -398,6 +434,18 @@ internal fun ScreenContent(settings: AppSettings) {
         description = "Show only the lyrics, centred on the page. The expand button still opens the big cover.",
         icon = Icons.Rounded.HideImage,
     )
+    SettingRow(
+        label = "Release Year Position",
+        description = "Show the release year beside the artists.",
+        icon = Icons.Rounded.CalendarMonth,
+    ) {
+        SpicySelect(
+            value = settings.releaseYearPosition.name,
+            options = ReleaseYearPosition.entries.map { it.name },
+            labels = ReleaseYearPosition.entries.map { it.label },
+            onChange = { settings.releaseYearPosition = ReleaseYearPosition.valueOf(it) },
+        )
+    }
     SettingsSection("Performance") {
         ToggleRow(
             label = "Smoother motion",
