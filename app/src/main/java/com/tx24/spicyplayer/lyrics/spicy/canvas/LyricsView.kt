@@ -220,9 +220,7 @@ fun LyricsView(
                 }.also { measuredCache[key] = it }
             }
             val measured = measure(romanize)
-            val relayout = shown?.documentId == documentId
             shown = ShownLyrics(documentId, measured.lines, measured.layouts, incomingType, incomingFooter)
-            if (relayout) scrollManager.onRelayout()
             if (lines.any { line -> line.words.any { it.romanizedText != null } }) measure(!romanize)
         }
 
@@ -241,6 +239,7 @@ fun LyricsView(
             var dynamicYScratch = FloatArray(0)
             var settledYScratch = FloatArray(0)
             var stillFrames = 0
+            var lastLayouts: List<LineLayout>? = null
             while (true) {
                 if (stillFrames >= REST_AFTER_STILL_FRAMES) {
                     withTimeoutOrNull(REST_POLL_MS) { wake.receive() }
@@ -253,6 +252,10 @@ fun LyricsView(
 
                     val currentLayouts = lineLayoutsUpdated
                     val currentLines = linesUpdated
+                    // The same lyrics laid out again (romanized, resized): seen here, on the frame
+                    // that first draws the new layouts, so the scroll jumps with them.
+                    if (lastLayouts != null && currentLayouts !== lastLayouts) scrollManager.onRelayout()
+                    lastLayouts = currentLayouts
                     val currentTime = currentTimeProvider()
 
                     // Unclamped: springs integrate analytically over any dt.

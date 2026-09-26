@@ -777,8 +777,16 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         // Buffering, connecting and skipping are in-between states: Spotify reports them (with no
         // custom actions) while it moves between songs, then a pause for a moment. Showing each
         // would flash the play button and the floating buttons, so they keep what was shown.
+        // Spotify Free answers a refused skip with an error state (no position, no actions) while
+        // the song plays on, and is back to playing a second later: that is in-between too.
         val previous = mutableState.value
-        val inBetween = playback?.state in IN_BETWEEN_STATES
+        val inBetween = playback?.state in IN_BETWEEN_STATES || playback?.state == PlaybackState.STATE_ERROR
+        if (playback?.state == PlaybackState.STATE_ERROR) {
+            pendingSkip?.takeIf { SystemClock.elapsedRealtime() - it.second < SKIP_REFUSED_AFTER_MS }?.let { (direction, _) ->
+                skipCheckJob?.cancel()
+                explainLimit(if (direction == TrackDirection.Forward) PlayerLimit.Skips else PlayerLimit.Previous)
+            }
+        }
         val loadingPause = playback?.state == PlaybackState.STATE_PAUSED && previous.isPlaying &&
             SystemClock.elapsedRealtime() - trackChangedAt < LOADING_PAUSE_GRACE_MS &&
             pendingCommand !is PendingCommand.PlayState
@@ -803,7 +811,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 ?: "Unknown artist",
             durationMs = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0L) ?: 0L,
             isPlaying = isPlaying,
-            canSeek = playback?.actions?.and(PlaybackState.ACTION_SEEK_TO) != 0L && playback != null,
+            canSeek = if (inBetween) previous.canSeek else playback?.actions?.and(PlaybackState.ACTION_SEEK_TO) != 0L && playback != null,
             detectedSpotifyId = manualSpotifyId ?: spotifyId,
             manualSpotifyId = manualSpotifyId,
             matchInfo = if (lyricsChanged) {
