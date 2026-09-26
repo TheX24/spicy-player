@@ -34,6 +34,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
+import kotlinx.coroutines.delay
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.onSizeChanged
@@ -166,7 +168,7 @@ fun LyricsControls(
                     awaitPointerEventScope { while (true) awaitPointerEvent() }
                 },
         ) {
-            ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, expanded, onToggleExpanded)
+            ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, expanded, onToggleExpanded, shown)
             // Hidden controls swallow touches too: a touch there only brings them back, rather
             // than pressing a button nobody can see.
             if (!interactive) {
@@ -197,6 +199,7 @@ private fun ControlsColumn(
     onOpenSettings: () -> Unit,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
+    shown: () -> Float,
 ) {
     val shuffle = controls.customActions.firstOrNull { it.kind == ActionKind.Shuffle }
     val repeat = controls.customActions.firstOrNull { it.kind == ActionKind.Repeat }
@@ -208,7 +211,7 @@ private fun ControlsColumn(
             .padding(bottom = BOTTOM_MARGIN),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Timeline(controls, Modifier.padding(horizontal = SIDE_MARGIN))
+        Timeline(controls, shown, Modifier.padding(horizontal = SIDE_MARGIN))
         // The transport sits in its own air, the same gap above and below it (plus the glyphs'
         // touch padding), so the three rows read as separate.
         Spacer(Modifier.height(ROW_GAP))
@@ -450,16 +453,23 @@ private val TimeStyle = TextStyle(
  * seeking along the drag would make the lyrics jump about. Elapsed and total time sit underneath.
  */
 @Composable
-private fun Timeline(controls: PlaybackControlsState, modifier: Modifier) {
+private fun Timeline(controls: PlaybackControlsState, shown: () -> Float, modifier: Modifier) {
     val current by rememberUpdatedState(controls)
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     var positionMs by remember { mutableLongStateOf(controls.positionMs()) }
+    val shownUpdated by rememberUpdatedState(shown)
     LaunchedEffect(controls.positionMs) {
-        while (true) withFrameMillis { positionMs = controls.positionMs() }
+        while (true) {
+            // Faded out, nobody sees the bar move: a few updates a second keep it close.
+            if (shownUpdated() == 0f) delay(HIDDEN_UPDATE_MS)
+            withFrameMillis { positionMs = controls.positionMs() }
+        }
     }
     val duration = controls.durationMs.coerceAtLeast(0L)
-    val shownMs = dragFraction?.let { (it * duration).toLong() } ?: positionMs
-    val progress = if (duration > 0L) (shownMs.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    val durationUpdated by rememberUpdatedState(duration)
+    // Read only where it is drawn, so the moving position redraws the bar without recomposing.
+    fun shownMs() = dragFraction?.let { (it * durationUpdated).toLong() } ?: positionMs
+    val elapsedText by remember { derivedStateOf { formatClock(shownMs()) } }
 
     val thickness = remember { Animatable(BAR_HEIGHT.value) }
     LaunchedEffect(dragFraction != null) {
@@ -507,17 +517,19 @@ private fun Timeline(controls: PlaybackControlsState, modifier: Modifier) {
             )
             // The fill is a scaleX of a full-width white bar, so it keeps the capsule's rounded clip.
             val capsule = Path().apply { addRoundRect(RoundRect(0f, top, size.width, top + barHeight, radius)) }
+            val progress = if (duration > 0L) (shownMs().toFloat() / duration).coerceIn(0f, 1f) else 0f
             clipPath(capsule) {
                 drawRect(Color.White, Offset(0f, top), Size(size.width * progress, barHeight))
             }
         }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(formatClock(shownMs), style = TimeStyle, maxLines = 1)
+            Text(elapsedText, style = TimeStyle, maxLines = 1)
             Text(formatClock(duration), style = TimeStyle, maxLines = 1)
         }
     }
 }
 
+private const val HIDDEN_UPDATE_MS = 250L
 private val BAR_HEIGHT = 10.dp
 private val BAR_HEIGHT_DRAGGING = 14.dp
 private val BAR_TOUCH_HEIGHT = 32.dp

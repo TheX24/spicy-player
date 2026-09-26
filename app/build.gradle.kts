@@ -33,14 +33,20 @@ android {
     }
 
     buildTypes {
+        getByName("debug") {
+            // Its own app next to the release one, so testing never touches the installed release.
+            applicationIdSuffix = ".debug"
+            versionNameSuffix = "-debug"
+            resValue("string", "app_name", "Spicy Player Debug")
+        }
         getByName("release") {
             // Shrunk and optimised: Compose runs noticeably slower unoptimised (debug builds are
             // also interpreted at first), so judge smoothness on this build, not on debug.
             isMinifyEnabled = true
             isShrinkResources = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
-            // Without the release keystore (a local build), sign with the debug key so it
-            // installs over a debug build for testing. Never on CI: a release must fail unsigned.
+            // Without the release keystore (a local build), sign with the debug key so it installs
+            // over an earlier local release build. Never on CI: a release must fail unsigned.
             if (System.getenv("CI") == null) signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -64,6 +70,7 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
+        resValues = true
     }
 
     packaging.resources.excludes += "/META-INF/{CONTRIBUTORS.md,LICENSE.md,NOTICE.md,README.md}"

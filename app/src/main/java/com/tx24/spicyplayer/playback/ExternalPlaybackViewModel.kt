@@ -57,6 +57,24 @@ private const val FETCH_AHEAD = 3
 /** How long after our own skip a track change is still taken to be its result. */
 private const val SKIP_DIRECTION_WINDOW_MS = 3_000L
 private const val SYNC_TAG = "SpicySync"
+private const val SPOTIFY_PACKAGE = "com.spotify.music"
+/** How long a skip may take before Spotify is taken to have refused it. */
+private const val SKIP_REFUSED_AFTER_MS = 2_500L
+/** How long after a track change a pause is taken for the player loading the song. */
+private const val LOADING_PAUSE_GRACE_MS = 3_000L
+private val IN_BETWEEN_STATES = setOf(
+    PlaybackState.STATE_BUFFERING,
+    PlaybackState.STATE_CONNECTING,
+    PlaybackState.STATE_SKIPPING_TO_NEXT,
+    PlaybackState.STATE_SKIPPING_TO_PREVIOUS,
+    PlaybackState.STATE_SKIPPING_TO_QUEUE_ITEM,
+)
+
+/**
+ * Something Spotify Free doesn't allow, noticed when Spotify leaves a command out of its session
+ * or ignores it. Android can't tell which plan an account is on, so this is how it shows.
+ */
+enum class PlayerLimit { Seek, Previous, Skips }
 
 data class PlayerUiState(
     val accessGranted: Boolean = false,
@@ -87,6 +105,8 @@ data class PlayerUiState(
     val providerAttempts: List<ProviderAttempt> = emptyList(),
     val lookupStatus: String? = null,
     val humanRomanizations: Boolean = true,
+    /** A Spotify Free limit to explain, until dismissed. */
+    val limitNotice: PlayerLimit? = null,
 )
 
 class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(application) {
@@ -148,6 +168,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
     private var lastPeriodicCheckMs = 0L
     private var lastReport: SessionReport? = null
+    /** Limits already explained this session: each is said once, not on every refused tap. */
+    private val explainedLimits = mutableSetOf<PlayerLimit>()
+    private var skipCheckJob: Job? = null
+    /** When the track last changed, for a pause some players report while they load the next one. */
+    private var trackChangedAt = Long.MIN_VALUE / 2
+    /** Resync on a player that can't seek: the next fresh report re-anchors the clock outright. */
+    private var resyncOnNextReport = false
 
     private val controllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = updateFromController(metadataChanged = true)
@@ -214,12 +241,45 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     fun skipNext() {
         pendingSkip = TrackDirection.Forward to SystemClock.elapsedRealtime()
+        watchForRefusedSkip(PlayerLimit.Skips, PlaybackState.ACTION_SKIP_TO_NEXT)
         commandForTrackChange { skipToNext() }
     }
 
     fun skipPrevious() {
         pendingSkip = TrackDirection.Backward to SystemClock.elapsedRealtime()
+        watchForRefusedSkip(PlayerLimit.Previous, PlaybackState.ACTION_SKIP_TO_PREVIOUS)
         commandForTrackChange { skipToPrevious() }
+    }
+
+    fun dismissLimitNotice() {
+        mutableState.value = mutableState.value.copy(limitNotice = null)
+    }
+
+    private fun explainLimit(limit: PlayerLimit) {
+        if (controller?.packageName != SPOTIFY_PACKAGE || !explainedLimits.add(limit)) return
+        mutableState.value = mutableState.value.copy(limitNotice = limit)
+    }
+
+    /**
+     * Spotify Free drops skip actions from its session once the hourly skips run out, or keeps
+     * them and ignores the press. Either way the song stays: a previous that restarts it counts.
+     */
+    private fun watchForRefusedSkip(limit: PlayerLimit, action: Long) {
+        val active = controller ?: return
+        if (active.packageName != SPOTIFY_PACKAGE) return
+        if (((active.playbackState?.actions ?: 0L) and action) == 0L) {
+            explainLimit(limit)
+            return
+        }
+        val before = active.metadata.trackIdentity()
+        val positionBefore = currentPositionMs()
+        skipCheckJob?.cancel()
+        skipCheckJob = viewModelScope.launch {
+            delay(SKIP_REFUSED_AFTER_MS)
+            if (controller !== active || currentTrackIdentity != before) return@launch
+            val restarted = limit == PlayerLimit.Previous && currentPositionMs() < positionBefore
+            if (!restarted) explainLimit(limit)
+        }
     }
 
     /** Presses one of the player's own buttons (see [PlayerUiState.customActions]). */
@@ -241,6 +301,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             mutableState.value = mutableState.value.copy(
                 status = "${active.packageName} does not expose seeking through MediaSession",
             )
+            explainLimit(PlayerLimit.Seek)
             return
         }
         val target = targetMs.coerceIn(
@@ -256,7 +317,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     /**
      * Android can't ask a player where it is, only take its last report. So this seeks the player
      * to where the lyrics think it is: it must answer with a fresh report, which the clock then
-     * snaps to (a relayed player too). Players that can't seek fall back to their last report.
+     * snaps to (a relayed player too). A player that can't seek (Spotify Free) snaps to its last
+     * report now and to its next one outright; Spotify sends one every couple of seconds.
      */
     fun resync() {
         pendingCommand = null
@@ -267,6 +329,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             return
         }
         active?.playbackState?.let { reconcileClock(it, force = true) }
+        resyncOnNextReport = active != null
         mutableState.value = mutableState.value.copy(
             lastCommandLatencyMs = null,
             status = if (controller != null) "Timeline resynced to the media session" else "No active media session to resync",
@@ -707,7 +770,22 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         // Not cleared on the change: players often send a new song in steps (title, then artist or
         // cover), and each step must still see the button that caused it. It lapses on its own.
         if (queueIndex >= 0) lastQueueIndex = queueIndex
-        if (trackChanged) currentTrackIdentity = trackIdentity
+        if (trackChanged) {
+            currentTrackIdentity = trackIdentity
+            trackChangedAt = SystemClock.elapsedRealtime()
+        }
+        // Buffering, connecting and skipping are in-between states: Spotify reports them (with no
+        // custom actions) while it moves between songs, then a pause for a moment. Showing each
+        // would flash the play button and the floating buttons, so they keep what was shown.
+        val previous = mutableState.value
+        val inBetween = playback?.state in IN_BETWEEN_STATES
+        val loadingPause = playback?.state == PlaybackState.STATE_PAUSED && previous.isPlaying &&
+            SystemClock.elapsedRealtime() - trackChangedAt < LOADING_PAUSE_GRACE_MS &&
+            pendingCommand !is PendingCommand.PlayState
+        val isPlaying = if (inBetween || loadingPause) previous.isPlaying else playback?.state == PlaybackState.STATE_PLAYING
+        val customActions = playback?.customActions.orEmpty().map { custom ->
+            SessionCustomAction(custom.action, custom.name.toString(), actionIcon(active.packageName, custom.icon))
+        }.ifEmpty { if (inBetween) previous.customActions else emptyList() }
         val lyricsKey = metadata.lyricsKey()
         val lyricsChanged = lyricsKey != currentLyricsKey
         if (lyricsChanged) {
@@ -724,7 +802,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
                 ?: "Unknown artist",
             durationMs = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0L) ?: 0L,
-            isPlaying = playback?.state == PlaybackState.STATE_PLAYING,
+            isPlaying = isPlaying,
             canSeek = playback?.actions?.and(PlaybackState.ACTION_SEEK_TO) != 0L && playback != null,
             detectedSpotifyId = manualSpotifyId ?: spotifyId,
             manualSpotifyId = manualSpotifyId,
@@ -744,9 +822,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             lastCommandLatencyMs = latency ?: mutableState.value.lastCommandLatencyMs,
             status = if (waitingForSeek || preserveStatus) mutableState.value.status else null,
             trackDirection = direction,
-            customActions = playback?.customActions.orEmpty().map { custom ->
-                SessionCustomAction(custom.action, custom.name.toString(), actionIcon(active.packageName, custom.icon))
-            },
+            customActions = customActions,
             artwork = if (refreshArtwork) {
                 metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                     ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
@@ -781,6 +857,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     mutableState.value = mutableState.value.copy(
                         status = "Seek not confirmed by ${controller?.packageName ?: "player"}; timeline restored",
                     )
+                    explainLimit(PlayerLimit.Seek)
                 }
             }
             delay(100L)
@@ -806,6 +883,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         // Only a new report says anything new: re-reading the same one would just re-apply it.
         val report = SessionReport(playback.state, playback.position, playback.lastPositionUpdateTime, playback.playbackSpeed)
         if (!force && report == lastReport) return
+        val resync = resyncOnNextReport && report != lastReport
+        if (resync) resyncOnNextReport = false
         lastReport = report
         val now = SystemClock.elapsedRealtime()
         val playing = playback.state == PlaybackState.STATE_PLAYING
@@ -815,7 +894,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val drift = reported - predicted
         val changedState = timeline.isPlaying != playing || timeline.speed != playback.playbackSpeed
         val mirrored = controller?.playbackInfo?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
-        val adjustment = if (force || changedState || !playing) drift else ClockCorrection.adjustmentMs(drift, mirrored)
+        val adjustment = if (force || resync || changedState || !playing) drift else ClockCorrection.adjustmentMs(drift, mirrored)
         Log.d(
             SYNC_TAG,
             "report ${controller?.packageName} state=${playback.state} pos=${playback.position} " +

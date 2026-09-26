@@ -32,6 +32,33 @@ class RemoteLyricsSourceTest {
     }
 
     @Test
+    fun `Spicy Lyrics relaying Apple Music ranks in Apple Music's place`() = runBlocking {
+        val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("Spicy Lyrics", originName = "Apple Music"))
+        val source = source(
+            provider("spicy_lyrics", 1, result = ProviderResult.Hit(relayed)),
+            provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
+            provider("apple_music", 3, result = ProviderResult.Hit(wordTtml("apple"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("amll_ttml_db", result.selection.source.id)
+    }
+
+    @Test
+    fun `Spicy Lyrics community syncs keep its place`() = runBlocking {
+        val community = wordTtml("community").copy(attribution = LyricsAttribution("Spicy Lyrics", originName = "Spicy Lyrics Community"))
+        val source = source(
+            provider("spicy_lyrics", 1, result = ProviderResult.Hit(community)),
+            provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("spicy_lyrics", result.selection.source.id)
+    }
+
+    @Test
     fun `explicit source order overrides defaults`() = runBlocking {
         val calls = mutableListOf<String>()
         val source = source(

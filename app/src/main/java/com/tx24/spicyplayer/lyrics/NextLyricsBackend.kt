@@ -146,10 +146,10 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         }
 
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        private const val CACHE_VERSION = 10
+        private const val CACHE_VERSION = 11
         /** Bump when the default source order or on/off set changes, to reset saved choices once. */
         private const val SOURCE_DEFAULTS_VERSION = 1
-        private val LRCLIB_USER_AGENT = "Spicy Player Next ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
+        private val LRCLIB_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
         private const val CACHE_DAYS = 3
     }
 

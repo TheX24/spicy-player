@@ -19,6 +19,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixOff
 import androidx.compose.material.icons.rounded.Animation
+import androidx.compose.material.icons.rounded.Science
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.Height
 import androidx.compose.material.icons.rounded.FormatSize
@@ -83,6 +84,7 @@ import com.tx24.spicyplayer.ui.components.outlinedCard
 import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
 import com.tx24.spicyplayer.ui.theme.SpicyType
+import com.tx24.spicyplayer.update.UpdateViewModel
 
 /*
  * What each group's page holds. Every page also shows up, row by row, in the search results, so a
@@ -144,7 +146,7 @@ internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
 }
 
 @Composable
-internal fun LyricsContent(settings: AppSettings) {
+internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
     ToggleRow(
         label = "Simple Lyrics Mode",
         checked = settings.simpleLyricsMode,
@@ -197,6 +199,33 @@ internal fun LyricsContent(settings: AppSettings) {
             icon = Icons.Rounded.FontDownload,
         )
     }
+}
+
+@Composable
+internal fun AppearanceContent(settings: AppSettings) {
+    SettingRow(label = "Background Type", description = "Choose the dynamic or legacy background.", icon = Icons.Rounded.Wallpaper) {
+        SpicySelect(
+            value = if (settings.legacyBackground) "legacy" else "default",
+            options = listOf("default", "legacy"),
+            labels = listOf("Default", "Legacy"),
+            onChange = { settings.legacyBackground = it == "legacy" },
+        )
+    }
+    ToggleRow(
+        label = "Static Background",
+        checked = settings.staticBackground || settings.lowPerformance,
+        onCheckedChange = { settings.staticBackground = it },
+        description = "Hold the background still instead of animating it.",
+        icon = Icons.Rounded.MotionPhotosPaused,
+        enabled = !settings.lowPerformance,
+    )
+    ToggleRow(
+        label = "Show the cover without lyrics",
+        checked = settings.expandWithoutLyrics,
+        onCheckedChange = { settings.expandWithoutLyrics = it },
+        description = "Grow the song header into the big cover when a song has no lyrics.",
+        icon = Icons.Rounded.Album,
+    )
     SettingsSection("Effects") {
         ToggleRow(
             label = "Blur distant lines",
@@ -214,53 +243,39 @@ internal fun LyricsContent(settings: AppSettings) {
             icon = Icons.Rounded.Flare,
             enabled = !settings.lowPerformance,
         )
+    }
+}
+
+@Composable
+internal fun ScreenContent(settings: AppSettings) {
+    ToggleRow(
+        label = "Keep the screen on",
+        checked = settings.keepScreenOn,
+        onCheckedChange = { settings.keepScreenOn = it },
+        description = "Stop the screen from turning off while music plays.",
+        icon = Icons.Rounded.StayCurrentPortrait,
+    )
+    ToggleRow(
+        label = "Hide controls while playing",
+        checked = settings.autoHideControls,
+        onCheckedChange = { settings.autoHideControls = it },
+        description = "Fade the controls out a few seconds after the last touch. A touch brings them back.",
+        icon = Icons.Rounded.TouchApp,
+    )
+    SettingsSection("Performance") {
+        ToggleRow(
+            label = "Smoother motion",
+            checked = settings.highRefreshRate,
+            onCheckedChange = { settings.highRefreshRate = it },
+            description = "Draw at your screen's full refresh rate instead of 60 Hz. Uses more battery.",
+            icon = Icons.Rounded.Animation,
+        )
         ToggleRow(
             label = "Low performance mode",
             checked = settings.lowPerformance,
             onCheckedChange = { settings.lowPerformance = it },
             description = "Stills the background and turns off blur and glow, for smoother lyrics on slower phones.",
             icon = Icons.Rounded.Speed,
-        )
-    }
-    SettingsSection("Appearance") {
-        SettingRow(label = "Background Type", description = "Choose the dynamic or legacy background.", icon = Icons.Rounded.Wallpaper) {
-            SpicySelect(
-                value = if (settings.legacyBackground) "legacy" else "default",
-                options = listOf("default", "legacy"),
-                labels = listOf("Default", "Legacy"),
-                onChange = { settings.legacyBackground = it == "legacy" },
-            )
-        }
-        ToggleRow(
-            label = "Static Background",
-            checked = settings.staticBackground || settings.lowPerformance,
-            onCheckedChange = { settings.staticBackground = it },
-            description = "Hold the background still instead of animating it.",
-            icon = Icons.Rounded.MotionPhotosPaused,
-            enabled = !settings.lowPerformance,
-        )
-        ToggleRow(
-            label = "Show the cover without lyrics",
-            checked = settings.expandWithoutLyrics,
-            onCheckedChange = { settings.expandWithoutLyrics = it },
-            description = "Grow the song header into the big cover when a song has no lyrics.",
-            icon = Icons.Rounded.Album,
-        )
-    }
-    SettingsSection("Screen") {
-        ToggleRow(
-            label = "Keep the screen on",
-            checked = settings.keepScreenOn,
-            onCheckedChange = { settings.keepScreenOn = it },
-            description = "Stop the screen from turning off while music plays.",
-            icon = Icons.Rounded.StayCurrentPortrait,
-        )
-        ToggleRow(
-            label = "Hide controls while playing",
-            checked = settings.autoHideControls,
-            onCheckedChange = { settings.autoHideControls = it },
-            description = "Fade the controls out a few seconds after the last touch. A touch brings them back.",
-            icon = Icons.Rounded.TouchApp,
         )
     }
 }
@@ -294,7 +309,7 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
     var clientKey by remember { mutableStateOf("") }
     Searchable("Sources", "Priority", "Order", *state.sourceOrder.mapNotNull { id -> state.sourceDescriptors.firstOrNull { it.id == id }?.displayName }.toTypedArray()) {
         Text(
-            "Higher sources are asked first. Switched-off sources are skipped.",
+            "Higher sources are asked first. Switched-off sources are skipped. Spicy Lyrics stands here for its community syncs; the Apple Music lyrics it serves rank as Apple Music.",
             style = DescriptionStyle,
             modifier = Modifier.padding(start = 2.dp, end = 2.dp, bottom = SpicySpacing.S3),
         )
@@ -417,9 +432,20 @@ private fun LyricsSourceDescriptor.summary(): String = buildList {
 }.joinToString(" · ")
 
 @Composable
-internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
+internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, updater: UpdateViewModel, settings: AppSettings) {
     SettingRow(label = "Clear lyrics cache", description = "Forget every saved lyric and look this song up again.", icon = Icons.Rounded.DeleteSweep) {
         SpicyButton("Clear", onClick = viewModel::clearLyricsCache)
+    }
+    if (updater.enabled) {
+        SettingsSection("Updates") {
+            ToggleRow(
+                label = "Include pre-releases",
+                checked = settings.includePrereleases,
+                onCheckedChange = { settings.includePrereleases = it },
+                description = "Also offer test builds, which get new things first and may be rough.",
+                icon = Icons.Rounded.Science,
+            )
+        }
     }
     val session = listOfNotNull(
         "Player" to (state.sourcePackage ?: "None"),

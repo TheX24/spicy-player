@@ -1,18 +1,30 @@
 package com.tx24.spicyplayer
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.NotificationsActive
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import com.tx24.spicyplayer.ui.components.SpicyButtonStyle
 import com.tx24.spicyplayer.ui.components.SpicyModal
+import com.tx24.spicyplayer.ui.components.SpicyModalActions
 import com.tx24.spicyplayer.ui.components.SpicyModalButton
 import com.tx24.spicyplayer.ui.components.SpicyModalGap
+import com.tx24.spicyplayer.ui.components.SpicyModalHeading
 import com.tx24.spicyplayer.ui.components.SpicyModalMessage
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.Window
 import android.provider.Settings
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.LocalActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
@@ -53,7 +65,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
 import androidx.compose.runtime.mutableStateOf
@@ -83,9 +94,12 @@ import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import com.tx24.spicyplayer.lyrics.spicy.models.buildDisplayTimeline
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
+import com.tx24.spicyplayer.playback.PlayerLimit
 import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.background.SpicySessionBackground
 import com.tx24.spicyplayer.ui.components.LocalBackdrop
+import com.tx24.spicyplayer.ui.components.SpicyModalNotes
+import com.tx24.spicyplayer.ui.components.SpicyVersionRow
 import com.tx24.spicyplayer.ui.controls.LyricsControls
 import com.tx24.spicyplayer.ui.controls.PlaybackControlsState
 import com.tx24.spicyplayer.ui.nowplaying.CompactHeaderMetrics
@@ -101,13 +115,22 @@ import androidx.compose.ui.platform.LocalView
 import com.tx24.spicyplayer.ui.settings.SettingsScreen
 import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
+import com.tx24.spicyplayer.ui.theme.SpicySpacing
 import com.tx24.spicyplayer.ui.theme.SpicyType
+import com.tx24.spicyplayer.update.UpdateStatus
+import com.tx24.spicyplayer.update.UpdateUiState
+import com.tx24.spicyplayer.update.UpdateViewModel
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeSource
+import kotlin.math.abs
+import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 
 class MainActivity : ComponentActivity() {
     private val playbackViewModel: ExternalPlaybackViewModel by viewModels()
+    private val updateViewModel: UpdateViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -117,6 +140,7 @@ class MainActivity : ComponentActivity() {
             MaterialTheme(colorScheme = darkColorScheme()) {
                 LyricsApp(
                     viewModel = playbackViewModel,
+                    updater = updateViewModel,
                     openNotificationAccess = {
                         startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                     },
@@ -150,6 +174,7 @@ class MainActivity : ComponentActivity() {
 private fun LyricsApp(
     openNotificationAccess: () -> Unit,
     viewModel: ExternalPlaybackViewModel,
+    updater: UpdateViewModel,
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -167,6 +192,15 @@ private fun LyricsApp(
     DisposableEffect(view, keepAwake) {
         view.keepScreenOn = keepAwake
         onDispose { view.keepScreenOn = false }
+    }
+    // 60 Hz unless asked otherwise: word sweeps and the background look the same, and a 90/120 Hz
+    // screen would otherwise draw (and composite) half again or twice as many frames.
+    val activity = LocalActivity.current
+    val highRefreshRate = settings.highRefreshRate
+    DisposableEffect(activity, highRefreshRate) {
+        val window = activity?.window
+        window?.let { setPreferredRefreshRate(it, if (highRefreshRate) null else 60f) }
+        onDispose { window?.let { setPreferredRefreshRate(it, null) } }
     }
     // The big cover: the button (or a tap on the cover) asks for it; the setting brings it up on
     // its own while a song has no lyrics, until it's put away for that song.
@@ -198,22 +232,30 @@ private fun LyricsApp(
         glowEnabled = settings.glow && !lowPerformance,
     )
     var showSettings by remember { mutableStateOf(false) }
-    val backdrop = remember { HazeState() }
+    // Android before 12 can't blur, so nothing blurs the page there: the glass and pop-ups fall
+    // back to their solid fills instead of showing the page through.
+    val backdrop = remember { HazeState().takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S } }
 
     // Any touch shows the controls, and they fade after a few seconds without one.
     var controlsVisible by remember { mutableStateOf(true) }
-    var lastTouchMs by remember { mutableLongStateOf(0L) }
+    // Touch times go to the idle timer only: nothing in composition reads them, so a drag
+    // (a touch event every frame) doesn't recompose the whole screen.
+    val touches = remember { MutableStateFlow(0L) }
     // They stay while paused, and while the big cover is up (it has nothing else to show).
-    LaunchedEffect(lastTouchMs, state.isPlaying, headerExpanded, settings.autoHideControls) {
+    LaunchedEffect(state.isPlaying, headerExpanded, settings.autoHideControls) {
         if (!state.isPlaying || headerExpanded || !settings.autoHideControls) {
             controlsVisible = true
             return@LaunchedEffect
         }
-        delay(CONTROLS_IDLE_MS)
-        controlsVisible = false
+        touches.collectLatest {
+            delay(CONTROLS_IDLE_MS)
+            controlsVisible = false
+        }
     }
 
     LaunchedEffect(Unit) { viewModel.refresh() }
+    LaunchedEffect(Unit) { updater.checkOnLaunch(settings.includePrereleases) }
+    val update by updater.state.collectAsState()
 
     // The bars are hidden, so this is only the camera cutout (and the keyboard in settings).
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing) { padding ->
@@ -226,7 +268,7 @@ private fun LyricsApp(
                         while (true) {
                             awaitPointerEvent(PointerEventPass.Initial)
                             controlsVisible = true
-                            lastTouchMs = SystemClock.uptimeMillis()
+                            touches.value = SystemClock.uptimeMillis()
                         }
                     }
                 },
@@ -263,7 +305,7 @@ private fun LyricsApp(
                     label = "noticeBottom",
                 )
                 // Everything the glass controls blur.
-                Box(Modifier.fillMaxSize().hazeSource(backdrop)) {
+                Box(Modifier.fillMaxSize().then(backdrop?.let { Modifier.hazeSource(it) } ?: Modifier)) {
                     SpicySessionBackground(
                         artwork = state.artwork,
                         artworkUri = state.artworkUri,
@@ -285,6 +327,7 @@ private fun LyricsApp(
                             currentTimeMs = viewModel::currentLyricPositionMs,
                             onSeek = viewModel::seekTo,
                             romanize = romanize,
+                            isPlaying = state.isPlaying,
                             activeLineTopPx = headerMetrics.activeLineTopPx,
                             noticeBottomPx = { noticeBottomPx },
                             config = renderConfig,
@@ -327,7 +370,7 @@ private fun LyricsApp(
                 // Once faded out, the controls stop blurring: the shade's progressive blur and each
                 // glass button would otherwise re-blur the whole page every frame, unseen.
                 val controlsGone by remember { derivedStateOf { controlsShown == 0f } }
-                CompositionLocalProvider(LocalBackdrop provides backdrop.takeUnless { controlsGone || lowPerformance }) {
+                CompositionLocalProvider(LocalBackdrop provides backdrop?.takeUnless { controlsGone || lowPerformance }) {
                     LyricsControls(
                         controls = PlaybackControlsState(
                             isPlaying = state.isPlaying,
@@ -369,16 +412,47 @@ private fun LyricsApp(
             NotificationAccessMessage(openNotificationAccess)
         }
 
+        // Kept through the closing animation, after the view model has cleared it.
+        var lastLimit by remember { mutableStateOf<PlayerLimit?>(null) }
+        state.limitNotice?.let { lastLimit = it }
+        SpicyModal(
+            visible = state.limitNotice != null,
+            onDismissRequest = viewModel::dismissLimitNotice,
+            backdrop = backdrop,
+            modifier = Modifier.padding(padding),
+        ) {
+            lastLimit?.let { SpotifyLimitMessage(it, viewModel::dismissLimitNotice) }
+        }
+
         if (showSettings) {
             SettingsScreen(
                 state = state,
                 viewModel = viewModel,
+                updater = updater,
                 settings = settings,
                 backdrop = backdrop,
                 contentPadding = padding,
                 onClosed = { showSettings = false },
             )
         }
+
+        // Over settings, so a check from there answers in place.
+        UpdatePopup(update, updater, backdrop, Modifier.padding(padding))
+    }
+}
+
+/** Asks for the display mode nearest [hz] at the current resolution, or the system's choice for null. */
+private fun setPreferredRefreshRate(window: Window, hz: Float?) {
+    @Suppress("DEPRECATION")
+    val display = window.windowManager.defaultDisplay
+    val current = display.mode
+    val modeId = hz?.let {
+        display.supportedModes
+            .filter { it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight }
+            .minByOrNull { mode -> abs(mode.refreshRate - hz) }?.modeId
+    } ?: 0
+    if (window.attributes.preferredDisplayModeId != modeId) {
+        window.attributes = window.attributes.apply { preferredDisplayModeId = modeId }
     }
 }
 
@@ -439,11 +513,94 @@ private fun NotificationAccessMessage(openNotificationAccess: () -> Unit) {
 }
 
 @Composable
+private fun UpdatePopup(update: UpdateUiState, updater: UpdateViewModel, backdrop: HazeState?, modifier: Modifier) {
+    // Kept through the closing animation.
+    var shown by remember { mutableStateOf(update.status) }
+    if (update.prompt) shown = update.status
+    val release = when (val status = shown) {
+        is UpdateStatus.Available -> status.release
+        is UpdateStatus.Downloading -> status.release
+        is UpdateStatus.Installing -> status.release
+        is UpdateStatus.Failed -> status.release
+        else -> null
+    }
+    SpicyModal(
+        visible = update.prompt && release != null,
+        onDismissRequest = updater::later,
+        backdrop = backdrop,
+        modifier = modifier,
+    ) {
+        if (release == null) return@SpicyModal
+        SpicyModalHeading("Update available", release.name.takeIf { it != release.tag && it != release.version })
+        SpicyVersionRow(BuildConfig.VERSION_NAME, release.version)
+        val status = when (val current = shown) {
+            is UpdateStatus.Installing -> "Confirm the install in Android's prompt."
+            is UpdateStatus.Failed -> current.message
+            else -> null
+        }
+        (shown as? UpdateStatus.Downloading)?.let { DownloadProgress(it.progress) }
+            ?: SpicyModalNotes(release.notes, status ?: "No notes for this version.".takeIf { release.notes.isEmpty() })
+        SpicyModalGap()
+        val busy = shown is UpdateStatus.Downloading || shown is UpdateStatus.Installing
+        SpicyModalActions {
+            if (!busy) SpicyModalButton("Skip this version", updater::skip, style = SpicyButtonStyle.Quiet)
+            SpicyModalButton(if (busy) "Hide" else "Later", updater::later)
+            if (!busy) {
+                SpicyModalButton(if (shown is UpdateStatus.Failed) "Try again" else "Update", updater::install, style = SpicyButtonStyle.Primary)
+            }
+        }
+    }
+}
+
+/** The download as a capsule filling with white, like the timeline, with the percentage under it. */
+@Composable
+private fun DownloadProgress(progress: Float) {
+    val shown by animateFloatAsState(progress.coerceIn(0f, 1f), tween(200), label = "downloadProgress")
+    Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .height(8.dp)
+                .clip(CircleShape)
+                .background(SpicyColors.TintBg)
+                .border(1.dp, SpicyColors.Hairline, CircleShape),
+        ) {
+            Box(Modifier.fillMaxHeight().fillMaxWidth(shown).clip(CircleShape).background(Color.White))
+        }
+        Text(
+            "Downloading… ${(progress * 100).roundToInt()}%",
+            style = SpicyType.Footnote.copy(color = SpicyColors.TextSecondary, fontFeatureSettings = "tnum"),
+        )
+    }
+}
+
+@Composable
+private fun SpotifyLimitMessage(limit: PlayerLimit, onDismiss: () -> Unit) {
+    val (title, description) = when (limit) {
+        PlayerLimit.Seek -> "Seeking needs Spotify Premium" to
+            "Spotify Free doesn't let other apps move around in a song, so tapping a line or dragging " +
+            "the timeline can't jump there. Playback carries on as normal."
+        PlayerLimit.Previous -> "Going back needs Spotify Premium" to
+            "Spotify Free doesn't allow going back to the previous song from here."
+        PlayerLimit.Skips -> "Spotify isn't skipping" to
+            "Spotify Free stops allowing skips for a while after a few. Skipping works again later."
+    }
+    SpicyModalMessage(
+        title = title,
+        description = description,
+        icon = { Icon(Icons.Rounded.Info, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary) },
+    )
+    SpicyModalGap()
+    SpicyModalButton("Got it", onDismiss, style = SpicyButtonStyle.Primary, fill = true)
+}
+
+@Composable
 private fun LyricsPanel(
     lyrics: LyricsState,
     currentTimeMs: () -> Long,
     onSeek: (Long) -> Unit,
     romanize: Boolean,
+    isPlaying: Boolean,
     activeLineTopPx: Float?,
     noticeBottomPx: () -> Float,
     config: RenderConfig,
@@ -453,7 +610,7 @@ private fun LyricsPanel(
     // The loading skeleton: up as soon as the lookup starts, over whatever the panel
     // shows, fading in over 0.2s and out over 0.25s (ease-out).
     Box(modifier) {
-        LyricsPanelContent(lyrics, currentTimeMs, onSeek, romanize, activeLineTopPx, noticeBottomPx, config, fontSizeScale, Modifier.fillMaxSize())
+        LyricsPanelContent(lyrics, currentTimeMs, onSeek, romanize, isPlaying, activeLineTopPx, noticeBottomPx, config, fontSizeScale, Modifier.fillMaxSize())
         AnimatedVisibility(
             visible = lyrics == LyricsState.Loading,
             enter = fadeIn(tween(200, easing = CssEaseOut)),
@@ -480,6 +637,7 @@ private fun LyricsPanelContent(
     currentTimeMs: () -> Long,
     onSeek: (Long) -> Unit,
     romanize: Boolean,
+    isPlaying: Boolean,
     activeLineTopPx: Float?,
     noticeBottomPx: () -> Float,
     config: RenderConfig,
@@ -516,6 +674,7 @@ private fun LyricsPanelContent(
                 currentTimeMs = currentTimeMs,
                 onSeekWord = onSeek,
                 romanize = romanize,
+                isPlaying = isPlaying,
                 activeLineTopPx = activeLineTopPx,
                 lyricsType = lyrics.lyricsType,
                 config = config,

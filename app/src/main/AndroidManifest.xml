@@ -2,6 +2,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Updates: the downloaded APK goes to Android's installer, which asks the user first. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Makes media players visible (Android 11+) so their custom-action icons can be loaded. -->
     <queries>
@@ -38,5 +40,9 @@
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
         </service>
+
+        <receiver
+            android:name="com.tx24.spicyplayer.update.UpdateInstallReceiver"
+            android:exported="false" />
     </application>
 </manifest>

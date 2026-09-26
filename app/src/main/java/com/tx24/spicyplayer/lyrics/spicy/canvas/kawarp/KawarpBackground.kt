@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ShaderBrush
@@ -279,10 +280,14 @@ fun KawarpBackground(
         lastCover = src
     }
 
+    val isPlayingUpdated by rememberUpdatedState(isPlaying)
     LaunchedEffect(animate, nextAlbum) {
         var last = 0L
         // Still (low performance mode): frames only while a new cover fades in.
         while (animate || engine.blendFactor(System.currentTimeMillis()) < 1f) {
+            // Paused, once slowed to a tenth of the speed, 20 frames a second look the same.
+            if (!isPlayingUpdated && engine.currentAnimationSpeed < PAUSED_SPEED_SETTLED &&
+                engine.blendFactor(System.currentTimeMillis()) >= 1f) delay(PAUSED_FRAME_MS)
             withFrameNanos { now ->
                 if (last != 0L) engine.tick((now - last) / 1_000_000_000f)
                 last = now
@@ -343,3 +348,8 @@ fun KawarpBackground(
 /** An unsized WebGL canvas's default 300x150 backbuffer. */
 private const val CANVAS_WIDTH = 300
 private const val CANVAS_HEIGHT = 150
+
+/** Paused, the background redraws about this often (20 fps). */
+private const val PAUSED_FRAME_MS = 50L
+/** The paused speed (0.1) counts as reached below this. */
+private const val PAUSED_SPEED_SETTLED = 0.12f

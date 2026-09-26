@@ -137,6 +137,15 @@ internal class ScrollManager(
         animScrollY = y
     }
 
+    /**
+     * The same lyrics were laid out again (romanized, resized): every line moved, so the next
+     * frame jumps to the target's new place instead of gliding there, and the line being sung
+     * stays where it was on screen.
+     */
+    fun onRelayout() {
+        snapNext = true
+    }
+
     fun onDragStart() {
         isUserScrolling = true
         hideLineBlur = true

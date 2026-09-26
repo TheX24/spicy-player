@@ -51,7 +51,9 @@ import com.tx24.spicyplayer.lyrics.spicy.models.FooterLine
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
 import com.tx24.spicyplayer.lyrics.spicy.parser.LetterSynthesizer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlin.math.roundToInt
 
 /**
@@ -86,6 +88,8 @@ fun LyricsView(
     // a second, independent one — halving the Choreographer callbacks registered per lyrics
     // screen. Optional so other/future callers aren't forced to supply one.
     onFrameTick: ((Long) -> Unit)? = null,
+    // Paused, the frame loop rests once nothing moves, looking in a few times a second for a seek.
+    isPlaying: Boolean = true,
 ) {
     val textMeasurer = rememberTextMeasurer()
     // What is on screen: lines and their layouts, swapped together once new layouts are measured.
@@ -101,11 +105,11 @@ fun LyricsView(
     val footer = shown?.footer ?: incomingFooter
     val coroutineScope = rememberCoroutineScope()
 
-    // Synthesize per-letter emphasis for held words using the active config (mode-dependent
-    // thresholds, romanized display). Syllable mode only; Line/Static never letter-split.
-    val displayLines = remember(lines, config.copy(wordMotionBoost = 1f), romanize, incomingType) {
-        if (incomingType == LyricsType.Syllable) LetterSynthesizer.apply(lines, config, romanize) else lines
-    }
+    // Letter synthesis only reads the mode-dependent thresholds, not the motion boost.
+    val letterConfig = config.copy(wordMotionBoost = 1f)
+    // Measured lyrics for these lines, per variant (romanized or not, width, size...). The other
+    // romanization variant is measured ahead, so the romanize button swaps in a finished layout.
+    val measuredCache = remember(lines) { HashMap<MeasureKey, MeasuredLyrics>() }
 
     val animator = remember(shownId) { LyricsAnimator(coroutineScope, config) }
     LaunchedEffect(config) { animator.config = config }
@@ -118,12 +122,15 @@ fun LyricsView(
     val linesUpdated by rememberUpdatedState(shown?.lines.orEmpty())
     val lineLayoutsUpdated by rememberUpdatedState(lineLayouts)
     val onFrameTickUpdated by rememberUpdatedState(onFrameTick)
+    val isPlayingUpdated by rememberUpdatedState(isPlaying)
 
     val scrollPolicy = remember(shownId) { ScrollPolicyController() }
     // Read by the drag handler, written by the frame loop.
     val contentHeightForDrag = remember(shownId) { FloatArray(1) }
     val density = LocalDensity.current
     val scrollManager = remember(shownId) { ScrollManager().also { it.reset() } }
+    // Wakes a resting frame loop at once (a drag or tap), rather than at its next look.
+    val wake = remember(shownId) { Channel<Unit>(Channel.CONFLATED) }
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
 
@@ -198,13 +205,25 @@ fun LyricsView(
         }
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
         // A newer key cancels a measurement still running, so only the latest one lands.
-        LaunchedEffect(displayLines, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, config.isSimple, LyricsLayoutCalculator.useSystemFont) {
-            val measured = withContext(Dispatchers.Default) {
-                LyricsLayoutCalculator.calculateLineLayouts(
-                    displayLines, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanize, config.isSimple,
-                )
+        val useSystemFont = LyricsLayoutCalculator.useSystemFont
+        LaunchedEffect(lines, letterConfig, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, useSystemFont) {
+            suspend fun measure(romanized: Boolean): MeasuredLyrics {
+                val key = MeasureKey(letterConfig, canvasWidth, fontSizeScale, romanized, incomingType, useSystemFont)
+                measuredCache[key]?.let { return it }
+                return withContext(Dispatchers.Default) {
+                    // Per-letter emphasis for held words (mode-dependent thresholds, romanized
+                    // display). Syllable mode only; Line/Static never letter-split.
+                    val display = if (incomingType == LyricsType.Syllable) LetterSynthesizer.apply(lines, letterConfig, romanized) else lines
+                    MeasuredLyrics(display, LyricsLayoutCalculator.calculateLineLayouts(
+                        display, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanized, letterConfig.isSimple,
+                    ))
+                }.also { measuredCache[key] = it }
             }
-            shown = ShownLyrics(documentId, displayLines, measured, incomingType, incomingFooter)
+            val measured = measure(romanize)
+            val relayout = shown?.documentId == documentId
+            shown = ShownLyrics(documentId, measured.lines, measured.layouts, incomingType, incomingFooter)
+            if (relayout) scrollManager.onRelayout()
+            if (lines.any { line -> line.words.any { it.romanizedText != null } }) measure(!romanize)
         }
 
         if (lineLayouts.isEmpty()) return@BoxWithConstraints
@@ -221,8 +240,15 @@ fun LyricsView(
             // identity-equality even when nothing moved).
             var dynamicYScratch = FloatArray(0)
             var settledYScratch = FloatArray(0)
+            var stillFrames = 0
             while (true) {
+                if (stillFrames >= REST_AFTER_STILL_FRAMES) {
+                    withTimeoutOrNull(REST_POLL_MS) { wake.receive() }
+                }
                 withFrameNanos { frameTimeNanos ->
+                    val previousStates = animStates
+                    val previousOffsets = dynamicYOffsets
+                    val previousScroll = scrollManager.animScrollY
                     onFrameTickUpdated?.invoke(frameTimeNanos)
 
                     val currentLayouts = lineLayoutsUpdated
@@ -327,6 +353,10 @@ fun LyricsView(
                             targetVisiblePx = targetVisiblePx,
                         )
                     }
+                    val still = !isPlayingUpdated && !scrollManager.isUserScrolling &&
+                        animStates == previousStates && dynamicYOffsets === previousOffsets &&
+                        scrollManager.animScrollY == previousScroll
+                    stillFrames = if (still) stillFrames + 1 else 0
                 }
             }
         }
@@ -361,7 +391,7 @@ fun LyricsView(
                 .pointerInput(scrollManager) {
                     // Interaction: Dragging.
                     detectDragGestures(
-                        onDragStart = { scrollManager.onDragStart() },
+                        onDragStart = { scrollManager.onDragStart(); wake.trySend(Unit) },
                         onDragEnd = { scrollManager.onDragEnd() },
                         onDragCancel = { scrollManager.onDragEnd() },
                         onDrag = { change, dragAmount ->
@@ -394,6 +424,7 @@ fun LyricsView(
                                 if (layout.line.words.isNotEmpty()) {
                                     onSeekWord(layout.line.startMs)
                                     scrollManager.onSeek()
+                                    wake.trySend(Unit)
                                 }
                                 return@detectTapGestures
                             }
@@ -461,6 +492,17 @@ fun LyricsView(
     }
 }
 
+private data class MeasureKey(
+    val config: RenderConfig,
+    val widthPx: Float,
+    val fontSizeScale: Float,
+    val romanize: Boolean,
+    val type: LyricsType,
+    val systemFont: Boolean,
+)
+
+private class MeasuredLyrics(val lines: List<Line>, val layouts: List<LineLayout>)
+
 private class ShownLyrics(
     val documentId: String,
     val lines: List<Line>,
@@ -468,6 +510,11 @@ private class ShownLyrics(
     val lyricsType: LyricsType,
     val footer: LyricsFooter,
 )
+
+/** Paused and this many frames without a change, the frame loop rests. */
+private const val REST_AFTER_STILL_FRAMES = 30
+/** How often a resting frame loop looks for a change (a seek while paused). */
+private const val REST_POLL_MS = 150L
 
 /** Scales the credits up from their desktop proportions, for a phone screen. */
 private const val CREDIT_SCALE = 1.15f

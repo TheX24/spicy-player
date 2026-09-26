@@ -21,6 +21,6 @@ Also set the GitHub Actions repository **variable** `SPICY_LYRICS_CLIENT_KEY` to
 2. Run `python tools/validate_release_version.py --tag vX.Y.Z` and `./gradlew assembleDebug testDebugUnitTest lintDebug` (use `.\gradlew.bat` on Windows).
 3. Review changes and draft user-facing release notes. Commit the version bump and push the release commit.
 4. Tag that exact commit with `vX.Y.Z` and push the tag. The release workflow validates the version, builds, checks the signature, and publishes a prerelease with generated notes. Edit the notes to include the reviewed user-facing summary and limitations.
-5. Verify the workflow succeeded, both assets download, the SHA-256 digest matches, and the APK installs and runs on a device. Test an update from the previous **release-signed** APK when applicable. A debug APK uses a different signing key and must be uninstalled first.
+5. Verify the workflow succeeded, both assets download, the SHA-256 digest matches, and the APK installs and runs on a device. Test an update from the previous **release-signed** APK when applicable. A debug APK is a separate app (`.debug` ID) and does not interfere.
 
 Local builds read an optional publishable Spicy Lyrics key from `.env`. Release builds read the repository variable. Never add a secret `sl_sk_` key to either path.

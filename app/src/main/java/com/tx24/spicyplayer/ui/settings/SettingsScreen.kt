@@ -32,6 +32,10 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Layers
 import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.Smartphone
+import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
@@ -40,6 +44,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -67,6 +72,7 @@ import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.components.GlassButton
 import com.tx24.spicyplayer.ui.components.LocalSettingsQuery
 import com.tx24.spicyplayer.ui.components.Searchable
+import com.tx24.spicyplayer.ui.components.SettingRow
 import com.tx24.spicyplayer.ui.components.SettingsSkeleton
 import com.tx24.spicyplayer.ui.components.SettingsSection
 import com.tx24.spicyplayer.ui.components.SpicyButton
@@ -76,6 +82,8 @@ import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
 import com.tx24.spicyplayer.ui.theme.SpicyType
+import com.tx24.spicyplayer.update.UpdateStatus
+import com.tx24.spicyplayer.update.UpdateViewModel
 import dev.chrisbanes.haze.HazeInputScale
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -87,6 +95,8 @@ import kotlin.coroutines.cancellation.CancellationException
 internal enum class SettingsPage(val title: String) {
     ThisSong("This song"),
     Lyrics("Lyrics"),
+    Appearance("Appearance"),
+    Screen("Screen"),
     Sync("Sync"),
     Sources("Sources"),
     Advanced("Advanced"),
@@ -105,6 +115,7 @@ internal enum class SettingsPage(val title: String) {
 fun SettingsScreen(
     state: PlayerUiState,
     viewModel: ExternalPlaybackViewModel,
+    updater: UpdateViewModel,
     settings: AppSettings,
     backdrop: HazeState?,
     contentPadding: PaddingValues,
@@ -202,7 +213,8 @@ fun SettingsScreen(
                             inputScale = HazeInputScale.Fixed(BACKDROP_INPUT_SCALE)
                         }
                     } else {
-                        Modifier.background(Color.Black.copy(alpha = 0.8f))
+                        // Without blur (Android before 12) the page's text would still read through.
+                        Modifier.background(Color.Black.copy(alpha = 0.97f))
                     },
                 ),
         )
@@ -235,9 +247,9 @@ fun SettingsScreen(
                     header = { SpicySearchBar(query, { query = it }, Modifier.fillMaxWidth().padding(top = SpicySpacing.S4)) },
                 ) {
                     if (query.isBlank()) {
-                        HomeGroups(state, settings, onOpen = ::show)
+                        HomeGroups(state, settings, updater, onOpen = ::show)
                     } else {
-                        SearchResults(query, state, viewModel, settings)
+                        SearchResults(query, state, viewModel, updater, settings)
                     }
                 }
             }
@@ -258,7 +270,7 @@ fun SettingsScreen(
                         .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
                     header = { Spacer(Modifier.height(SpicySpacing.S2)) },
                 ) {
-                    PageContent(shown, state, viewModel, settings)
+                    PageContent(shown, state, viewModel, updater, settings)
                 }
             }
         }
@@ -266,13 +278,15 @@ fun SettingsScreen(
 }
 
 @Composable
-private fun PageContent(page: SettingsPage, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
+private fun PageContent(page: SettingsPage, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, updater: UpdateViewModel, settings: AppSettings) {
     when (page) {
         SettingsPage.ThisSong -> ThisSongContent(state, viewModel)
-        SettingsPage.Lyrics -> LyricsContent(settings)
+        SettingsPage.Lyrics -> LyricsContent(state, viewModel, settings)
+        SettingsPage.Appearance -> AppearanceContent(settings)
+        SettingsPage.Screen -> ScreenContent(settings)
         SettingsPage.Sync -> SyncContent(state, viewModel)
         SettingsPage.Sources -> SourcesContent(state, viewModel)
-        SettingsPage.Advanced -> AdvancedContent(state, viewModel)
+        SettingsPage.Advanced -> AdvancedContent(state, viewModel, updater, settings)
     }
 }
 
@@ -329,15 +343,17 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 1, cards = true)
             SettingsSkeleton(rows = 2)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 8)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 7)
+        SettingsPage.Appearance -> SettingsSkeleton(rows = 5)
+        SettingsPage.Screen -> SettingsSkeleton(rows = 4)
         SettingsPage.Sync -> SettingsSkeleton(rows = 1)
         SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
-        SettingsPage.Advanced -> SettingsSkeleton(rows = 5)
+        SettingsPage.Advanced -> SettingsSkeleton(rows = 6)
     }
 }
 
 @Composable
-private fun HomeGroups(state: PlayerUiState, settings: AppSettings, onOpen: (SettingsPage) -> Unit) {
+private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: UpdateViewModel, onOpen: (SettingsPage) -> Unit) {
     Spacer(Modifier.height(SpicySpacing.S4))
     Column(Modifier.fillMaxWidth().outlinedCard()) {
         GroupRow(Icons.Rounded.MusicNote, SettingsPage.ThisSong.title, "${state.title} · ${lyricsSummary(state.lyrics)}") {
@@ -359,9 +375,29 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, onOpen: (Set
                 if (settings.originalWordMotion) "Original word motion" else "Boosted word motion",
                 "${settings.lyricsSize.label.lowercase()} text".takeIf { settings.lyricsSize != LyricsSize.Default },
                 "system font".takeIf { settings.systemFont },
-                "low performance".takeIf { settings.lowPerformance },
             ).joinToString().replaceFirstChar(Char::uppercase),
         ) { onOpen(SettingsPage.Lyrics) }
+        GroupDivider()
+        GroupRow(
+            Icons.Rounded.Palette,
+            SettingsPage.Appearance.title,
+            listOf(
+                if (settings.legacyBackground) "Legacy background" else "Dynamic background",
+                "still".takeIf { settings.staticBackground || settings.lowPerformance },
+                "no blur".takeIf { !settings.distanceBlur || settings.lowPerformance },
+                "no glow".takeIf { !settings.glow || settings.lowPerformance },
+            ).filterNotNull().joinToString(),
+        ) { onOpen(SettingsPage.Appearance) }
+        GroupDivider()
+        GroupRow(
+            Icons.Rounded.Smartphone,
+            SettingsPage.Screen.title,
+            listOfNotNull(
+                if (settings.keepScreenOn) "Stays on while playing" else "Turns off as usual",
+                if (settings.highRefreshRate) "full refresh rate" else "60 Hz",
+                "low performance".takeIf { settings.lowPerformance },
+            ).joinToString(),
+        ) { onOpen(SettingsPage.Screen) }
         GroupDivider()
         GroupRow(
             Icons.Rounded.Timer,
@@ -375,14 +411,20 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, onOpen: (Set
             "${state.sourceOrder.count { it !in state.disabledSourceIds }} of ${state.sourceOrder.size} on",
         ) { onOpen(SettingsPage.Sources) }
         GroupDivider()
-        GroupRow(Icons.Rounded.Tune, SettingsPage.Advanced.title, "Cache and diagnostics") { onOpen(SettingsPage.Advanced) }
+        GroupRow(Icons.Rounded.Tune, SettingsPage.Advanced.title, "Updates, cache and diagnostics") { onOpen(SettingsPage.Advanced) }
     }
     Spacer(Modifier.height(SpicySpacing.S6))
-    AboutCard()
+    AboutCard(updater, settings)
 }
 
 @Composable
-private fun GroupRow(icon: ImageVector, label: String, summary: String, onClick: () -> Unit) {
+private fun GroupRow(
+    icon: ImageVector,
+    label: String,
+    summary: String,
+    trailing: ImageVector = Icons.AutoMirrored.Rounded.KeyboardArrowRight,
+    onClick: () -> Unit,
+) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val background by animateColorAsState(
@@ -404,7 +446,7 @@ private fun GroupRow(icon: ImageVector, label: String, summary: String, onClick:
             Text(label, style = SpicyType.Body.copy(fontWeight = FontWeight.Medium))
             Text(summary, style = SpicyType.Caption.copy(color = SpicyColors.TextSecondary), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
-        Icon(Icons.AutoMirrored.Rounded.KeyboardArrowRight, null, tint = SpicyColors.TextTertiary, modifier = Modifier.size(20.dp))
+        Icon(trailing, null, tint = SpicyColors.TextTertiary, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -415,35 +457,71 @@ private fun GroupDivider() {
 
 /** The footer card: the build's identity and a way out to the project. */
 @Composable
-private fun AboutCard() {
+private fun AboutCard(updater: UpdateViewModel, settings: AppSettings) {
     val context = LocalContext.current
-    Searchable("About", "Version", "GitHub", "Spicy Player Next") {
-        Row(
-            Modifier.fillMaxWidth().outlinedCard().padding(SpicySpacing.S4),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                Text("Spicy Player Next", style = SpicyType.Headline)
-                Text("Version ${BuildConfig.VERSION_NAME} · test build", style = SpicyType.Footnote.copy(color = SpicyColors.TextSecondary))
+    val update by updater.state.collectAsState()
+    // Found or hidden as one card; inside it, every row shows.
+    Searchable("About", "Version", "GitHub", "Spicy Player", "Updates", "Check for updates") {
+        CompositionLocalProvider(LocalSettingsQuery provides "") {
+            Column(Modifier.fillMaxWidth().outlinedCard()) {
+                Row(
+                    // The rows' 14dp inset, so the buttons line up with the one below.
+                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = SpicySpacing.S4),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text("Spicy Player", style = SpicyType.Headline)
+                        Text("Version ${BuildConfig.VERSION_NAME}", style = SpicyType.Footnote.copy(color = SpicyColors.TextSecondary))
+                    }
+                    SpicyButton("GitHub", onClick = {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL))) }
+                    })
+                }
+                if (updater.enabled) {
+                    GroupDivider()
+                    // A found update reopens its pop-up; otherwise the button checks again.
+                    val available = update.status as? UpdateStatus.Available
+                    SettingRow(
+                        label = "Check for updates",
+                        description = updateLine(update.status),
+                        icon = Icons.Rounded.SystemUpdate,
+                        // The group rows' 14dp inset.
+                        modifier = Modifier.padding(horizontal = 2.dp),
+                    ) {
+                        SpicyButton(
+                            if (available != null) "Update" else "Check",
+                            onClick = { if (available != null) updater.show() else updater.check(settings.includePrereleases) },
+                            enabled = update.status != UpdateStatus.Checking,
+                        )
+                    }
+                }
             }
-            SpicyButton("GitHub", onClick = {
-                runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL))) }
-            })
         }
     }
 }
 
+/** How the last update check went, under the Updates card's title. */
+private fun updateLine(status: UpdateStatus): String = when (status) {
+    UpdateStatus.Idle -> "Look for a newer version on GitHub."
+    UpdateStatus.Checking -> "Checking…"
+    UpdateStatus.UpToDate -> "You're on the newest version."
+    is UpdateStatus.Available -> "Version ${status.release.version} is ready to install."
+    is UpdateStatus.Downloading -> "Downloading… ${(status.progress * 100).toInt()}%"
+    is UpdateStatus.Installing -> "Waiting for Android's installer."
+    is UpdateStatus.Failed -> status.message
+}
+
 /** Every page's rows at once, each hiding unless it matches the search. */
 @Composable
-private fun SearchResults(query: String, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
+private fun SearchResults(query: String, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, updater: UpdateViewModel, settings: AppSettings) {
     CompositionLocalProvider(LocalSettingsQuery provides query) {
         EmptyOr(
             content = {
                 Column(Modifier.fillMaxWidth()) {
                     SettingsPage.entries.forEach { page ->
-                        SettingsSection(page.title) { PageContent(page, state, viewModel, settings) }
+                        SettingsSection(page.title) { PageContent(page, state, viewModel, updater, settings) }
                     }
-                    AboutCardSpacer()
+                    AboutCardSpacer(updater, settings)
                 }
             },
             empty = {
@@ -458,9 +536,9 @@ private fun SearchResults(query: String, state: PlayerUiState, viewModel: Extern
 }
 
 @Composable
-private fun AboutCardSpacer() {
-    Searchable("About", "Version", "GitHub", "Spicy Player Next") { Spacer(Modifier.height(SpicySpacing.S4)) }
-    AboutCard()
+private fun AboutCardSpacer(updater: UpdateViewModel, settings: AppSettings) {
+    Searchable("About", "Version", "GitHub", "Spicy Player", "Updates", "Check for updates") { Spacer(Modifier.height(SpicySpacing.S4)) }
+    AboutCard(updater, settings)
 }
 
 /** [content], or [empty] in its place when [content] lays out with no height. */
@@ -508,4 +586,4 @@ private const val HOME_PARALLAX = 0.15f
 /** How far a back gesture pulls a group's page toward the first page before letting go. */
 private const val PAGE_PEEK = 0.5f
 
-private const val PROJECT_URL = "https://github.com/TheX24/spicy-player-next"
+private const val PROJECT_URL = "https://github.com/TheX24/spicy-player"

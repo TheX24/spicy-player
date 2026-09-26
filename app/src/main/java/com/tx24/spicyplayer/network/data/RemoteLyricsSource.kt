@@ -128,10 +128,14 @@ class RemoteLyricsSource @Inject constructor(
             qualities.getOrPut(id) { hit.payload.measuredQuality() }
         } ?: RemoteLyricsQuality.NONE
         fun answered(id: String) = id in known || id in cooling
+        // Spicy Lyrics stands in its own place only for community syncs: what it relays from
+        // another catalogue ranks where that catalogue does.
+        fun byOrigin() = rankByOrigin(ranked, known)
         fun startBlends() {
             for (blend in blends) {
                 if (blend.id !in waiting) continue
-                val above = ranked.take(ranked.indexOfFirst { it.id == blend.id })
+                val order = byOrigin()
+                val above = order.take(order.indexOfFirst { it.id == blend.id })
                     .filter { source -> enabled.any { it.descriptor == source } }
                 // Word timing from a source ranked above is what the blend was for (`_outdone`).
                 if (above.any { quality(it.id) == RemoteLyricsQuality.WORD_SYNCED }) { waiting -= blend.id; continue }
@@ -159,14 +163,16 @@ class RemoteLyricsSource @Inject constructor(
                 }
             }
         }
-        fun current() = select(ranked, policy, known + blendResults, pending + waiting, cooling, qualities)
+        fun current() = select(byOrigin(), policy, known + blendResults, pending + waiting, cooling, qualities)
 
         var resolution = current()
         if (known.isNotEmpty()) onUpdate(resolution)
         toAsk.firstOrNull()?.let(::ask)
         var fannedOut = toAsk.size <= 1
         startBlends()
-        while (!settled(resolution, ranked, pending + waiting)) {
+        // Not asked yet counts as still out: a relayed answer can land below sources the lead skipped.
+        fun outstanding() = pending + waiting + toAsk.map { it.descriptor.id }.filter { it !in known }
+        while (!settled(resolution, byOrigin(), outstanding())) {
             if (!fannedOut && pending.isEmpty()) {
                 // The lead answered without settling the song: ask everyone else.
                 toAsk.drop(1).forEach(::ask)
@@ -381,7 +387,26 @@ class RemoteLyricsSource @Inject constructor(
         )
     }
 
-    private companion object {
+    internal companion object {
+        /**
+         * [ranked] with a Spicy Lyrics answer moved to where it came from: Apple Music lyrics it
+         * serves rank in Apple Music's place, and any other relayed catalogue after every source.
+         * Its own place is kept for its community syncs (and for no answer yet).
+         */
+        fun rankByOrigin(ranked: List<LyricsSourceDescriptor>, known: Map<String, ProviderResult>): List<LyricsSourceDescriptor> {
+            val spicy = ranked.firstOrNull { it.id == SPICY_ID } ?: return ranked
+            val origin = (known[SPICY_ID] as? ProviderResult.Hit)?.payload?.attribution?.originName ?: return ranked
+            if (origin in SPICY_OWN_ORIGINS) return ranked
+            val rest = ranked - spicy
+            val slot = if (origin == "Apple Music") rest.indexOfFirst { it.id == APPLE_MUSIC_ID } else -1
+            return if (slot < 0) rest + spicy else rest.take(slot) + spicy + rest.drop(slot)
+        }
+
+        const val SPICY_ID = "spicy_lyrics"
+        const val APPLE_MUSIC_ID = "apple_music"
+        /** Origin names (SpicyLyricsProvider.spicyOriginName) for Spicy Lyrics' own syncs. */
+        val SPICY_OWN_ORIGINS = setOf("Spicy Lyrics", "Spicy Lyrics Community")
+
         /** How long the lead source is asked alone before everyone else is asked too. */
         const val LEAD_HOLD_MS = 1_000L
         /** Where a blend takes its lines when nothing ranked above it has any. */

@@ -4,6 +4,7 @@ import android.content.SharedPreferences
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -35,7 +36,12 @@ class AppSettings(private val prefs: SharedPreferences) {
     var expandWithoutLyrics by boolean("expandWithoutLyrics", false)
 
     var keepScreenOn by boolean("keepScreenOn", true)
+    /** The screen's full refresh rate (90/120 Hz) instead of 60 Hz, which costs battery. */
+    var highRefreshRate by boolean("highRefreshRate", false)
     var autoHideControls by boolean("autoHideControls", true)
+
+    /** Pre-releases offered as updates. On by default while the app itself is one (0.x). */
+    var includePrereleases by boolean("includePrereleases", BuildConfig.VERSION_NAME.startsWith("0."))
 
     /** The word motion used when [originalWordMotion] is off (`RenderConfig.wordMotionBoost`). */
     val wordMotionBoost get() = if (originalWordMotion) 1f else WORD_MOTION_BOOST
