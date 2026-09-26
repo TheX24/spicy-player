@@ -3,6 +3,7 @@ package com.tx24.spicyplayer.lyrics.spicy.canvas
 import android.content.Context
 import androidx.compose.foundation.Canvas
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
@@ -197,10 +198,10 @@ fun SpicyLyricsView(
         }
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
         // A newer key cancels a measurement still running, so only the latest one lands.
-        LaunchedEffect(displayLines, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter) {
+        LaunchedEffect(displayLines, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, config.isSimple) {
             val measured = withContext(Dispatchers.Default) {
                 LyricsLayoutCalculator.calculateLineLayouts(
-                    displayLines, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanize,
+                    displayLines, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanize, config.isSimple,
                 )
             }
             shown = ShownLyrics(documentId, displayLines, measured, incomingType, incomingFooter)
@@ -422,6 +423,14 @@ fun SpicyLyricsView(
                     layout.isInterlude -> drawInterludeGroup(layout, lineAnim, lineStartX, scrollOffset, dynamicY)
                     lyricsType == LyricsType.Static -> drawStaticLine(layout, lineAnim, lineStartX, scrollOffset, dynamicY)
                     lyricsType == LyricsType.Line -> drawLineModeLine(layout, lineAnim, lineStartX, scrollOffset, dynamicY, config)
+                    // Minimal Lyrics Mode shrinks inactive lines (a CSS `scale`: paint only, no reflow)
+                    // about their start edge, like line-synced lines.
+                    lineAnim.scale != 1f -> withTransform({
+                        scale(lineAnim.scale, lineAnim.scale, Offset(
+                            if (layout.isRightAligned) lineStartX + layout.totalWidth else lineStartX,
+                            dynamicY + scrollOffset + layout.height / 2f,
+                        ))
+                    }) { drawStandardLine(layout, lineAnim, lineStartX, scrollOffset, dynamicY, config) }
                     else -> drawStandardLine(layout, lineAnim, lineStartX, scrollOffset, dynamicY, config)
                 }
             }

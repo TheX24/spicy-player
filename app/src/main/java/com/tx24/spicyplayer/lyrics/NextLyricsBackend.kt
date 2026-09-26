@@ -11,6 +11,9 @@ import com.tx24.spicyplayer.network.service.LyricsService
 import java.io.File
 import java.security.MessageDigest
 import java.util.concurrent.TimeUnit
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
 import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
@@ -31,6 +34,13 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         .sortedWith(compareBy<LyricsSourceDescriptor> { it.defaultPriority }.thenBy { it.id })
     /** Blends are switched on and off apart from the ordered sources; their rank follows their donors. */
     val blendDescriptors: List<LyricsSourceDescriptor> = LyricsBlends.ALL.map(LyricsBlendDefinition::descriptor)
+
+    /** Readies every source's tokens; failures are left for the real lookup to report. */
+    suspend fun warmUp() = coroutineScope {
+        providers.forEach { provider ->
+            launch { runCatching { provider.warmUp() }.onFailure { if (it is CancellationException) throw it } }
+        }
+    }
 
     suspend fun resolve(
         request: LyricsLookupRequest,
@@ -135,11 +145,17 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
         /** Bump when payload conversion changes, so stale conversions are refetched. */
         private const val CACHE_VERSION = 10
+        /** Bump when the default source order or on/off set changes, to reset saved choices once. */
+        private const val SOURCE_DEFAULTS_VERSION = 1
         private val LRCLIB_USER_AGENT = "Spicy Player Next ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
         private const val CACHE_DAYS = 3
     }
 
     fun policy(): RemoteLyricsPolicy {
+        // A new default order and set of sources replaces what was saved against the old one, once.
+        if (preferences.getInt("defaults", 0) < SOURCE_DEFAULTS_VERSION) {
+            preferences.edit().remove("order").remove("disabled").putInt("defaults", SOURCE_DEFAULTS_VERSION).apply()
+        }
         val order = preferences.getString("order", null)?.split(',')?.filter(String::isNotBlank)
         val disabled = preferences.getStringSet("disabled", emptySet()).orEmpty()
         val normalized = LyricsSourcePreferenceNormalizer.normalize(order, disabled, descriptors)

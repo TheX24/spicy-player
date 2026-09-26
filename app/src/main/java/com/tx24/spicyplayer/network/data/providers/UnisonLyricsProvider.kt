@@ -30,14 +30,13 @@ class UnisonLyricsProvider @Inject constructor(
     override val descriptor = LyricsSourceDescriptor(
         id = "unison",
         displayName = "Unison",
-        defaultPriority = 30,
+        defaultPriority = 50,
         capabilities = setOf(
             LyricsCapability.WORD_SYNC,
             LyricsCapability.LINE_SYNC,
             LyricsCapability.PLAIN_TEXT,
         ),
         releaseChannel = SourceReleaseChannel.EXTENDED,
-        defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = try {

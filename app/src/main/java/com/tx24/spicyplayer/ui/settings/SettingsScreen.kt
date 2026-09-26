@@ -61,6 +61,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.components.GlassButton
@@ -92,6 +93,12 @@ class LyricsPreferences(
     val wordMotionBoost: Float,
     val lowPerformance: Boolean,
     val onLowPerformanceChange: (Boolean) -> Unit,
+    val simpleLyricsMode: Boolean,
+    val onSimpleLyricsModeChange: (Boolean) -> Unit,
+    val simpleAnimationStyle: SimpleAnimationStyle,
+    val onSimpleAnimationStyleChange: (SimpleAnimationStyle) -> Unit,
+    val minimalLyricsMode: Boolean,
+    val onMinimalLyricsModeChange: (Boolean) -> Unit,
 )
 
 internal enum class SettingsPage(val title: String) {
@@ -339,7 +346,7 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 1, cards = true)
             SettingsSkeleton(rows = 2)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 2)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 5)
         SettingsPage.Sync -> SettingsSkeleton(rows = 1)
         SettingsPage.Sources -> SettingsSkeleton(rows = 9, cards = true)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 5)
@@ -359,8 +366,16 @@ private fun HomeGroups(state: PlayerUiState, prefs: LyricsPreferences, onOpen: (
         GroupRow(
             Icons.Rounded.TextFields,
             SettingsPage.Lyrics.title,
-            (if (prefs.originalWordMotion) "Original word motion" else "Boosted word motion") +
-                if (prefs.lowPerformance) ", low performance" else "",
+            listOfNotNull(
+                when {
+                    prefs.simpleLyricsMode && prefs.minimalLyricsMode -> "Simple and Minimal"
+                    prefs.simpleLyricsMode -> "Simple"
+                    prefs.minimalLyricsMode -> "Minimal"
+                    else -> null
+                },
+                if (prefs.originalWordMotion) "Original word motion" else "Boosted word motion",
+                "low performance".takeIf { prefs.lowPerformance },
+            ).joinToString().replaceFirstChar(Char::uppercase),
         ) { onOpen(SettingsPage.Lyrics) }
         GroupDivider()
         GroupRow(

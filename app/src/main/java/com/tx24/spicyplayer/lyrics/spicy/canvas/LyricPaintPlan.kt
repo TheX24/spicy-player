@@ -14,12 +14,14 @@ internal fun lyricPaintPlan(
     opacity: Float,
     blurRadius: Float,
     config: RenderConfig,
+    /** The NotSung colour: a word's `--gradient-alpha-end`, or a whole line's in line-synced lyrics. */
+    dimAlpha: Float = config.gradientAlphaDim,
 ): LyricPaintPlan {
     if (state == ElementState.Active) return LyricPaintPlan.ActiveGradient
     val stateAlpha = when {
         isBackground && state == ElementState.NotSung -> 0.3f
         isBackground -> 0.6f
-        state == ElementState.NotSung -> config.gradientAlphaDim
+        state == ElementState.NotSung -> dimAlpha
         else -> config.gradientAlphaBright
     }
     return LyricPaintPlan.InactiveShadow(

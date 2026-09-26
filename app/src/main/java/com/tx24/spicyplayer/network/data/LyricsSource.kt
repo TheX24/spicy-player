@@ -21,7 +21,7 @@ class LyricsSource @Inject constructor(
     override val descriptor = LyricsSourceDescriptor(
         id = "lrclib",
         displayName = "LRCLIB",
-        defaultPriority = 100,
+        defaultPriority = 90,
         capabilities = setOf(
             LyricsCapability.LINE_SYNC,
             LyricsCapability.PLAIN_TEXT,

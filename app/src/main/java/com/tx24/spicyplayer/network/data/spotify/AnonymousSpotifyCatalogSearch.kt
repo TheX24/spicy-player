@@ -4,6 +4,8 @@ import com.google.gson.Gson
 import com.google.gson.JsonObject
 import com.tx24.spicyplayer.network.data.awaitResponse
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -35,13 +37,27 @@ class AnonymousSpotifyCatalogSearch constructor(
                 "${track.title} ${track.album}".trim(),
             ).filter(String::isNotBlank)
 
-            val first = searchOnceWithTokenRetry(queries.first())
-            if (SpotifyTrackMatcher.resolve(track, first) is SpotifyTrackResolution.Matched || queries.size == 1) {
-                return@withContext first
+            if (queries.size == 1) return@withContext searchOnceWithTokenRetry(queries.first())
+            // Both at once: the album query is only needed when the first misses, but waiting to
+            // find that out costs a whole round trip on exactly the songs that are already slow.
+            coroutineScope {
+                // Its failure mustn't sink a first query that matched on its own.
+                val byAlbum = async {
+                    try { searchOnceWithTokenRetry(queries.last()) } catch (error: IOException) { emptyList() }
+                }
+                val first = searchOnceWithTokenRetry(queries.first())
+                if (SpotifyTrackMatcher.resolve(track, first) is SpotifyTrackResolution.Matched) {
+                    byAlbum.cancel()
+                    first
+                } else {
+                    (first + byAlbum.await()).distinctBy(SpotifyTrackCandidate::id)
+                }
             }
-            (first + searchOnceWithTokenRetry(queries.last()))
-                .distinctBy(SpotifyTrackCandidate::id)
         }
+
+    override suspend fun warmUp() {
+        withContext(Dispatchers.IO) { session() }
+    }
 
     private suspend fun searchOnceWithTokenRetry(query: String): List<SpotifyTrackCandidate> {
         val firstSession = session()

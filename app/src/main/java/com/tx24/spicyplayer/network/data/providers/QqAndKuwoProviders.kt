@@ -19,7 +19,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 @Singleton
 class QqMusicLyricsProvider @Inject constructor(private val client:OkHttpClient,private val gson:Gson):RemoteLyricsProvider{
- override val descriptor=LyricsSourceDescriptor("qq_music","QQ Music",80,setOf(LyricsCapability.WORD_SYNC,LyricsCapability.LINE_SYNC),releaseChannel=SourceReleaseChannel.EXTENDED,defaultEnabled=false)
+ override val descriptor=LyricsSourceDescriptor("qq_music","QQ Music",80,setOf(LyricsCapability.WORD_SYNC,LyricsCapability.LINE_SYNC),releaseChannel=SourceReleaseChannel.EXTENDED)
  override suspend fun fetch(request:LyricsLookupRequest):ProviderResult { return try{
   val headers=mapOf("Referer" to "https://y.qq.com/")
   val search=gson.toJson(mapOf("req_1" to mapOf("module" to "music.search.SearchCgiService", "method" to "DoSearchForQQMusicDesktop", "param" to mapOf("num_per_page" to 8, "page_num" to 1, "query" to "${request.artist} ${request.title}", "search_type" to 0))))
@@ -52,7 +52,7 @@ class QqMusicLyricsProvider @Inject constructor(private val client:OkHttpClient,
 
 @Singleton
 class KuwoLyricsProvider @Inject constructor(private val client:OkHttpClient):RemoteLyricsProvider{
- override val descriptor=LyricsSourceDescriptor("kuwo","Kuwo",90,setOf(LyricsCapability.LINE_SYNC),releaseChannel=SourceReleaseChannel.EXTENDED,defaultEnabled=false)
+ override val descriptor=LyricsSourceDescriptor("kuwo","Kuwo",120,setOf(LyricsCapability.LINE_SYNC),releaseChannel=SourceReleaseChannel.EXTENDED)
  override suspend fun fetch(request:LyricsLookupRequest):ProviderResult { return try{
   val url="https://search.kuwo.cn/r.s".toHttpUrl().newBuilder().addQueryParameter("all","${request.artist} ${request.title}").addQueryParameter("ft","music").addQueryParameter("client","kt").addQueryParameter("cluster","0").addQueryParameter("pn","0").addQueryParameter("rn","8").addQueryParameter("rformat","json").addQueryParameter("encoding","utf8")
    // Without these the search leaves out licensed originals and returns only covers and remixes.

@@ -7,13 +7,16 @@ data class RenderConfig(
     /** Already scoped to a fullscreen, non-compact surface by the caller. */
     val minimalLyricsMode: Boolean,
     val simpleAnimationStyle: SimpleAnimationStyle = SimpleAnimationStyle.CALCULATE,
-    val gradientAlphaBright: Float = 0.85f,
-    val gradientAlphaDim: Float = 0.5f,
+    /** Mixed.css `--gradient-alpha`: 1 under `.SimpleLyricsMode`. Background vocals keep 0.6. */
+    val gradientAlphaBright: Float = if (simpleLyricsMode) 1f else 0.85f,
+    /** `--gradient-alpha-end` on words and letters: 0.3 under `.SimpleLyricsMode`. */
+    val gradientAlphaDim: Float = if (simpleLyricsMode) 0.3f else 0.5f,
+    /** A whole line's `--gradient-alpha-end` (line-synced lyrics), `!important` in every mode. */
     val lineGradientAlphaDim: Float = 0.35f,
     val opacityActive: Float = 1f,
-    val opacityNotSung: Float = if (minimalLyricsMode) 0.5f else 0.51f,
-    val opacitySung: Float = if (minimalLyricsMode) 0f else 0.497f,
-    val lineTransitionMs: Int = if (minimalLyricsMode) 400 else 200,
+    /** `--Vocal-NotSung-opacity` / `--Vocal-Sung-opacity`; Minimal's own values live in the animator. */
+    val opacityNotSung: Float = if (simpleLyricsMode) 0.45f else 0.51f,
+    val opacitySung: Float = if (simpleLyricsMode) 0.35f else 0.497f,
     /** Simple deliberately retains the reference's distance blur. */
     val distanceBlurEnabled: Boolean = true,
     /** Not in the reference: false drops every glow halo (low performance mode). */
@@ -22,7 +25,6 @@ data class RenderConfig(
     val lettersEnabled: Boolean = true,
     val letterDurationThresholdMs: Long = if (simpleLyricsMode) 1050L else 1000L,
     val letterMaxLength: Int = if (simpleLyricsMode) 12 else Int.MAX_VALUE,
-    val interludeGapThresholdMs: Long = if (minimalLyricsMode) 5000L else 3000L,
     /**
      * Not in the reference: multiplies how far sung words and letters grow (their scale away
      * from 1) and lift (their y offset). 1 is Spicy Lyrics' own motion.

@@ -20,7 +20,7 @@ import okhttp3.Request
 class KugouLyricsProvider @Inject constructor(private val client: OkHttpClient, private val gson: Gson) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
         "kugou", "Kugou", 70, setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC),
-        releaseChannel = SourceReleaseChannel.EXTENDED, defaultEnabled = false,
+        releaseChannel = SourceReleaseChannel.EXTENDED,
     )
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
         return try {

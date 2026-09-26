@@ -58,6 +58,10 @@ class SpicyLyricsProvider @Inject constructor(
         releaseChannel = SourceReleaseChannel.RECOMMENDED,
     )
 
+    override suspend fun warmUp() {
+        if (apiKey.isNotBlank()) spotifyResolver.warmUp()
+    }
+
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
         if (apiKey.isBlank()) {
             return ProviderResult.Unavailable(

@@ -6,6 +6,8 @@ import android.util.Log
 class SpotifyTrackResolver(private val catalogSearch: SpotifyCatalogSearch) {
     private var cached: Pair<LocalTrackMetadata, SpotifyTrackResolution.Matched>? = null
 
+    suspend fun warmUp() = catalogSearch.warmUp()
+
     suspend fun resolve(track: LocalTrackMetadata): SpotifyTrackResolution {
         cached?.takeIf { it.first == track }?.let { return it.second }
         val startedAt = android.os.SystemClock.elapsedRealtime()

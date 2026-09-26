@@ -8,4 +8,7 @@ package com.tx24.spicyplayer.network.data.spotify
  */
 interface SpotifyCatalogSearch {
     suspend fun search(track: LocalTrackMetadata): List<SpotifyTrackCandidate>
+
+    /** Readies the transport (e.g. its token) so the first search doesn't pay for it. */
+    suspend fun warmUp() {}
 }

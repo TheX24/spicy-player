@@ -23,11 +23,10 @@ class AppleMusicLyricsProvider @Inject constructor(
     private val gson: Gson,
 ) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
-        "apple_music", "Apple Music", 25,
+        "apple_music", "Apple Music", 30,
         setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC),
         upstreamFamily = "apple_music",
         releaseChannel = SourceReleaseChannel.EXTENDED,
-        defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {

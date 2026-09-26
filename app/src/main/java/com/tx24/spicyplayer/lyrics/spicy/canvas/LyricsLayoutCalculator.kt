@@ -87,6 +87,7 @@ internal object LyricsLayoutCalculator {
         lyricsType: LyricsType,
         fontSizeScale: Float = 1.0f,
         romanize: Boolean = false,
+        simpleMode: Boolean = false,
     ): List<LineLayout> {
 
         val layouts = mutableListOf<LineLayout>()
@@ -113,7 +114,9 @@ internal object LyricsLayoutCalculator {
                 // You can adjust the multiplier here to make the dots bigger or smaller:
                 val dotFontSize = baseFontSize * 1.3f // FIXED: dots=1.3x font
                 // Reference .dotGroup gap: clamp(0.005rem, 1.7cqw, 0.18rem), 1rem = 16dp.
-                val dotGap = (canvasWidth * 0.017f).coerceIn(0.005f * 16f * density, 0.18f * 16f * density)
+                // `--dot-gap`: clamp(0.005rem, 1.7cqw, 0.18rem); Simple: clamp(0.0067rem, 1.76cqw, 0.32rem).
+                val dotGap = if (simpleMode) (canvasWidth * 0.0176f).coerceIn(0.0067f * 16f * density, 0.32f * 16f * density)
+                    else (canvasWidth * 0.017f).coerceIn(0.005f * 16f * density, 0.18f * 16f * density)
                 val dotLayouts = interludeDotTimes(line.startMs, line.endMs).mapIndexed { dotIdx, (dotStart, dotEnd) ->
                     val dotWord = Word("•", dotStart, dotEnd)
                     val result = textMeasurer.measure(

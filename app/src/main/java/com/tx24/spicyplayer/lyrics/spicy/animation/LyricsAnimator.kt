@@ -5,6 +5,7 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.tween
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
@@ -143,6 +144,17 @@ class LyricsAnimator(
             y0 + (y1 - y0) * ((fraction - x0) / (x1 - x0).coerceAtLeast(0.0001f))
         }
         const val MUSICAL_LINE_TRANSITION_MS = 140
+        /** Where Simple mode's Animate sweep (SLM_Animation) starts, in percent. */
+        const val SLM_FROM = -27.5f
+        /** `.line` opacity (and line-synced scale) transition: 0.2s. */
+        const val LINE_TRANSITION_MS = 200
+        /** Minimal Lyrics Mode (Mixed.css): scale 0.4s ease-in-out, opacity 0.4s linear. */
+        const val MINIMAL_TRANSITION_MS = 400
+        val EASE_IN_OUT = CubicBezierEasing(0.42f, 0f, 0.58f, 1f)
+        const val MINIMAL_SUNG_SCALE = 0.95f
+        const val MINIMAL_NOT_SUNG_SCALE = 0.965f
+        const val MINIMAL_NOT_SUNG_OPACITY = 0.5f
+        const val MINIMAL_AFTER_ACTIVE_OPACITY = 0.45f
         const val DOT_GROUP_EXPANSION_MS = 300
         const val DOT_GROUP_COLLAPSE_MS = 400
 
@@ -249,8 +261,14 @@ class LyricsAnimator(
 
         if (blurAmounts.size != lines.size) blurAmounts = FloatArray(lines.size)
 
+        val states = lines.map { elementState(processedPosition, it.startMs, it.endMs) }
+        // Minimal's `.LyricsContent:not(.HideLineBlur)` rules drop out while the user scrolls.
+        val minimalLook = config.isMinimal && !suppressBlur
+        // `.LyricsContent:not(:has(.line.Active)):not(:has(.line.NotSung))`: the song is over.
+        val allSung = states.none { it != ElementState.Sung }
+
         return lines.mapIndexed { lineIdx, line ->
-            val lineState = elementState(processedPosition, line.startMs, line.endMs)
+            val lineState = states[lineIdx]
             val isActive = !line.isSongwriter && lineState == ElementState.Active
 
             // Distance blur: recompute only when the active line changes.
@@ -267,13 +285,15 @@ class LyricsAnimator(
             // Sung/NotSung, so line opacity can go back to tracking lineState alone.
             val stillFinalizing = lineState == ElementState.Sung &&
                 (shouldFinalize(lines, lineIdx, processedPosition) || !isSettled(cachedWordStates[lineIdx]))
-            val opacity = animateLineOpacity(lineIdx, line, lineState, isActive)
+            val afterActive = states.getOrNull(lineIdx - 1) == ElementState.Active
+            val opacity = animateLineOpacity(lineIdx, line, lineState, isActive, lyricsType, minimalLook, allSung, afterActive)
             val lineScale = when {
                 line.isInterlude -> animateInterludeScale(lineIdx, line, processedPosition, isActive)
-                config.isMinimal -> animateTweenScale(lineIdx, when (lineState) {
-                    ElementState.Active -> 1f
-                    ElementState.Sung -> 0.95f
-                    ElementState.NotSung -> 0.965f
+                // Mixed.css `.Fullscreen.MinimalLyricsMode .line:not(.musical-line)`.
+                config.isMinimal && !line.isSongwriter -> animateTweenScale(lineIdx, when {
+                    lineState == ElementState.Active || allSung || !minimalLook -> 1f
+                    lineState == ElementState.Sung -> MINIMAL_SUNG_SCALE
+                    else -> MINIMAL_NOT_SUNG_SCALE
                 })
                 // Line-mode active line scales to 1.05 (CSS: data-lyrics-type="Line" .line.Active).
                 lyricsType == LyricsType.Line && !line.isSongwriter ->
@@ -317,7 +337,7 @@ class LyricsAnimator(
                             animateInterludeDots(line, processedPosition, deltaTime, lineIdx, finalize = false)
                         } else {
                             line.words.mapIndexed { wordIdx, word ->
-                                animateWord(word, processedPosition, deltaTime, lineIdx, wordIdx)
+                                animateWord(word, line.words.getOrNull(wordIdx - 1), processedPosition, deltaTime, lineIdx, wordIdx)
                             }
                         }
                         cachedWordStates[lineIdx] = states
@@ -368,12 +388,23 @@ class LyricsAnimator(
         line: Line,
         lineState: ElementState,
         isActive: Boolean,
+        lyricsType: LyricsType,
+        minimalLook: Boolean,
+        allSung: Boolean,
+        afterActive: Boolean,
     ): Float {
         val target = when {
             line.isSongwriter -> 0.6f
             line.isInterlude -> if (isActive) 1f else 0f
             // Reference: bg-lines have NO opacity override — they use the standard .line state
             // opacities; only their gradient alphas differ (0.6/0.3, applied in the renderer).
+            minimalLook && allSung -> config.opacitySung
+            minimalLook -> when (lineState) {
+                ElementState.Active -> config.opacityActive
+                ElementState.NotSung -> MINIMAL_NOT_SUNG_OPACITY
+                // `.line.Active + .line.Sung`: a finished line right under the active one stays faint.
+                ElementState.Sung -> if (afterActive) MINIMAL_AFTER_ACTIVE_OPACITY else 0f
+            }
             else -> when (lineState) {
                 ElementState.Active -> config.opacityActive
                 ElementState.NotSung -> config.opacityNotSung
@@ -382,10 +413,14 @@ class LyricsAnimator(
         }
         val animatable = lineOpacityAnims.getOrPut(lineIdx) { Animatable(target) }
         if (animatable.targetValue != target) {
-            coroutineScope.launch {
-                val duration = if (line.isInterlude) MUSICAL_LINE_TRANSITION_MS else config.lineTransitionMs
-                animatable.animateTo(target, tween(duration, easing = OPACITY_EASING))
+            val spec = when {
+                line.isInterlude -> tween<Float>(MUSICAL_LINE_TRANSITION_MS, easing = OPACITY_EASING)
+                config.isMinimal && !line.isSongwriter -> tween<Float>(MINIMAL_TRANSITION_MS, easing = LinearEasing)
+                // The line-synced `.line` rule swaps the easing for its scale curve.
+                lyricsType == LyricsType.Line -> tween<Float>(LINE_TRANSITION_MS, easing = SCALE_EASING)
+                else -> tween<Float>(LINE_TRANSITION_MS, easing = OPACITY_EASING)
             }
+            coroutineScope.launch { animatable.animateTo(target, spec) }
         }
         return animatable.value
     }
@@ -417,13 +452,13 @@ class LyricsAnimator(
         return animatable.value
     }
 
-    /** Generic line-scale tween (Line-mode active-line 1.05, CSS transition semantics). */
+    /** Generic line-scale tween (Line-mode active-line 1.05, Minimal's shrink; CSS transitions). */
     private fun animateTweenScale(lineIdx: Int, target: Float): Float {
         val animatable = lineScaleAnims.getOrPut(lineIdx) { Animatable(target) }
         if (animatable.targetValue != target) {
-            coroutineScope.launch {
-                animatable.animateTo(target, tween(config.lineTransitionMs, easing = SCALE_EASING))
-            }
+            val spec = if (config.isMinimal) tween<Float>(MINIMAL_TRANSITION_MS, easing = EASE_IN_OUT)
+                else tween(LINE_TRANSITION_MS, easing = SCALE_EASING)
+            coroutineScope.launch { animatable.animateTo(target, spec) }
         }
         return animatable.value
     }
@@ -461,6 +496,7 @@ class LyricsAnimator(
 
     private fun animateWord(
         word: Word,
+        previous: Word?,
         processedPosition: Double,
         deltaTime: Float,
         lineIndex: Int,
@@ -470,6 +506,7 @@ class LyricsAnimator(
         val wordState = elementState(processedPosition, word.startMs, word.endMs)
         val percentage = progress(processedPosition, word.startMs, word.endMs)
         val simple = config.isSimple
+        val animateStyle = simple && config.simpleAnimationStyle == SimpleAnimationStyle.ANIMATE
         val gradientBase = if (simple) -50f else -20f
 
         val targetScale: Float
@@ -481,14 +518,17 @@ class LyricsAnimator(
                 targetScale = scaleSpline.at(percentage)
                 targetYOffset = yOffsetSpline.at(percentage)
                 targetGlow = glowSpline.at(percentage)
-                targetGradientPos = if (simple && config.simpleAnimationStyle == SimpleAnimationStyle.ANIMATE)
-                    -27.5f + 127.5f * percentage else gradientBase + 120f * percentage
+                // Animate: the SLM_Animation keyframes, -27.5% to 100% linearly over the word.
+                targetGradientPos = if (animateStyle) SLM_FROM + (100f - SLM_FROM) * percentage
+                    else gradientBase + 120f * percentage
             }
             ElementState.NotSung -> {
                 targetScale = scaleSpline.at(0f)
                 targetYOffset = yOffsetSpline.at(0f)
                 targetGlow = glowSpline.at(0f)
-                targetGradientPos = gradientBase
+                targetGradientPos = if (animateStyle && !word.isLetterGroup && previous != null) {
+                    preSweep(previous, processedPosition)
+                } else gradientBase
             }
             ElementState.Sung -> {
                 targetScale = scaleSpline.at(1f)
@@ -610,13 +650,17 @@ class LyricsAnimator(
                 targetGlow = glowSpline.at(SUNG_LETTER_GLOW)
             }
 
-            // Gradient: only the actual active letter sweeps (eased); rest hold base/final.
+            // Gradient: only the actual active letter sweeps (eased; Animate: SLM_Animation's
+            // linear -27.5% to 100%); rest hold base/final.
             val targetGradient = when (letterState) {
                 ElementState.NotSung -> gradientBase
                 ElementState.Sung -> 100f
-                ElementState.Active ->
-                    if (k == activeLetterIndex) gradientBase + 120f * easeSinOut(activeLetterPercentage)
-                    else gradientBase
+                ElementState.Active -> when {
+                    simple && config.simpleAnimationStyle == SimpleAnimationStyle.ANIMATE ->
+                        SLM_FROM + (100f - SLM_FROM) * progress(processedPosition, letter.startMs, letter.endMs)
+                    k == activeLetterIndex -> gradientBase + 120f * easeSinOut(activeLetterPercentage)
+                    else -> gradientBase
+                }
             }
 
             val s = letterSprings(lineIndex, wordIndex, k)
@@ -726,8 +770,9 @@ class LyricsAnimator(
         val gradientBase = if (simple) -50f else -20f
         val isLetterGroup = word.isLetterGroup && word.letters.isNotEmpty()
         return WordAnimState(
+            // Simple mode's applyer leaves a word's scale and lift unset until the animator reaches it.
             scale = if (simple) 1f else scaleSpline.at(0f),
-            yOffset = yOffsetSpline.at(0f),
+            yOffset = if (simple) 0f else yOffsetSpline.at(0f),
             glow = 0f,
             gradientPosition = gradientBase,
             state = ElementState.NotSung,
@@ -765,6 +810,22 @@ class LyricsAnimator(
         ) { LetterSprings() }
 
     // ── Helpers ─────────────────────────────────────────────────────────────────────
+
+    /**
+     * Simple mode's Animate style readies a word before it is sung: once the word before it has
+     * run 60% of its length less 22ms (a held, letter-split word: 84.5% less 130ms), it eases from
+     * -50% to the SLM_Animation start of -27.5% over 125ms (250ms), then holds there
+     * (Pre_SLM_GradientAnimation, `forwards`).
+     */
+    private fun preSweep(previous: Word, t: Double): Float {
+        if (t < previous.startMs) return -50f
+        val held = previous.isLetterGroup && previous.letters.isNotEmpty()
+        val duration = previous.endMs - previous.startMs
+        val delay = (if (held) duration * 0.845 - 130 else duration * 0.6 - 22).coerceAtLeast(0.0)
+        val length = if (held) 250.0 else 125.0
+        val x = ((t - previous.startMs - delay) / length).coerceIn(0.0, 1.0).toFloat()
+        return -50f + (SLM_FROM + 50f) * x
+    }
 
     private fun elementState(t: Double, startMs: Long, endMs: Long): ElementState = when {
         t < startMs -> ElementState.NotSung

@@ -46,6 +46,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
+import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -144,8 +145,19 @@ private fun LyricsApp(
         lowPerformance = on
         uiPrefs.edit().putBoolean("lowPerformance", on).apply()
     }
-    val renderConfig = remember(originalWordMotion, lowPerformance) {
-        RenderConfig.FULL.copy(
+    // Spicy Lyrics' Simple and Minimal Lyrics Modes.
+    var simpleLyricsMode by remember { mutableStateOf(uiPrefs.getBoolean("simpleLyricsMode", false)) }
+    var simpleAnimationStyle by remember {
+        mutableStateOf(runCatching { SimpleAnimationStyle.valueOf(uiPrefs.getString("simpleAnimationStyle", null)!!) }
+            .getOrDefault(SimpleAnimationStyle.CALCULATE))
+    }
+    var minimalLyricsMode by remember { mutableStateOf(uiPrefs.getBoolean("minimalLyricsMode", false)) }
+    val renderConfig = remember(originalWordMotion, lowPerformance, simpleLyricsMode, simpleAnimationStyle, minimalLyricsMode) {
+        // Built fresh, not copied: the mode-dependent defaults are worked out in the constructor.
+        RenderConfig(
+            simpleLyricsMode = simpleLyricsMode,
+            minimalLyricsMode = minimalLyricsMode,
+            simpleAnimationStyle = simpleAnimationStyle,
             wordMotionBoost = if (originalWordMotion) 1f else WORD_MOTION_BOOST,
             distanceBlurEnabled = !lowPerformance,
             glowEnabled = !lowPerformance,
@@ -294,6 +306,21 @@ private fun LyricsApp(
                     wordMotionBoost = WORD_MOTION_BOOST,
                     lowPerformance = lowPerformance,
                     onLowPerformanceChange = setLowPerformance,
+                    simpleLyricsMode = simpleLyricsMode,
+                    onSimpleLyricsModeChange = { on ->
+                        simpleLyricsMode = on
+                        uiPrefs.edit().putBoolean("simpleLyricsMode", on).apply()
+                    },
+                    simpleAnimationStyle = simpleAnimationStyle,
+                    onSimpleAnimationStyleChange = { style ->
+                        simpleAnimationStyle = style
+                        uiPrefs.edit().putString("simpleAnimationStyle", style.name).apply()
+                    },
+                    minimalLyricsMode = minimalLyricsMode,
+                    onMinimalLyricsModeChange = { on ->
+                        minimalLyricsMode = on
+                        uiPrefs.edit().putBoolean("minimalLyricsMode", on).apply()
+                    },
                 ),
                 backdrop = backdrop,
                 contentPadding = padding,
@@ -387,7 +414,7 @@ private fun LyricsPanel(
         }
         is LyricsState.Error -> LyricsNotice(lyrics.message, lyrics.detail, noticeBottomPx, modifier)
         is LyricsState.Ready -> {
-            val rendererLines = remember(lyrics.lines) {
+            val rendererLines = remember(lyrics.lines, config.isMinimal, config.isSimple) {
                 buildDisplayTimeline(lyrics.lines.map { line ->
                     Line(
                         words = line.words.map { word ->
@@ -400,7 +427,11 @@ private fun LyricsPanel(
                         groupId = line.groupId,
                         oppositeAligned = line.oppositeAligned,
                     )
-                }, minimalMode = false)
+                }, minimalMode = config.isMinimal, holdThroughShortGaps = when (lyrics.lyricsType) {
+                    LyricsType.Syllable -> config.isMinimal
+                    LyricsType.Line -> config.isSimple
+                    else -> false
+                })
             }
             SpicyLyricsView(
                 lines = rendererLines,

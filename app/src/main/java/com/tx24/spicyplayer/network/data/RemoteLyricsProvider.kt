@@ -109,6 +109,9 @@ interface RemoteLyricsProvider {
     val descriptor: LyricsSourceDescriptor
 
     suspend fun fetch(request: LyricsLookupRequest): ProviderResult
+
+    /** Gets whatever every lookup needs first (a token, say) ready before the first song asks. */
+    suspend fun warmUp() {}
 }
 
 /** Snapshot of source preferences for one lookup. */

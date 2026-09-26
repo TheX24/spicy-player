@@ -15,16 +15,22 @@ private const val MINIMAL_INTERLUDE_THRESHOLD_MS = 5_000L
  * not the first line: in Bologna 2 the first line starts at 3.1s for a background "Pluh" but
  * the song's StartTime is 12.4s, when the lead vocal comes in. TTML carries no song StartTime,
  * so it is taken from the first lead line's own words.
+ *
+ * [holdThroughShortGaps] is the applyers' lineEndTime stretch, which spicy-lyrics turns on in
+ * Minimal Lyrics Mode for word-synced lyrics and in Simple Lyrics Mode for line-synced ones.
  */
-fun buildDisplayTimeline(lines: List<Line>, minimalMode: Boolean): List<Line> {
+fun buildDisplayTimeline(lines: List<Line>, minimalMode: Boolean, holdThroughShortGaps: Boolean = false): List<Line> {
     if (lines.isEmpty()) return emptyList()
 
     val threshold = if (minimalMode) MINIMAL_INTERLUDE_THRESHOLD_MS else NORMAL_INTERLUDE_THRESHOLD_MS
     if (lines.none { it.role == LineRole.LEAD }) return lines
 
+    val leads = lines.filter { it.role == LineRole.LEAD }
     val timeline = ArrayList<Line>(lines.size + 8)
     var previousLead: Line? = null
+    var leadIndex = 0
     for (line in lines) {
+        var shown = line
         if (line.role == LineRole.LEAD) {
             val gapStart = previousLead?.endMs ?: 0L
             val gapEnd = if (previousLead == null) line.words.minOfOrNull { it.startMs } ?: line.startMs else line.startMs
@@ -32,8 +38,14 @@ fun buildDisplayTimeline(lines: List<Line>, minimalMode: Boolean): List<Line> {
                 timeline += Line(words = emptyList(), startMs = gapStart, endMs = gapEnd, role = LineRole.INTERLUDE)
             }
             previousLead = line
+            // The applyers' lineEndTime: a lead stays Active up to the next lead when the gap to it
+            // is shorter than an interlude, so no line sits between Sung and Active.
+            val next = leads.getOrNull(++leadIndex)
+            if (holdThroughShortGaps && next != null && next.startMs > line.endMs && next.startMs - line.endMs < threshold) {
+                shown = line.copy(endMs = next.startMs)
+            }
         }
-        timeline += line
+        timeline += shown
     }
     return timeline
 }

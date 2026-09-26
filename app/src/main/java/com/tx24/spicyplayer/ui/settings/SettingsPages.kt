@@ -35,6 +35,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tx24.spicyplayer.lyrics.LyricsState
+import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.network.data.LyricsCapability
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor
@@ -47,6 +48,7 @@ import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.components.DISABLED_ALPHA
 import com.tx24.spicyplayer.ui.components.DescriptionStyle
 import com.tx24.spicyplayer.ui.components.RowLabel
+import com.tx24.spicyplayer.ui.components.SlSelect
 import com.tx24.spicyplayer.ui.components.Searchable
 import com.tx24.spicyplayer.ui.components.SettingRow
 import com.tx24.spicyplayer.ui.components.SettingsSection
@@ -121,6 +123,32 @@ internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
 
 @Composable
 internal fun LyricsContent(prefs: LyricsPreferences) {
+    // Spicy Lyrics' "Lyrics Display" section, in its order and words.
+    ToggleRow(
+        label = "Simple Lyrics Mode",
+        checked = prefs.simpleLyricsMode,
+        onCheckedChange = prefs.onSimpleLyricsModeChange,
+        description = "Remove extra visual effects from lyrics.",
+    )
+    SettingRow(
+        label = "Simple Mode: Text Animation Style",
+        description = "How lyrics text transitions are rendered in Simple Lyrics Mode.",
+        enabled = prefs.simpleLyricsMode,
+    ) {
+        SlSelect(
+            value = prefs.simpleAnimationStyle.name,
+            options = SimpleAnimationStyle.entries.map { it.name },
+            labels = SimpleAnimationStyle.entries.map { it.name.lowercase() },
+            onChange = { prefs.onSimpleAnimationStyleChange(SimpleAnimationStyle.valueOf(it)) },
+            enabled = prefs.simpleLyricsMode,
+        )
+    }
+    ToggleRow(
+        label = "Minimal Lyrics Mode",
+        checked = prefs.minimalLyricsMode,
+        onCheckedChange = prefs.onMinimalLyricsModeChange,
+        description = "Hides sung lyrics lines.",
+    )
     ToggleRow(
         label = "Original word motion",
         checked = prefs.originalWordMotion,

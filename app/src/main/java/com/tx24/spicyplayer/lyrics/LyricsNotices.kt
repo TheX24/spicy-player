@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.lyrics
 
+import com.tx24.spicyplayer.network.data.LyricsBlends
 import com.tx24.spicyplayer.network.data.ProviderAttempt
 import com.tx24.spicyplayer.network.data.ProviderAttemptOutcome
 import com.tx24.spicyplayer.network.data.ProviderFailureCategory
@@ -28,7 +29,11 @@ internal object LyricsNotices {
 
     /** For a finished lookup that picked nothing. [nameOf] turns a source id into its display name. */
     fun noLyrics(attempts: List<ProviderAttempt>, nameOf: (String) -> String): LyricsState.Error {
-        val asked = attempts.filter { it.outcome != ProviderAttemptOutcome.DISABLED && it.outcome != ProviderAttemptOutcome.SKIPPED }
+        // A blend is built from other sources' answers, not asked itself, so it isn't counted.
+        val asked = attempts.filter {
+            it.outcome != ProviderAttemptOutcome.DISABLED && it.outcome != ProviderAttemptOutcome.SKIPPED &&
+                LyricsBlends.byId(it.sourceId) == null
+        }
         if (asked.isEmpty()) return LyricsState.Error("No lyrics sources are turned on", "Turn one on in Settings")
 
         val failed = asked.filter { it.outcome in FAILURES }

@@ -57,6 +57,8 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.unit.em
 import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
@@ -260,6 +262,60 @@ private val ToggleTrackOn = Color.White.copy(alpha = 0.42f)
 private val ToggleKnobOff = Color(245, 245, 245).copy(alpha = 0.78f)
 
 private fun lerp(a: Color, b: Color, t: Float) = androidx.compose.ui.graphics.lerp(a, b, t)
+
+/**
+ * `.sl-sp-select`: a tinted pill showing the chosen label. SL leaves the list to the browser's
+ * own `<select>`, whose options are dark text on white; this draws that list under the pill.
+ */
+@Composable
+fun SlSelect(
+    value: String,
+    options: List<String>,
+    onChange: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    labels: List<String> = options,
+    enabled: Boolean = true,
+) {
+    var open by remember { mutableStateOf(false) }
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val shape = RoundedCornerShape(SpicyRadii.Sm)
+    Box(modifier) {
+        Text(
+            labels.getOrElse(options.indexOf(value)) { value },
+            style = SpicyType.Caption.copy(fontWeight = FontWeight.Medium),
+            modifier = Modifier
+                .clip(shape)
+                .background(if (pressed || open) SpicyColors.TintBgPressed else SpicyColors.TintBg)
+                .border(1.dp, if (pressed || open) SpicyColors.HairlineStrong else SpicyColors.Hairline, shape)
+                .clickable(interaction, indication = null, enabled = enabled, role = Role.DropdownList) { open = true }
+                .padding(horizontal = 10.dp, vertical = 6.dp),
+        )
+        if (open) {
+            Popup(onDismissRequest = { open = false }, properties = PopupProperties(focusable = true)) {
+                Column(
+                    Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color.White)
+                        .padding(vertical = 4.dp),
+                ) {
+                    options.forEachIndexed { i, option ->
+                        Text(
+                            labels.getOrElse(i) { option },
+                            style = SpicyType.Caption.copy(
+                                color = Color.Black.copy(alpha = 0.92f),
+                                fontWeight = if (option == value) FontWeight.SemiBold else FontWeight.Normal,
+                            ),
+                            modifier = Modifier
+                                .clickable { open = false; if (option != value) onChange(option) }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
 
 /** `.sl-sp-btn`: a flat tinted pill that shrinks to 0.97 while held. */
 @Composable

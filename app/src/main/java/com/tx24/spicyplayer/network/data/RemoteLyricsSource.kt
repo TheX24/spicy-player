@@ -383,7 +383,7 @@ class RemoteLyricsSource @Inject constructor(
 
     private companion object {
         /** How long the lead source is asked alone before everyone else is asked too. */
-        const val LEAD_HOLD_MS = 1_500L
+        const val LEAD_HOLD_MS = 1_000L
         /** Where a blend takes its lines when nothing ranked above it has any (mild-lyrics' too). */
         const val LRCLIB_ID = "lrclib"
         const val BLEND_FAMILY = "blend"

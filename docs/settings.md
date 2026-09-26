@@ -9,6 +9,7 @@ The settings screen lives in `ui/settings/`; its controls in `ui/components/Sett
    - Keep the logic free of Android code where possible, for the Kotlin Multiplatform move after v1.
 3. **Build it from the shared controls**, never Material ones:
    - `ToggleRow` for on/off;
+   - `SettingRow` with an `SlSelect` for a choice between a few named options;
    - `SettingRow` with an `SlButton` or `SlTextField` for actions and text;
    - `SettingRow(stacked = true)` with `SlBipolarSlider` for amounts.
 

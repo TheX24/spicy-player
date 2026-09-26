@@ -67,4 +67,20 @@ class RendererTimelineTest {
             interludeDotTimes(10_000L, 19_000L),
         )
     }
+
+    @Test fun minimalModeWaitsFiveSecondsForDotsAndHoldsLinesThroughShorterGaps() {
+        val lines = listOf(
+            Line(listOf(Word("one", 0L, 1_000L)), 0L, 1_000L),
+            Line(listOf(Word("two", 5_000L, 6_000L)), 5_000L, 6_000L),
+            Line(listOf(Word("three", 12_000L, 13_000L)), 12_000L, 13_000L),
+        )
+
+        val timeline = buildDisplayTimeline(lines, minimalMode = true, holdThroughShortGaps = true)
+        // 4s is under Minimal's 5s: no dots, and "one" stays Active until "two" starts.
+        assertEquals(listOf(LineRole.LEAD, LineRole.LEAD, LineRole.INTERLUDE, LineRole.LEAD), timeline.map { it.role })
+        assertEquals(5_000L, timeline[0].endMs)
+        // 6s is an interlude: "two" keeps its own end and the dots start there.
+        assertEquals(6_000L, timeline[1].endMs)
+        assertEquals(6_000L, timeline[2].startMs)
+    }
 }

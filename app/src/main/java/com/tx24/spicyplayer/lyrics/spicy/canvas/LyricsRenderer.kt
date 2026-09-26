@@ -512,7 +512,7 @@ internal fun DrawScope.drawLineModeLine(
     dynamicY: Float,
     config: RenderConfig,
 ) {
-    val paintPlan = lyricPaintPlan(lineAnim.state, lineAnim.isBackground, lineAnim.opacity, lineAnim.blur, config)
+    val paintPlan = lyricPaintPlan(lineAnim.state, lineAnim.isBackground, lineAnim.opacity, lineAnim.blur, config, config.lineGradientAlphaDim)
     // Reference gradient stops are fixed for the active state; inactive lines are shadow-only.
     val dim = config.lineGradientAlphaDim * lineAnim.opacity
     val bright = config.gradientAlphaBright * lineAnim.opacity

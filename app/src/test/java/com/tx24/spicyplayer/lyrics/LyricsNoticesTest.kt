@@ -35,4 +35,12 @@ class LyricsNoticesTest {
         )
         assertEquals("Checked 1 source, none had it", error.detail)
     }
+
+    @Test fun blendsDontCountAsSources() {
+        val error = notice(
+            ProviderAttempt("netease", ProviderAttemptOutcome.MISS),
+            ProviderAttempt("blend_netease", ProviderAttemptOutcome.MISS),
+        )
+        assertEquals("Checked 1 source, none had it", error.detail)
+    }
 }

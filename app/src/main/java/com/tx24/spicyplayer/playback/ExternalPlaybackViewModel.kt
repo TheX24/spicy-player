@@ -45,7 +45,10 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-/** How long a track must stay current before its lyrics are fetched; skipping past it costs no requests. */
+/**
+ * While skipping (track changes closer together than this), how long a track must stay current
+ * before its lyrics are fetched, so skipping past it costs no requests.
+ */
 private const val TRACK_SETTLE_MS = 700L
 
 /** Upcoming queue entries whose lyrics are fetched ahead, like mild-lyrics' default. */
@@ -115,6 +118,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val observedSessions = mutableMapOf<MediaSession.Token, MediaController>()
     private val observedCallbacks = mutableMapOf<MediaSession.Token, MediaController.Callback>()
     private var lyricsJob: Job? = null
+    /** When the last track change arrived, to tell skipping from a song handing over. */
+    private var lastTrackChangeAt = Long.MIN_VALUE / 2
     private var warmJob: Job? = null
     private var shownSelection: RemoteLyricsSelection? = null
     // Per-source results for recent requests, so a policy change re-picks without refetching.
@@ -147,6 +152,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     init {
+        // The Spotify token Spicy Lyrics' matching needs is fetched now, not by the first song.
+        viewModelScope.launch(Dispatchers.IO) { lyricsBackend.warmUp() }
         startTicker()
         refresh()
     }
@@ -281,6 +288,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         runtimeApiKey = key.trim()
         keyStore.edit().putString("key", runtimeApiKey).apply()
         lyricsBackend = NextLyricsBackend(getApplication(), runtimeApiKey.ifBlank { BuildConfig.SPICY_LYRICS_CLIENT_KEY })
+        lyricsBackend.let { backend -> viewModelScope.launch(Dispatchers.IO) { backend.warmUp() } }
         lookupCache.clear()  // Spicy Lyrics answers depend on the key
         refreshSourcePolicy()
         loadLyrics()
@@ -365,8 +373,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     /**
-     * [settle]: a track change waits [TRACK_SETTLE_MS] before any request, so skipping through
-     * tracks costs nothing (the wait is cancelled by the next change). [force] drops this
+     * [settle]: a track change that follows another within [TRACK_SETTLE_MS] waits that long before
+     * any request, so skipping through tracks costs nothing (the wait is cancelled by the next
+     * change). A song that simply ends and hands over is asked for at once. [force] drops this
      * track's cached source results, e.g. for Retry.
      */
     fun loadLyrics(spotifyIdInput: String? = null, settle: Boolean = false, force: Boolean = false) {
@@ -391,6 +400,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             mutableState.value = mutableState.value.copy(lyrics = LyricsNotices.missingMetadata)
             return
         }
+        val now = SystemClock.elapsedRealtime()
+        val skipping = settle && now - lastTrackChangeAt < TRACK_SETTLE_MS
+        if (settle) lastTrackChangeAt = now
         lyricsJob?.cancel()
         warmJob?.cancel()  // the song on screen goes first
         if (force) lookupCache.remove(request)
@@ -413,7 +425,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     return@launch
                 }
             }
-            if (settle && known.isEmpty()) delay(TRACK_SETTLE_MS)
+            if (skipping && known.isEmpty()) delay(TRACK_SETTLE_MS)
             runCatching {
                 withContext(Dispatchers.IO) {
                     lyricsBackend.resolve(request, known) { update ->
