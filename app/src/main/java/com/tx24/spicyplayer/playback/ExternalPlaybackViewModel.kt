@@ -53,6 +53,7 @@ private const val FETCH_AHEAD = 3
 
 /** How long after our own skip a track change is still taken to be its result. */
 private const val SKIP_DIRECTION_WINDOW_MS = 3_000L
+private const val SYNC_TAG = "SpicySync"
 
 data class PlayerUiState(
     val accessGranted: Boolean = false,
@@ -60,7 +61,6 @@ data class PlayerUiState(
     val title: String = "Nothing playing",
     val artist: String = "Start playback in another app",
     val durationMs: Long = 0L,
-    val positionMs: Long = 0L,
     val isPlaying: Boolean = false,
     val canSeek: Boolean = false,
     val outputLabel: String = "Detecting output",
@@ -134,6 +134,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var pendingCommand: PendingCommand? = null
     private var timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
     private var lastPeriodicCheckMs = 0L
+    private var lastReport: SessionReport? = null
 
     private val controllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = updateFromController(metadataChanged = true)
@@ -233,14 +234,24 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         )
         pendingCommand = PendingCommand.Seek(target, SystemClock.elapsedRealtime())
         timeline = timeline.copy(positionMs = target, atElapsedMs = SystemClock.elapsedRealtime())
-        mutableState.value = mutableState.value.copy(positionMs = target, status = null)
+        mutableState.value = mutableState.value.copy(status = null)
         active.transportControls.seekTo(target)
     }
 
+    /**
+     * Android can't ask a player where it is, only take its last report. So this seeks the player
+     * to where the lyrics think it is: it must answer with a fresh report, which the clock then
+     * snaps to (a relayed player too). Players that can't seek fall back to their last report.
+     */
     fun resync() {
         pendingCommand = null
         refresh()
-        controller?.playbackState?.let { reconcileClock(it, force = true) }
+        val active = controller
+        if (active != null && ((active.playbackState?.actions ?: 0L) and PlaybackState.ACTION_SEEK_TO) != 0L) {
+            seekTo(currentPositionMs())
+            return
+        }
+        active?.playbackState?.let { reconcileClock(it, force = true) }
         mutableState.value = mutableState.value.copy(
             lastCommandLatencyMs = null,
             status = if (controller != null) "Timeline resynced to the media session" else "No active media session to resync",
@@ -586,6 +597,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         manualSpotifyId = null
         lyricsJob?.cancel()
         timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
+        lastReport = null
     }
 
     private fun updateFromController(metadataChanged: Boolean = false, preserveStatus: Boolean = false) {
@@ -611,7 +623,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val waitingForSeek = pendingCommand is PendingCommand.Seek &&
             pendingCommand?.acknowledged(playback, trackIdentity) != true &&
             SystemClock.elapsedRealtime() - pendingCommand!!.issuedAtMs < 1_500L
-        if (!waitingForSeek && playback != null) reconcileClock(playback, force = trackChanged)
+        // A command the player has just confirmed (play, pause, seek) re-anchors on its report.
+        val confirmed = pendingCommand?.acknowledged(playback, trackIdentity) == true
+        if (!waitingForSeek && playback != null) reconcileClock(playback, force = trackChanged || confirmed)
         val mediaId = metadata?.description?.mediaId
         val spotifyId = sequenceOf(
             mediaId,
@@ -650,7 +664,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 ?: metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ARTIST)
                 ?: "Unknown artist",
             durationMs = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.coerceAtLeast(0L) ?: 0L,
-            positionMs = currentPositionMs(),
             isPlaying = playback?.state == PlaybackState.STATE_PLAYING,
             canSeek = playback?.actions?.and(PlaybackState.ACTION_SEEK_TO) != 0L && playback != null,
             detectedSpotifyId = manualSpotifyId ?: spotifyId,
@@ -709,7 +722,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                         status = "Seek not confirmed by ${controller?.packageName ?: "player"}; timeline restored",
                     )
                 }
-                mutableState.value = mutableState.value.copy(positionMs = currentPositionMs())
             }
             delay(100L)
         }
@@ -731,6 +743,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     private fun reconcileClock(playback: PlaybackState, force: Boolean = false) {
         if (playback.position < 0L) return
+        // Only a new report says anything new: re-reading the same one would just re-apply it.
+        val report = SessionReport(playback.state, playback.position, playback.lastPositionUpdateTime, playback.playbackSpeed)
+        if (!force && report == lastReport) return
+        lastReport = report
         val now = SystemClock.elapsedRealtime()
         val playing = playback.state == PlaybackState.STATE_PLAYING
         val elapsed = if (playing) (now - playback.lastPositionUpdateTime).coerceAtLeast(0L) else 0L
@@ -738,7 +754,14 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val predicted = currentPositionMs()
         val drift = reported - predicted
         val changedState = timeline.isPlaying != playing || timeline.speed != playback.playbackSpeed
-        val adjustment = if (force || changedState) drift else ClockCorrection.adjustmentMs(drift)
+        val mirrored = controller?.playbackInfo?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
+        val adjustment = if (force || changedState || !playing) drift else ClockCorrection.adjustmentMs(drift, mirrored)
+        Log.d(
+            SYNC_TAG,
+            "report ${controller?.packageName} state=${playback.state} pos=${playback.position} " +
+                "age=${now - playback.lastPositionUpdateTime}ms speed=${playback.playbackSpeed} " +
+                "drift=${drift}ms applied=${adjustment}ms force=$force changed=$changedState mirrored=$mirrored",
+        )
         timeline = TimelineAnchor(
             positionMs = (predicted + adjustment).coerceAtLeast(0L),
             atElapsedMs = now,
@@ -755,6 +778,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val position = (timeline.positionMs + elapsed * timeline.speed).toLong().coerceAtLeast(0L)
         return mutableState.value.durationMs.takeIf { it > 0L }?.let(position::coerceAtMost) ?: position
     }
+
+    private data class SessionReport(val state: Int, val position: Long, val updatedAt: Long, val speed: Float)
 
     private data class TimelineAnchor(
         val positionMs: Long,

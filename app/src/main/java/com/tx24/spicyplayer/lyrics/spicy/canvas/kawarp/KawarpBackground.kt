@@ -9,7 +9,13 @@ import android.graphics.Shader
 import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -275,16 +281,17 @@ fun KawarpBackground(
         lastCover = src
     }
 
-    LaunchedEffect(animate) {
-        if (!animate) return@LaunchedEffect
+    LaunchedEffect(animate, nextAlbum) {
         var last = 0L
-        while (true) {
+        // Still (low performance mode): frames only while a new cover fades in.
+        while (animate || engine.blendFactor(System.currentTimeMillis()) < 1f) {
             withFrameNanos { now ->
                 if (last != 0L) engine.tick((now - last) / 1_000_000_000f)
                 last = now
                 frameTick = now // invalidate the Canvas
             }
         }
+        frameTick = System.nanoTime() // the crossfade's last, finished frame
     }
 
     // The album BitmapShaders and the ShaderBrush wrap objects that only change on a cover swap;
@@ -299,19 +306,42 @@ fun KawarpBackground(
     }
     val shaderBrush = remember(shader) { ShaderBrush(shader) }
 
-    Canvas(modifier = modifier.fillMaxSize()) {
-        @Suppress("UNUSED_EXPRESSION") frameTick
-        // render(): the crossfade is eased with a half cosine.
-        val blend = 0.5f - 0.5f * cos(engine.blendFactor(System.currentTimeMillis()) * PI.toFloat())
-        shader.setFloatUniform("uResolution", size.width, size.height)
-        shader.setFloatUniform("uTime", engine.accumulatedTime)
-        shader.setFloatUniform("uBlend", blend)
-        shader.setFloatUniform("uIntensity", SPICY_OPTIONS.warpIntensity)
-        shader.setFloatUniform("uSaturation", SPICY_OPTIONS.saturation)
-        shader.setFloatUniform("uDithering", SPICY_OPTIONS.dithering)
-        shader.setFloatUniform("uScale", SPICY_OPTIONS.scale)
-        shader.setInputShader("texCur", texCur)
-        shader.setInputShader("texNext", texNext)
-        drawRect(brush = shaderBrush)
+    // Like the reference: drawn into a 300x150 layer that is then stretched over the page, rather
+    // than running the shader for every screen pixel (~60x the work on a phone).
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val stretchX = constraints.maxWidth / CANVAS_WIDTH.toFloat()
+        val stretchY = constraints.maxHeight / CANVAS_HEIGHT.toFloat()
+        Canvas(
+            Modifier
+                .layout { measurable, _ ->
+                    val canvas = measurable.measure(Constraints.fixed(CANVAS_WIDTH, CANVAS_HEIGHT))
+                    layout(canvas.width, canvas.height) { canvas.place(0, 0) }
+                }
+                .graphicsLayer {
+                    transformOrigin = TransformOrigin(0f, 0f)
+                    scaleX = stretchX
+                    scaleY = stretchY
+                    // Rasterised at 300x150 first, then scaled (with bilinear filtering) as a texture.
+                    compositingStrategy = CompositingStrategy.Offscreen
+                },
+        ) {
+            @Suppress("UNUSED_EXPRESSION") frameTick
+            // render(): the crossfade is eased with a half cosine.
+            val blend = 0.5f - 0.5f * cos(engine.blendFactor(System.currentTimeMillis()) * PI.toFloat())
+            shader.setFloatUniform("uResolution", size.width, size.height)
+            shader.setFloatUniform("uTime", engine.accumulatedTime)
+            shader.setFloatUniform("uBlend", blend)
+            shader.setFloatUniform("uIntensity", SPICY_OPTIONS.warpIntensity)
+            shader.setFloatUniform("uSaturation", SPICY_OPTIONS.saturation)
+            shader.setFloatUniform("uDithering", SPICY_OPTIONS.dithering)
+            shader.setFloatUniform("uScale", SPICY_OPTIONS.scale)
+            shader.setInputShader("texCur", texCur)
+            shader.setInputShader("texNext", texNext)
+            drawRect(brush = shaderBrush)
+        }
     }
 }
+
+/** The reference's unsized WebGL canvas: the default 300x150 backbuffer. */
+private const val CANVAS_WIDTH = 300
+private const val CANVAS_HEIGHT = 150

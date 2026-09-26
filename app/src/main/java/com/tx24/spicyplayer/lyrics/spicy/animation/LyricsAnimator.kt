@@ -355,6 +355,7 @@ class LyricsAnimator(
                 isSongwriter = line.isSongwriter,
                 lineGradientPercent = lineGradient,
                 lineGlow = lineGlow,
+                suppressShadows = !config.glowEnabled,
                 state = lineState,
             )
         }

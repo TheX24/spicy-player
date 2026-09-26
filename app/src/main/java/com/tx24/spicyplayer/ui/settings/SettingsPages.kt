@@ -127,6 +127,12 @@ internal fun LyricsContent(prefs: LyricsPreferences) {
         onCheckedChange = prefs.onOriginalWordMotionChange,
         description = "Spicy Lyrics' own amount of grow and lift on sung words. Off: ${prefs.wordMotionBoost}×, which reads better on a phone.",
     )
+    ToggleRow(
+        label = "Low performance mode",
+        checked = prefs.lowPerformance,
+        onCheckedChange = prefs.onLowPerformanceChange,
+        description = "Stills the background and turns off blur and glow, for smoother lyrics on slower phones.",
+    )
 }
 
 @Composable
@@ -149,9 +155,6 @@ internal fun SyncContent(state: PlayerUiState, viewModel: ExternalPlaybackViewMo
                 SlButton("+$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(DELAY_STEP_MS) })
             }
         }
-    }
-    SettingRow(label = "Resync with the player", description = "Read the song's position again if the lyrics drift.") {
-        SlButton("Resync", onClick = viewModel::resync)
     }
 }
 

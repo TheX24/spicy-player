@@ -99,6 +99,8 @@ class PlaybackControlsState(
     val onSeek: (Long) -> Unit,
     val customActions: List<SessionCustomAction> = emptyList(),
     val onCustomAction: (String) -> Unit = {},
+    /** Re-reads the player's position, for when the lyrics have drifted. */
+    val onResync: () -> Unit = {},
 )
 
 /**
@@ -227,6 +229,9 @@ private fun ControlsColumn(
                 GlassButton(onClick = { controls.onCustomAction(action.action) }, contentDescription = action.name, size = FLOATING_SIZE) {
                     ActionIcon(action, Modifier.size(23.dp))
                 }
+            }
+            GlassButton(onClick = controls.onResync, contentDescription = "Resync lyrics", size = FLOATING_SIZE) {
+                Image(rememberVectorPainter(SlIcons.Resync), null, Modifier.size(23.dp))
             }
             GlassButton(onClick = onOpenSettings, contentDescription = "Settings", size = FLOATING_SIZE) {
                 Image(rememberVectorPainter(SlIcons.Settings), null, Modifier.size(23.dp))
@@ -538,23 +543,35 @@ private object SlIcons {
         "m109.17,57.17c-11.19-4.69-29.82-13.3-30.88-14.24-4.69-4.22-3.46-12.42,2.17-15.12,4.28-1.99,6.56-1.29,24.9,7.73,15.12,7.38,16.88,8.44,18.34,10.61,1.99,2.87,2.34,6.8.76,9.2-1.29,1.99-5.21,3.81-8.26,3.81-1.35,0-4.34-.88-7.03-1.99Z",
     )
 
-    /** Lucide's settings cog, stroked 2 units wide with round caps and joins. */
-    val Settings: ImageVector = ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
-        .apply {
-            listOf(
-                "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z",
-                "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0Z",
-            ).forEach { path ->
-                addPath(
-                    PathParser().parsePathString(path).toNodes(),
-                    stroke = SolidColor(SpicyColors.TextPrimary),
-                    strokeLineWidth = 2f,
-                    strokeLineCap = StrokeCap.Round,
-                    strokeLineJoin = StrokeJoin.Round,
-                )
+    /** Lucide's settings cog. */
+    val Settings = lucide(
+        "M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2Z",
+        "M15 12a3 3 0 1 1-6 0a3 3 0 1 1 6 0Z",
+    )
+
+    /** Lucide's refresh-cw, for resyncing with the player. */
+    val Resync = lucide(
+        "M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8",
+        "M21 3v5h-5",
+        "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16",
+        "M8 16H3v5",
+    )
+
+    /** A Lucide icon: 24-unit paths stroked 2 units wide with round caps and joins. */
+    private fun lucide(vararg paths: String): ImageVector =
+        ImageVector.Builder(defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f)
+            .apply {
+                paths.forEach { path ->
+                    addPath(
+                        PathParser().parsePathString(path).toNodes(),
+                        stroke = SolidColor(SpicyColors.TextPrimary),
+                        strokeLineWidth = 2f,
+                        strokeLineCap = StrokeCap.Round,
+                        strokeLineJoin = StrokeJoin.Round,
+                    )
+                }
             }
-        }
-        .build()
+            .build()
 
     private fun icon(width: Float, height: Float, vararg paths: String): ImageVector =
         ImageVector.Builder(defaultWidth = width.dp, defaultHeight = height.dp, viewportWidth = width, viewportHeight = height)

@@ -41,6 +41,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -137,8 +138,18 @@ private fun LyricsApp(
         originalWordMotion = on
         uiPrefs.edit().putBoolean("originalWordMotion", on).apply()
     }
-    val renderConfig = remember(originalWordMotion) {
-        RenderConfig.FULL.copy(wordMotionBoost = if (originalWordMotion) 1f else WORD_MOTION_BOOST)
+    // Drops the costliest effects: the moving background, glass blur, and lyric blur and glow.
+    var lowPerformance by remember { mutableStateOf(uiPrefs.getBoolean("lowPerformance", false)) }
+    val setLowPerformance = { on: Boolean ->
+        lowPerformance = on
+        uiPrefs.edit().putBoolean("lowPerformance", on).apply()
+    }
+    val renderConfig = remember(originalWordMotion, lowPerformance) {
+        RenderConfig.FULL.copy(
+            wordMotionBoost = if (originalWordMotion) 1f else WORD_MOTION_BOOST,
+            distanceBlurEnabled = !lowPerformance,
+            glowEnabled = !lowPerformance,
+        )
     }
     var showSettings by remember { mutableStateOf(false) }
     val backdrop = remember { HazeState() }
@@ -200,6 +211,7 @@ private fun LyricsApp(
                         artworkUri = state.artworkUri,
                         isPlaying = state.isPlaying,
                         modifier = Modifier.fillMaxSize(),
+                        animate = !lowPerformance,
                     )
                     Column(Modifier.fillMaxSize()) {
                         Spacer(Modifier.height(with(LocalDensity.current) { headerMetrics.lyricsTopPx.toDp() }))
@@ -231,7 +243,10 @@ private fun LyricsApp(
                     },
                     label = "controlsShown",
                 )
-                CompositionLocalProvider(LocalBackdrop provides backdrop) {
+                // Once faded out, the controls stop blurring: the shade's progressive blur and each
+                // glass button would otherwise re-blur the whole page every frame, unseen.
+                val controlsGone by remember { derivedStateOf { controlsShown == 0f } }
+                CompositionLocalProvider(LocalBackdrop provides backdrop.takeUnless { controlsGone || lowPerformance }) {
                     LyricsControls(
                         controls = PlaybackControlsState(
                             isPlaying = state.isPlaying,
@@ -244,6 +259,7 @@ private fun LyricsApp(
                             onSeek = viewModel::seekTo,
                             customActions = state.customActions,
                             onCustomAction = viewModel::sendCustomAction,
+                            onResync = viewModel::resync,
                         ),
                         romanizeAvailable = romanizationAvailable,
                         romanized = romanize,
@@ -276,6 +292,8 @@ private fun LyricsApp(
                     originalWordMotion = originalWordMotion,
                     onOriginalWordMotionChange = setOriginalWordMotion,
                     wordMotionBoost = WORD_MOTION_BOOST,
+                    lowPerformance = lowPerformance,
+                    onLowPerformanceChange = setLowPerformance,
                 ),
                 backdrop = backdrop,
                 contentPadding = padding,

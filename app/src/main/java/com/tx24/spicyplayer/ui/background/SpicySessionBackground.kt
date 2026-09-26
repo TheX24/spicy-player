@@ -15,6 +15,8 @@ fun SpicySessionBackground(
     artworkUri: String?,
     isPlaying: Boolean,
     modifier: Modifier = Modifier,
+    /** False draws a still background (low performance mode). */
+    animate: Boolean = true,
 ) {
     val softwareArtwork = rememberSessionArtwork(artwork, artworkUri, maxDimension = 256)?.bitmap
 
@@ -23,6 +25,7 @@ fun SpicySessionBackground(
             coverArtBitmap = softwareArtwork,
             modifier = modifier,
             isPlaying = isPlaying,
+            animate = animate,
             blurIntensity = 60,
         )
     } else {
@@ -30,6 +33,7 @@ fun SpicySessionBackground(
             coverArtBitmap = softwareArtwork,
             modifier = modifier,
             blurIntensity = 60,
+            animate = animate,
         )
     }
 }

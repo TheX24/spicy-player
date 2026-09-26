@@ -16,6 +16,8 @@ data class RenderConfig(
     val lineTransitionMs: Int = if (minimalLyricsMode) 400 else 200,
     /** Simple deliberately retains the reference's distance blur. */
     val distanceBlurEnabled: Boolean = true,
+    /** Not in the reference: false drops every glow halo (low performance mode). */
+    val glowEnabled: Boolean = true,
     /** Minimal is a line-visibility layer and does not disable word/letter motion. */
     val lettersEnabled: Boolean = true,
     val letterDurationThresholdMs: Long = if (simpleLyricsMode) 1050L else 1000L,

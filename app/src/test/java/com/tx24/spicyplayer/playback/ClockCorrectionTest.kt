@@ -5,13 +5,21 @@ import org.junit.Test
 
 class ClockCorrectionTest {
     @Test fun ignoresTinySessionJitter() {
-        assertEquals(0L, ClockCorrection.adjustmentMs(79L))
-        assertEquals(0L, ClockCorrection.adjustmentMs(-79L))
+        for (mirrored in listOf(false, true)) {
+            assertEquals(0L, ClockCorrection.adjustmentMs(149L, mirrored))
+            assertEquals(0L, ClockCorrection.adjustmentMs(-149L, mirrored))
+        }
     }
 
-    @Test fun easesModerateDriftAndSnapsLargeJumps() {
-        assertEquals(70L, ClockCorrection.adjustmentMs(200L))
-        assertEquals(-70L, ClockCorrection.adjustmentMs(-200L))
-        assertEquals(700L, ClockCorrection.adjustmentMs(700L))
+    @Test fun localPlayerDriftIsAppliedAtOnce() {
+        assertEquals(200L, ClockCorrection.adjustmentMs(200L, mirrored = false))
+        assertEquals(-200L, ClockCorrection.adjustmentMs(-200L, mirrored = false))
+    }
+
+    @Test fun mirroredReportsOnlyPullBackOnARealSeek() {
+        assertEquals(400L, ClockCorrection.adjustmentMs(400L, mirrored = true))
+        assertEquals(0L, ClockCorrection.adjustmentMs(-400L, mirrored = true))
+        assertEquals(0L, ClockCorrection.adjustmentMs(-1_499L, mirrored = true))
+        assertEquals(-1_500L, ClockCorrection.adjustmentMs(-1_500L, mirrored = true))
     }
 }

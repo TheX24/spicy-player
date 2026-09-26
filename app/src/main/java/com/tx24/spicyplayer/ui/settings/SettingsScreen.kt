@@ -90,6 +90,8 @@ class LyricsPreferences(
     val onOriginalWordMotionChange: (Boolean) -> Unit,
     /** The boost "Original word motion" turns off, for its description. */
     val wordMotionBoost: Float,
+    val lowPerformance: Boolean,
+    val onLowPerformanceChange: (Boolean) -> Unit,
 )
 
 internal enum class SettingsPage(val title: String) {
@@ -337,8 +339,8 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 1, cards = true)
             SettingsSkeleton(rows = 2)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 1)
-        SettingsPage.Sync -> SettingsSkeleton(rows = 2)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 2)
+        SettingsPage.Sync -> SettingsSkeleton(rows = 1)
         SettingsPage.Sources -> SettingsSkeleton(rows = 9, cards = true)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 5)
     }
@@ -357,7 +359,8 @@ private fun HomeGroups(state: PlayerUiState, prefs: LyricsPreferences, onOpen: (
         GroupRow(
             Icons.Rounded.TextFields,
             SettingsPage.Lyrics.title,
-            if (prefs.originalWordMotion) "Original word motion" else "Boosted word motion",
+            (if (prefs.originalWordMotion) "Original word motion" else "Boosted word motion") +
+                if (prefs.lowPerformance) ", low performance" else "",
         ) { onOpen(SettingsPage.Lyrics) }
         GroupDivider()
         GroupRow(
