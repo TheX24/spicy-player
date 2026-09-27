@@ -18,6 +18,9 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.haptics.MusicHaptic
+import com.tx24.spicyplayer.haptics.MusicHapticScore
+import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.lyrics.LocalLyricsStore
 import com.tx24.spicyplayer.lyrics.LyricsNotices
 import com.tx24.spicyplayer.lyrics.LyricsState
@@ -213,7 +216,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     // the title), so lyrics follow title + artist only; the clock follows the full identity.
     private var currentLyricsKey: String? = null
     private var pendingCommand: PendingCommand? = null
-    private var timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
+    // Read off the main thread by the music haptics.
+    @Volatile private var timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
     private var lastPeriodicCheckMs = 0L
     private var lastReport: SessionReport? = null
     /** When [lastReport] arrived. */
@@ -234,6 +238,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var extrasJob: Job? = null
     /** The playing song's audio analysis, for the beat-reactive background. */
     @Volatile private var audioAnalysis: AudioAnalysis? = null
+    /** The last music haptics built: from which analysis, in which style. */
+    @Volatile private var musicHaptics: Triple<AudioAnalysis, MusicHapticsStyle, List<MusicHaptic>>? = null
 
     private val controllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = updateFromController(metadataChanged = true)
@@ -1099,6 +1105,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     fun backgroundSpeed(): Float? {
         val analysis = audioAnalysis ?: return null
         return BackgroundSpeed.at(currentPositionMs() / 1000f, analysis)
+    }
+
+    /** The vibrations that go with the song in [style], or null when there is no analysis for it. */
+    fun musicHaptics(style: MusicHapticsStyle): List<MusicHaptic>? {
+        val analysis = audioAnalysis ?: return null
+        musicHaptics?.takeIf { it.first === analysis && it.second == style }?.let { return it.third }
+        return MusicHapticScore.build(analysis, style).also { musicHaptics = Triple(analysis, style, it) }
     }
 
     private fun loadExtras() {

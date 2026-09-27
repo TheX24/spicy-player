@@ -57,6 +57,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalContext
@@ -66,6 +67,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.haptics.withHaptic
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerUiState
@@ -353,7 +355,7 @@ private fun PageSkeleton(page: SettingsPage) {
         }
         SettingsPage.Lyrics -> SettingsSkeleton(rows = 14)
         SettingsPage.Appearance -> SettingsSkeleton(rows = 6)
-        SettingsPage.Screen -> SettingsSkeleton(rows = 7)
+        SettingsPage.Screen -> SettingsSkeleton(rows = 11)
         SettingsPage.Sync -> SettingsSkeleton(rows = 2)
         SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 8)
@@ -412,6 +414,7 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
                 if (settings.keepScreenOn) "Stays on while playing" else "Turns off as usual",
                 if (settings.highRefreshRate) "full refresh rate" else "60 Hz",
                 "low performance".takeIf { settings.lowPerformance },
+                "haptics to the music".takeIf { settings.musicHaptics },
             ).joinToString(),
         ) { onOpen(SettingsPage.Screen) }
         GroupDivider()
@@ -452,7 +455,7 @@ private fun GroupRow(
         Modifier
             .fillMaxWidth()
             .background(background)
-            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = withHaptic(HapticFeedbackType.ContextClick, onClick))
             .padding(horizontal = 14.dp, vertical = SpicySpacing.S3),
         verticalAlignment = Alignment.CenterVertically,
     ) {

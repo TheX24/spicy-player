@@ -28,7 +28,9 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathOperation
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
@@ -99,6 +101,7 @@ fun GlassButton(
     // The screen recomposes on every touch; keying the gesture on a fresh lambda would cancel
     // the press before it lifts.
     val currentOnClick by rememberUpdatedState(onClick)
+    val haptics by rememberUpdatedState(LocalHapticFeedback.current)
     val fill by animateColorAsState(
         if (pressed) SpicyGlass.FillPressed else SpicyGlass.Fill,
         tween(300, easing = SpicyMotion.Standard),
@@ -135,6 +138,7 @@ fun GlassButton(
                     scope.launch { scale.animateTo(1f, tween(280, easing = SpicyMotion.Overshoot)) }
                     if (up != null) {
                         up.consume()
+                        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                         currentOnClick()
                     }
                 }

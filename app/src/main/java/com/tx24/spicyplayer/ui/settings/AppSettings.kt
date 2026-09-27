@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
 import kotlin.properties.ReadWriteProperty
@@ -68,6 +69,13 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** The screen's full refresh rate (90/120 Hz) instead of 60 Hz, which costs battery. */
     var highRefreshRate by boolean("highRefreshRate", false)
     var autoHideControls by boolean("autoHideControls", true)
+    /** Ticks and clicks on buttons, toggles, sliders and gestures (they also follow the system's touch-feedback setting). */
+    var touchHaptics by boolean("touchHaptics", true)
+    /** Vibrates along with the song's beats while the lyrics are on screen. */
+    var musicHaptics by boolean("musicHaptics", false)
+    /** How strong the music haptics are, in percent of their own strength (25..400; over 100 layers heavier vibrations on). */
+    var musicHapticsStrength by int("musicHapticsStrength", 100)
+    var musicHapticsStyle by enum("musicHapticsStyle", MusicHapticsStyle.Drums)
     /** A floating button that opens the Lyrics Manager (it is always in Settings → This song). */
     var lyricsManagerButton by boolean("lyricsManagerButton", true)
     /** How the Lyrics Manager's last upload was applied; the upload screen reopens on it. */

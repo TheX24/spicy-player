@@ -481,6 +481,7 @@ internal fun ScreenContent(settings: AppSettings) {
             icon = Icons.Rounded.Speed,
         )
     }
+    HapticsSection(settings)
 }
 
 @Composable

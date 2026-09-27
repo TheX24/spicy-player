@@ -39,6 +39,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameMillis
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import kotlinx.coroutines.delay
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.ui.Alignment
@@ -560,6 +562,7 @@ private fun PressableGlyph(
     // The screen recomposes on every touch; keying the gesture on a fresh lambda would cancel
     // the press before it lifts.
     val currentOnClick by rememberUpdatedState(onClick)
+    val haptics by rememberUpdatedState(LocalHapticFeedback.current)
     Box(
         modifier = (touch ?: Modifier.size(width = maxOf(TOUCH_SIZE, width + 12.dp), height = TOUCH_SIZE))
             .semantics {
@@ -575,6 +578,7 @@ private fun PressableGlyph(
                     scope.launch { scale.animateTo(1f, PressBounce) }
                     if (up != null) {
                         up.consume()
+                        haptics.performHapticFeedback(HapticFeedbackType.VirtualKey)
                         currentOnClick()
                     }
                 }
@@ -629,6 +633,7 @@ private val TimeStyle = TextStyle(
 @Composable
 private fun Timeline(controls: PlaybackControlsState, shown: () -> Float, modifier: Modifier) {
     val current by rememberUpdatedState(controls)
+    val haptics by rememberUpdatedState(LocalHapticFeedback.current)
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     var positionMs by remember { mutableLongStateOf(controls.positionMs()) }
     val shownUpdated by rememberUpdatedState(shown)
@@ -662,13 +667,20 @@ private fun Timeline(controls: PlaybackControlsState, shown: () -> Float, modifi
                 .height(BAR_TOUCH_HEIGHT)
                 .pointerInput(seekable, duration) {
                     if (!seekable) return@pointerInput
-                    detectTapGestures { current.onSeek((it.x / size.width * duration).toLong().coerceIn(0L, duration)) }
+                    detectTapGestures {
+                        haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                        current.onSeek((it.x / size.width * duration).toLong().coerceIn(0L, duration))
+                    }
                 }
                 .pointerInput(seekable, duration) {
                     if (!seekable) return@pointerInput
                     detectHorizontalDragGestures(
-                        onDragStart = { dragFraction = (it.x / size.width).coerceIn(0f, 1f) },
+                        onDragStart = {
+                            haptics.performHapticFeedback(HapticFeedbackType.GestureThresholdActivate)
+                            dragFraction = (it.x / size.width).coerceIn(0f, 1f)
+                        },
                         onDragEnd = {
+                            haptics.performHapticFeedback(HapticFeedbackType.GestureEnd)
                             dragFraction?.let { current.onSeek((it * duration).toLong()) }
                             dragFraction = null
                         },

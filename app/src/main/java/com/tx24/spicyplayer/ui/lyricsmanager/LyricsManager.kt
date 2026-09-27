@@ -61,6 +61,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -69,6 +70,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
+import com.tx24.spicyplayer.haptics.withHaptic
 import com.tx24.spicyplayer.lyrics.LocalLyricsStore
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerUiState
@@ -364,7 +366,7 @@ private fun DropZone(busy: Boolean, subtitle: String, onClick: () -> Unit) {
                     style = Stroke(stroke, pathEffect = PathEffect.dashPathEffect(floatArrayOf(6.dp.toPx(), 5.dp.toPx()))),
                 )
             }
-            .clickable(interaction, indication = null, enabled = !busy, role = Role.Button, onClick = onClick)
+            .clickable(interaction, indication = null, enabled = !busy, role = Role.Button, onClick = withHaptic(HapticFeedbackType.ContextClick, onClick))
             .padding(SpicySpacing.S6),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2, Alignment.CenterVertically),
@@ -417,7 +419,7 @@ private fun ToolbarButton(icon: ImageVector, label: String, style: ToolbarStyle,
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .clip(shape)
             .background(fill)
-            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = withHaptic(HapticFeedbackType.ContextClick, onClick))
             .padding(horizontal = 14.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
@@ -436,7 +438,7 @@ private fun ModeButton(icon: ImageVector, label: String, selected: Boolean, enab
             .heightIn(min = 34.dp)
             .clip(shape)
             .background(if (selected) SpicyColors.TintBgPressed else Color.Transparent)
-            .clickable(enabled = enabled, role = Role.RadioButton, onClick = onClick)
+            .clickable(enabled = enabled, role = Role.RadioButton, onClick = withHaptic(HapticFeedbackType.SegmentTick, onClick))
             .padding(horizontal = 10.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
@@ -475,7 +477,7 @@ private fun RowAction(
                     else -> SpicyColors.TintBg
                 },
             )
-            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClickLabel = description, onClick = onClick)
+            .clickable(interaction, indication = null, enabled = enabled, role = Role.Button, onClickLabel = description, onClick = withHaptic(HapticFeedbackType.ContextClick, onClick))
             .padding(horizontal = if (label != null) 10.dp else 9.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),

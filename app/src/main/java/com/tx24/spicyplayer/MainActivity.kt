@@ -9,6 +9,12 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import com.tx24.spicyplayer.haptics.HapticPlayer
+import com.tx24.spicyplayer.haptics.ProvideTouchHaptics
+import com.tx24.spicyplayer.haptics.playMusicHaptics
 import com.tx24.spicyplayer.ui.components.SpicyButtonStyle
 import com.tx24.spicyplayer.ui.components.SpicyModal
 import com.tx24.spicyplayer.ui.components.SpicyToastHost
@@ -160,14 +166,18 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         hideSystemBars()
         setContent {
+            val settings = remember { AppSettings(getSharedPreferences("ui", Context.MODE_PRIVATE)) }
             MaterialTheme(colorScheme = darkColorScheme()) {
-                LyricsApp(
-                    viewModel = playbackViewModel,
-                    updater = updateViewModel,
-                    openNotificationAccess = {
-                        startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-                    },
-                )
+                ProvideTouchHaptics(settings.touchHaptics) {
+                    LyricsApp(
+                        viewModel = playbackViewModel,
+                        updater = updateViewModel,
+                        settings = settings,
+                        openNotificationAccess = {
+                            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        },
+                    )
+                }
             }
         }
     }
@@ -198,10 +208,10 @@ private fun LyricsApp(
     openNotificationAccess: () -> Unit,
     viewModel: ExternalPlaybackViewModel,
     updater: UpdateViewModel,
+    settings: AppSettings,
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
-    val settings = remember { AppSettings(context.getSharedPreferences("ui", Context.MODE_PRIVATE)) }
     val lowPerformance = settings.lowPerformance
     val hideHeader = settings.hideHeader
     val romanizationAvailable = (state.lyrics as? LyricsState.Ready)?.let { ready ->
@@ -322,12 +332,27 @@ private fun LyricsApp(
     // header for the header backgrounds, the year where it shows.
     val beatReactive = backgroundType == BackgroundType.Default && settings.beatReactiveBackground &&
         !settings.staticBackground && !lowPerformance && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU
+    val hapticPlayer = remember { HapticPlayer(context) }
+    val musicHapticsOn = settings.musicHaptics && hapticPlayer.canPlayMusic
     val extrasWanted = TrackExtrasWanted(
         releaseYear = settings.releaseYearPosition != ReleaseYearPosition.Off,
         artistHeader = backgroundType.usesArtistHeader,
-        beats = beatReactive,
+        beats = beatReactive || musicHapticsOn,
     )
     LaunchedEffect(extrasWanted) { viewModel.setTrackExtrasWanted(extrasWanted) }
+    // Vibrates with the beats while the song plays and the app is in front with the screen on.
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(musicHapticsOn, state.isPlaying) {
+        if (!musicHapticsOn || !state.isPlaying) return@LaunchedEffect
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            playMusicHaptics(
+                hapticPlayer,
+                score = { viewModel.musicHaptics(settings.musicHapticsStyle) },
+                positionMs = viewModel::currentLyricPositionMs,
+                strength = { settings.musicHapticsStrength / 100f },
+            )
+        }
+    }
     LaunchedEffect(Unit) { updater.checkOnLaunch(settings.includePrereleases) }
     val update by updater.state.collectAsState()
 

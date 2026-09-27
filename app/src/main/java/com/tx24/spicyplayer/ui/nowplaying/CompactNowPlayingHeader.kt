@@ -62,6 +62,7 @@ import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutCalculator
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlin.math.abs
 import kotlin.math.roundToInt
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.Alignment
@@ -249,6 +250,7 @@ private fun Modifier.coverGestures(
     val latestPlayPause by rememberUpdatedState(onPlayPause)
     val latestSkip by rememberUpdatedState(onSkip)
     val latestPlaying by rememberUpdatedState(isPlaying)
+    val haptics by rememberUpdatedState(LocalHapticFeedback.current)
     val swipe = remember { Animatable(0f) }
     val badge = remember { Animatable(0f) }
     // What the badge shows: what the double tap just switched to.
@@ -283,6 +285,7 @@ private fun Modifier.coverGestures(
         .pointerInput(Unit) {
             detectTapGestures(
                 onDoubleTap = {
+                    haptics.performHapticFeedback(if (latestPlaying) HapticFeedbackType.ToggleOff else HapticFeedbackType.ToggleOn)
                     badgePlaying = !latestPlaying
                     latestPlayPause()
                     scope.launch {
@@ -295,12 +298,23 @@ private fun Modifier.coverGestures(
         }
         .pointerInput(Unit) {
             val velocity = VelocityTracker()
+            // Where the finger has taken the cover; the animation's value lags behind it.
+            var offset = 0f
             detectHorizontalDragGestures(
-                onDragStart = { velocity.resetTracking() },
+                onDragStart = { velocity.resetTracking(); offset = swipe.value },
                 onHorizontalDrag = { change, amount ->
                     change.consume()
                     velocity.addPosition(change.uptimeMillis, change.position)
-                    scope.launch { swipe.snapTo((swipe.value + amount).coerceIn(-widthPx, widthPx)) }
+                    val before = offset
+                    val after = (before + amount).coerceIn(-widthPx, widthPx)
+                    offset = after
+                    // A tick as the cover passes the skip point, either way.
+                    if ((abs(before) > widthPx / 3f) != (abs(after) > widthPx / 3f)) {
+                        haptics.performHapticFeedback(
+                            if (abs(after) > widthPx / 3f) HapticFeedbackType.GestureThresholdActivate else HapticFeedbackType.SegmentTick,
+                        )
+                    }
+                    scope.launch { swipe.snapTo(after) }
                 },
                 onDragEnd = {
                     val vx = velocity.calculateVelocity().x

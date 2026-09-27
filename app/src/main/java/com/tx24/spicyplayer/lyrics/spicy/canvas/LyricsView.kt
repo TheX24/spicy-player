@@ -9,7 +9,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -147,6 +149,7 @@ fun LyricsView(
     val wake = remember(shownId) { Channel<Unit>(Channel.CONFLATED) }
     val context = LocalContext.current
     val uriHandler = LocalUriHandler.current
+    val haptics by rememberUpdatedState(LocalHapticFeedback.current)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize().clipToBounds()) {
         val canvasWidth = constraints.maxWidth.toFloat()
@@ -445,6 +448,7 @@ fun LyricsView(
                                 if (layout.line.words.isNotEmpty()) {
                                     // From the first sung word, which can come after the line's own start.
                                     val start = layout.line.words.first().startMs
+                                    haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                                     onSeekWord(
                                         if (scrollConfigUpdated.seekFadeCompensation) {
                                             (start - ScrollConfig.SEEK_FADE_COMPENSATION_MS).coerceAtLeast(0L)
