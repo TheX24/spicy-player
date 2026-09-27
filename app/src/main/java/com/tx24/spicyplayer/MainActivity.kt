@@ -112,7 +112,14 @@ import com.tx24.spicyplayer.ui.background.SpicySessionBackground
 import com.tx24.spicyplayer.ui.components.LocalBackdrop
 import com.tx24.spicyplayer.ui.components.SpicyModalNotes
 import com.tx24.spicyplayer.ui.components.SpicyVersionRow
+import com.tx24.spicyplayer.ui.controls.CoverControls
 import com.tx24.spicyplayer.ui.controls.LyricsControls
+import com.tx24.spicyplayer.ui.nowplaying.LandscapeMetrics
+import com.tx24.spicyplayer.ui.settings.PanelSide
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.unit.IntOffset
 import com.tx24.spicyplayer.ui.controls.PlaybackControlsState
 import com.tx24.spicyplayer.ui.nowplaying.CompactHeaderMetrics
 import com.tx24.spicyplayer.ui.nowplaying.CompactNowPlayingHeader
@@ -253,6 +260,21 @@ private fun LyricsApp(
         tween(400, easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)),
         label = "headerExpansion",
     )
+    // Landscape whenever the window is wider than tall: the song sits in a panel beside the lyrics.
+    val configuration = LocalConfiguration.current
+    val landscape = configuration.screenWidthDp > configuration.screenHeightDp
+    // In landscape the controls live on the cover, unless there's no panel and no big cover:
+    // then they're the bottom bar, as in portrait.
+    val controlsOnCover = landscape && (!hideHeader || headerExpanded)
+    val bottomBar = !landscape || hideHeader
+    // The panel slides to the other side over 0.4 s (`transition: left .4s`).
+    val panelSide = animateFloatAsState(
+        if (settings.panelSide == PanelSide.Right) 1f else 0f,
+        tween(400, easing = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)),
+        label = "panelSide",
+    )
+    // Where the cover is while the controls sit on it: only a touch there brings them up.
+    val coverTouchArea = remember { CoverTouchArea() }
     // Built fresh, not copied: the mode-dependent defaults are worked out in the constructor.
     val renderConfig = RenderConfig(
         simpleLyricsMode = settings.simpleLyricsMode,
@@ -279,9 +301,12 @@ private fun LyricsApp(
     // Touch times go to the idle timer only: nothing in composition reads them, so a drag
     // (a touch event every frame) doesn't recompose the whole screen.
     val touches = remember { MutableStateFlow(0L) }
-    // They stay while paused, and while the big cover is up (it has nothing else to show).
-    LaunchedEffect(state.isPlaying, headerExpanded, settings.autoHideControls) {
-        if (!state.isPlaying || headerExpanded || !settings.autoHideControls) {
+    // They stay while paused, and while the portrait big cover is up (it has nothing else to
+    // show). On the landscape cover they always go, like the desktop page's once the mouse
+    // rests: they'd keep the cover darkened.
+    val hold = (!state.isPlaying && !controlsOnCover) || (headerExpanded && !landscape) || !settings.autoHideControls
+    LaunchedEffect(hold) {
+        if (hold) {
             controlsVisible = true
             return@LaunchedEffect
         }
@@ -315,7 +340,9 @@ private fun LyricsApp(
                     // Sees every touch on its way down without taking it from what's underneath.
                     awaitPointerEventScope {
                         while (true) {
-                            awaitPointerEvent(PointerEventPass.Initial)
+                            val event = awaitPointerEvent(PointerEventPass.Initial)
+                            val onCover = coverTouchArea.contains
+                            if (onCover != null && event.changes.none { onCover(it.position) }) continue
                             controlsVisible = true
                             touches.value = SystemClock.uptimeMillis()
                         }
@@ -346,6 +373,41 @@ private fun LyricsApp(
                     end = padding.calculateEndPadding(layoutDirection),
                     bottom = padding.calculateBottomPadding(),
                 )
+                val startInsetPx = with(LocalDensity.current) { belowTop.calculateStartPadding(layoutDirection).toPx() }
+                val endInsetPx = with(LocalDensity.current) { belowTop.calculateEndPadding(layoutDirection).toPx() }
+                // Landscape: the page between the cutout's insets, which is where the header and
+                // lyrics are placed (`belowTop`).
+                val landscapeMetrics = remember(pageWidth, pageHeight, density, topInsetPx, startInsetPx, endInsetPx) {
+                    LandscapeMetrics(
+                        pageWidthPx = pageWidth - startInsetPx - endInsetPx,
+                        pageHeightPx = pageHeight - topInsetPx,
+                        density = density,
+                        topPx = topInsetPx,
+                    )
+                }
+                // The lyrics' box beside the panel (or across the page without one). Mid-swap they
+                // fade out and come back on the other side, rather than crossing the panel.
+                val lyricsBoxLeft = landscapeMetrics.lyricsBox(withPanel = !hideHeader, panelOnRight = false)
+                val lyricsBoxRight = landscapeMetrics.lyricsBox(withPanel = !hideHeader, panelOnRight = true)
+                val lyricsBoxWidth = with(LocalDensity.current) { lyricsBoxLeft.widthPx.toDp() }
+                fun Modifier.inLyricsBox(): Modifier = if (!landscape) this else this
+                    .offset { IntOffset((if (panelSide.value < 0.5f) lyricsBoxLeft else lyricsBoxRight).leftPx.roundToInt(), 0) }
+                    .width(lyricsBoxWidth)
+                val swapFade = { if (landscape && !hideHeader) abs(1f - 2f * panelSide.value) else 1f }
+                // Landscape lyrics keep the desktop page's size against the cover rather than
+                // following their box's width.
+                val lyricsFontScale = settings.lyricsSize.scale * if (landscape) {
+                    landscapeMetrics.lyricFontSizeSp /
+                        LyricsLayoutMetrics(lyricsBoxLeft.widthPx, density, LyricsType.Syllable, 1f).baseFontSizeSp
+                } else 1f
+                coverTouchArea.contains = if (!controlsOnCover) null else { position ->
+                    val size = landscapeMetrics.coverSizePx
+                    val t = if (hideHeader) 1f else expansion
+                    val left = startInsetPx + landscapeMetrics.coverLeftPx(panelSide.value) +
+                        (landscapeMetrics.centred.artLeftPx - landscapeMetrics.coverLeftPx(panelSide.value)) * t
+                    val top = landscapeMetrics.coverTopPx
+                    position.x in left..(left + size) && position.y in top..(top + size)
+                }
                 var controlsHeightPx by remember { mutableIntStateOf(0) }
                 // Pinned credits sit just above whatever covers the bottom: the controls while they
                 // show, else the screen's edge. The lyrics fade out above them.
@@ -354,12 +416,41 @@ private fun LyricsApp(
                 val pinnedClearPx = with(LocalDensity.current) { 8.dp.toPx() }
                 // While the controls show, a notice centres in the space they leave above them.
                 val noticeBottomPx by animateFloatAsState(
-                    if (controlsVisible) controlsHeightPx.toFloat() else 0f,
+                    if (controlsVisible && bottomBar) controlsHeightPx.toFloat() else 0f,
                     tween(SpicyMotion.CONTROLS_FADE_MS),
                     label = "noticeBottom",
                 )
                 // Read where it's drawn only: it moves every frame the controls fade.
                 val pinnedBottomPx = { noticeBottomPx + pinnedGapPx }
+                // Out of the way under settings too: their glass would keep blurring behind it.
+                val controlsTarget = controlsVisible && !showSettings
+                // Quick to appear under the finger; a slow, soft fade when they time out.
+                val controlsShown by animateFloatAsState(
+                    if (controlsTarget) 1f else 0f,
+                    if (controlsTarget) {
+                        tween(CONTROLS_SHOW_MS, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
+                    } else {
+                        tween(CONTROLS_HIDE_MS, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f))
+                    },
+                    label = "controlsShown",
+                )
+                // Once faded out, the controls stop blurring: the shade's progressive blur and each
+                // glass button would otherwise re-blur the whole page every frame, unseen.
+                val controlsGone by remember { derivedStateOf { controlsShown == 0f } }
+                val playbackControls = PlaybackControlsState(
+                    isPlaying = state.isPlaying,
+                    canSeek = state.canSeek,
+                    durationMs = state.durationMs,
+                    positionMs = viewModel::currentPositionMs,
+                    onPlayPause = viewModel::playPause,
+                    onPrevious = viewModel::skipPrevious,
+                    onNext = viewModel::skipNext,
+                    onSeek = viewModel::seekTo,
+                    customActions = state.customActions,
+                    onCustomAction = viewModel::sendCustomAction,
+                    onResync = viewModel::resync,
+                )
+                val onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null
                 // Everything the glass controls blur.
                 Box(Modifier.fillMaxSize().then(backdrop?.let { Modifier.hazeSource(it) } ?: Modifier)) {
                     SpicySessionBackground(
@@ -376,14 +467,28 @@ private fun LyricsApp(
                     )
                     Column(
                         Modifier
-                            .fillMaxSize()
                             .padding(belowTop)
+                            .inLyricsBox()
+                            .fillMaxSize()
                             // Expanding, the lyrics fade out under the cover.
-                            .graphicsLayer { alpha = 1f - expansion },
+                            .graphicsLayer { alpha = (1f - expansion) * swapFade() },
                     ) {
-                        // Without the header, the lyrics start just under the camera instead.
-                        val lyricsTopPx = if (hideHeader) headerMetrics.barTopPx else headerMetrics.lyricsTopPx
+                        // Without the header, the lyrics start just under the camera instead; in
+                        // landscape they run the page's full height.
+                        val lyricsTopPx = when {
+                            landscape -> topInsetPx
+                            hideHeader -> headerMetrics.barTopPx
+                            else -> headerMetrics.lyricsTopPx
+                        }
                         Spacer(Modifier.height(with(LocalDensity.current) { lyricsTopPx.toDp() }))
+                        // Landscape lyrics scroll like the full page: centred, 30px high against lyrics
+                        // at their size here, on the whole page (the low bar comes and goes over it).
+                        val centredLiftPx = if (landscape) {
+                            val lyricSp = landscapeMetrics.lyricFontSizeSp * settings.lyricsSize.scale
+                            30f * lyricSp / 56f * density
+                        } else {
+                            30f * headerMetrics.lyricsScale * headerMetrics.density + controlsHeightPx / 2f
+                        }
                         LyricsPanel(
                             lyrics = state.lyrics,
                             currentTimeMs = viewModel::currentLyricPositionMs,
@@ -393,14 +498,14 @@ private fun LyricsApp(
                             // Compact scrolling keeps the active line near the top; without the
                             // header, full-page scrolling centres it, 30px high (`GetScrollType`), in the
                             // space above the controls (whether or not they are showing, so it holds still).
-                            activeLineTopPx = headerMetrics.activeLineTopPx.takeUnless { hideHeader },
-                            centredLiftPx = 30f * headerMetrics.lyricsScale * headerMetrics.density + controlsHeightPx / 2f,
+                            activeLineTopPx = headerMetrics.activeLineTopPx.takeUnless { hideHeader || landscape },
+                            centredLiftPx = centredLiftPx,
                             noticeBottomPx = { noticeBottomPx },
                             viewState = lyricsViewState,
                             pinnedFooter = pinnedFooter,
                             maskBottomPx = { if (pinnedHeightPx > 0) pinnedBottomPx() + pinnedHeightPx + pinnedClearPx else 0f },
                             config = renderConfig,
-                            fontSizeScale = settings.lyricsSize.scale,
+                            fontSizeScale = lyricsFontScale,
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -410,8 +515,8 @@ private fun LyricsApp(
                 }
                 // Hidden, the header only shows while the big cover is open or fading.
                 val headerShowing by remember { derivedStateOf { expansion > 0f } }
-                val expandedHeader = remember(headerMetrics, controlsHeightPx) {
-                    headerMetrics.expanded(pageHeight - controlsHeightPx)
+                val expandedHeader = remember(headerMetrics, controlsHeightPx, landscape, landscapeMetrics) {
+                    if (landscape) landscapeMetrics.centred else headerMetrics.expanded(pageHeight - controlsHeightPx)
                 }
                 CompactNowPlayingHeader(
                     info = NowPlayingInfo(state.title, state.artist, state.album, state.artwork, state.artworkUri, state.trackDirection),
@@ -426,67 +531,70 @@ private fun LyricsApp(
                     animatedCover = settings.animatedCover && !lowPerformance && (!hideHeader || headerShowing),
                     hidden = hideHeader,
                     interactive = !hideHeader || headerExpanded,
+                    panel = landscapeMetrics.panel.takeIf { landscape },
+                    panelLeft = { landscapeMetrics.coverLeftPx(panelSide.value) },
+                    coverOverlay = if (!controlsOnCover || controlsGone) null else {
+                        {
+                            // No glass blur here: the cover is part of what the glass blurs.
+                            CompositionLocalProvider(LocalBackdrop provides null) {
+                                CoverControls(
+                                    controls = playbackControls,
+                                    romanizeAvailable = romanizationAvailable,
+                                    romanized = romanize,
+                                    onToggleRomanize = { settings.romanize = !settings.romanize },
+                                    onOpenSettings = { showSettings = true },
+                                    onOpenLyricsManager = onOpenLyricsManager,
+                                    expanded = headerExpanded,
+                                    onToggleExpanded = toggleExpanded,
+                                    // Only beside the lyrics: the big cover sits in the middle.
+                                    onSwapSide = if (hideHeader || headerExpanded) null else ({
+                                        settings.panelSide = if (settings.panelSide == PanelSide.Left) PanelSide.Right else PanelSide.Left
+                                    }),
+                                    shown = { controlsShown },
+                                )
+                            }
+                        }
+                    },
                 )
                 // The header sits in what the glass and the shade blur, so the shade blurs it
                 // rather than painting the blurred page over it.
                 }
-                // Out of the way under settings too: their glass would keep blurring behind it.
-                val controlsTarget = controlsVisible && !showSettings
-                // Quick to appear under the finger; a slow, soft fade when they time out.
-                val controlsShown by animateFloatAsState(
-                    if (controlsTarget) 1f else 0f,
-                    if (controlsTarget) {
-                        tween(CONTROLS_SHOW_MS, easing = CubicBezierEasing(0.2f, 0f, 0f, 1f))
-                    } else {
-                        tween(CONTROLS_HIDE_MS, easing = CubicBezierEasing(0.4f, 0f, 0.2f, 1f))
-                    },
-                    label = "controlsShown",
-                )
-                // Once faded out, the controls stop blurring: the shade's progressive blur and each
-                // glass button would otherwise re-blur the whole page every frame, unseen.
-                val controlsGone by remember { derivedStateOf { controlsShown == 0f } }
-                CompositionLocalProvider(LocalBackdrop provides backdrop?.takeUnless { controlsGone || lowPerformance }) {
+                // In landscape, the bottom bar gives way to the controls on the big cover.
+                val barFade = { if (landscape) 1f - expansion.coerceIn(0f, 1f) else 1f }
+                val barGone by remember { derivedStateOf { controlsShown * barFade() == 0f } }
+                if (bottomBar) CompositionLocalProvider(LocalBackdrop provides backdrop?.takeUnless { barGone || lowPerformance }) {
                     LyricsControls(
-                        controls = PlaybackControlsState(
-                            isPlaying = state.isPlaying,
-                            canSeek = state.canSeek,
-                            durationMs = state.durationMs,
-                            positionMs = viewModel::currentPositionMs,
-                            onPlayPause = viewModel::playPause,
-                            onPrevious = viewModel::skipPrevious,
-                            onNext = viewModel::skipNext,
-                            onSeek = viewModel::seekTo,
-                            customActions = state.customActions,
-                            onCustomAction = viewModel::sendCustomAction,
-                            onResync = viewModel::resync,
-                        ),
+                        controls = playbackControls,
                         romanizeAvailable = romanizationAvailable,
                         romanized = romanize,
                         onToggleRomanize = { settings.romanize = !settings.romanize },
                         onOpenSettings = { showSettings = true },
-                        onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null,
+                        onOpenLyricsManager = onOpenLyricsManager,
                         expanded = headerExpanded,
                         onToggleExpanded = toggleExpanded,
-                        interactive = controlsVisible,
-                        shown = { controlsShown },
+                        interactive = controlsVisible && !controlsOnCover,
+                        shown = { controlsShown * barFade() },
                         // No lyrics behind them when expanded, so no shade over the cover.
                         shade = { 1f - expansion.coerceIn(0f, 1f) },
                         onControlsHeight = { controlsHeightPx = it },
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(padding),
+                        wide = landscape,
+                        insets = belowTop,
+                        modifier = Modifier.align(Alignment.BottomCenter),
                     )
                 }
                 // Over the controls' shade rather than under it, so neither blurs nor covers them.
                 PinnedLyricsFooter(
                     state = lyricsViewState,
                     mode = pinnedFooter,
-                    fontSizeScale = settings.lyricsSize.scale,
+                    fontSizeScale = lyricsFontScale,
                     onHeight = { pinnedHeightPx = it },
                     modifier = Modifier
-                        .align(Alignment.BottomCenter)
+                        .align(if (landscape) Alignment.BottomStart else Alignment.BottomCenter)
                         .padding(belowTop)
+                        .inLyricsBox()
                         .graphicsLayer {
                             translationY = -pinnedBottomPx()
-                            alpha = 1f - expansion
+                            alpha = (1f - expansion) * swapFade()
                         },
                 )
                 CompositionLocalProvider(LocalBackdrop provides backdrop?.takeUnless { lowPerformance }) {
@@ -495,9 +603,13 @@ private fun LyricsApp(
                             settings.showScrollToActive && !headerExpanded && !showSettings
                         },
                         onClick = lyricsViewState::scrollToActive,
-                        topPx = if (hideHeader) headerMetrics.barTopPx else headerMetrics.lyricsTopPx,
+                        topPx = when {
+                            landscape -> topInsetPx
+                            hideHeader -> headerMetrics.barTopPx
+                            else -> headerMetrics.lyricsTopPx
+                        },
                         bottomPx = { pinnedBottomPx() + if (pinnedHeightPx > 0) pinnedHeightPx + pinnedClearPx else 0f },
-                        modifier = Modifier.padding(belowTop),
+                        modifier = Modifier.padding(belowTop).inLyricsBox(),
                     )
                 }
             }
@@ -569,6 +681,11 @@ private fun setPreferredRefreshRate(window: Window, hz: Float?) {
     if (window.attributes.preferredDisplayModeId != modeId) {
         window.attributes = window.attributes.apply { preferredDisplayModeId = modeId }
     }
+}
+
+/** Tells the touch watcher whether a touch landed on the landscape cover; null: anywhere counts. */
+private class CoverTouchArea {
+    var contains: ((Offset) -> Boolean)? = null
 }
 
 private const val CONTROLS_IDLE_MS = 3_000L

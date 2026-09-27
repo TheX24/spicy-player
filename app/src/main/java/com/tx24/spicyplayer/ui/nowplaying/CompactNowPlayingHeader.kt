@@ -111,6 +111,11 @@ private val CoverEnterEasing = CubicBezierEasing(0.835f, -0.008f, 0.149f, 0.866f
  *
  * With [hidden] on there is no compact bar: the expanded view fades in and out in place instead
  * of growing out of it. [interactive] off lets touches through to the lyrics.
+ *
+ * In landscape, [panel] takes the compact bar's place: the cover beside the lyrics with the song
+ * text centred under it, at [panelLeft] (it slides when the sides swap). Expanding then only
+ * moves it to the centre. [coverOverlay] is drawn over the cover and moves with it; touches it
+ * leaves alone reach the cover's gestures.
  */
 @Composable
 fun CompactNowPlayingHeader(
@@ -126,6 +131,9 @@ fun CompactNowPlayingHeader(
     hidden: Boolean = false,
     interactive: Boolean = true,
     releaseYear: ReleaseYear? = null,
+    panel: ExpandedHeader? = null,
+    panelLeft: () -> Float = { panel?.artLeftPx ?: 0f },
+    coverOverlay: (@Composable () -> Unit)? = null,
 ) {
     val year = releaseYear?.takeIf { it.position != ReleaseYearPosition.Off }?.let { y ->
         when {
@@ -143,9 +151,11 @@ fun CompactNowPlayingHeader(
     fun p() = if (expanded == null) 0f else expansion()
     // Hidden, the layout stays expanded and only the opacity follows the transition.
     fun layoutP() = if (hidden && expanded != null) 1f else p()
-    fun artSize() = lerp(metrics.artSizePx, expanded?.artSizePx ?: metrics.artSizePx, layoutP())
-    fun artLeft() = lerp(metrics.contentStartPx, expanded?.artLeftPx ?: 0f, layoutP())
-    fun artTop() = lerp(metrics.barTopPx, expanded?.artTopPx ?: 0f, layoutP())
+    val restingSize = panel?.artSizePx ?: metrics.artSizePx
+    fun artSize() = lerp(restingSize, expanded?.artSizePx ?: restingSize, layoutP())
+    fun artLeft() = lerp(if (panel != null) panelLeft() else metrics.contentStartPx, expanded?.artLeftPx ?: 0f, layoutP())
+    fun artTop() = lerp(panel?.artTopPx ?: metrics.barTopPx, expanded?.artTopPx ?: 0f, layoutP())
+    val restingCorner = if (panel != null) CompactHeaderMetrics.NOWBAR_CORNER_FRACTION else CompactHeaderMetrics.ART_CORNER_FRACTION
     with(density) {
         Box(modifier.fillMaxSize().graphicsLayer { alpha = if (hidden) p() else 1f }) {
             HeaderArtwork(
@@ -154,7 +164,8 @@ fun CompactNowPlayingHeader(
                 motionQuery = motionQuery,
                 direction = info.direction,
                 metrics = metrics,
-                cornerFraction = { lerp(CompactHeaderMetrics.ART_CORNER_FRACTION, CompactHeaderMetrics.NOWBAR_CORNER_FRACTION, layoutP()) },
+                cornerFraction = { lerp(restingCorner, CompactHeaderMetrics.NOWBAR_CORNER_FRACTION, layoutP()) },
+                overlay = coverOverlay,
                 modifier = Modifier
                     .layout { measurable, _ ->
                         val size = artSize().roundToInt().coerceAtLeast(1)
@@ -164,7 +175,7 @@ fun CompactNowPlayingHeader(
                     .offset { IntOffset(artLeft().roundToInt(), artTop().roundToInt()) }
                     .then(if (interactive) Modifier.coverGestures(isPlaying, onPlayPause, onSkip) else Modifier),
             )
-            if (!hidden) HeaderMetadata(
+            if (!hidden && panel == null) HeaderMetadata(
                 title = info.title,
                 artists = info.artists,
                 year = year,
@@ -198,7 +209,8 @@ fun CompactNowPlayingHeader(
                                 (artTop() + size * 1.05f).roundToInt(),
                             )
                         }
-                        .graphicsLayer { alpha = ((layoutP() - (1f - TEXT_SWAP)) / TEXT_SWAP).coerceIn(0f, 1f) }
+                        // The panel's text is always there; the compact bar's gives way to it.
+                        .graphicsLayer { alpha = if (panel != null) 1f else ((layoutP() - (1f - TEXT_SWAP)) / TEXT_SWAP).coerceIn(0f, 1f) }
                         .width(expanded.artSizePx.toDp())
                         .height(expanded.textHeightPx.toDp()),
                 )
@@ -488,6 +500,7 @@ private fun HeaderArtwork(
     metrics: CompactHeaderMetrics,
     cornerFraction: () -> Float,
     modifier: Modifier,
+    overlay: (@Composable () -> Unit)? = null,
 ) {
     val latestDirection by rememberUpdatedState(direction)
     var current by remember { mutableStateOf<SessionArtwork?>(null) }
@@ -624,6 +637,7 @@ private fun HeaderArtwork(
                 )
             }
         }
+        overlay?.invoke()
     }
 }
 

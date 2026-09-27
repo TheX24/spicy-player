@@ -19,11 +19,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -133,6 +137,10 @@ fun LyricsControls(
     onControlsHeight: (Int) -> Unit = {},
     /** How much of the shade shows (1 = all), on top of [shown]. */
     shade: () -> Float = { 1f },
+    /** A short landscape screen: everything in one low bar ([ControlsBar]) instead of three rows. */
+    wide: Boolean = false,
+    /** The cutout's insets: the controls keep clear of them, the shade runs under them to the screen's edges. */
+    insets: PaddingValues = PaddingValues(0.dp),
 ) {
     val backdrop = LocalBackdrop.current
     Box(modifier.fillMaxWidth()) {
@@ -162,7 +170,9 @@ fun LyricsControls(
         )
         Box(
             Modifier
-                .padding(top = SHADE_REACH)
+                .fillMaxWidth()
+                .padding(top = if (wide) BAR_SHADE_REACH else SHADE_REACH)
+                .padding(insets)
                 .graphicsLayer { alpha = shown() }
                 .onSizeChanged { onControlsHeight(it.height) }
                 // The controls own their whole area, gaps and margins included: without a pointer
@@ -170,8 +180,13 @@ fun LyricsControls(
                 .pointerInput(Unit) {
                     awaitPointerEventScope { while (true) awaitPointerEvent() }
                 },
+            contentAlignment = Alignment.TopCenter,
         ) {
-            ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded, shown)
+            if (wide) {
+                ControlsBar(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded, shown)
+            } else {
+                ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded, shown)
+            }
             // Hidden controls swallow touches too: a touch there only brings them back, rather
             // than pressing a button nobody can see.
             if (!interactive) {
@@ -211,6 +226,7 @@ private fun ControlsColumn(
 
     Column(
         modifier = Modifier
+            .widthIn(max = CONTROLS_MAX_WIDTH)
             .fillMaxWidth()
             .padding(bottom = BOTTOM_MARGIN),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -226,7 +242,49 @@ private fun ControlsColumn(
         BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S2), contentAlignment = Alignment.Center) {
             val fits = (maxWidth - FLOATING_SIZE * buttons) / (buttons - 1).coerceAtLeast(1)
             FloatingButtons(fits.coerceIn(4.dp, SpicySpacing.S4)) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded)
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded, onSwapSide = null, size = FLOATING_SIZE)
+            }
+        }
+    }
+}
+
+/**
+ * The controls as one low bar for a short landscape screen, laid out like a desktop player bar:
+ * the playback row over the timeline in the middle, the floating glass buttons on the right,
+ * and the left side kept empty so the middle stays centred on the page.
+ */
+@Composable
+private fun ControlsBar(
+    controls: PlaybackControlsState,
+    romanizeAvailable: Boolean,
+    romanized: Boolean,
+    onToggleRomanize: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenLyricsManager: (() -> Unit)?,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    shown: () -> Float,
+) {
+    val shuffle = controls.customActions.firstOrNull { it.kind == ActionKind.Shuffle }
+    val repeat = controls.customActions.firstOrNull { it.kind == ActionKind.Repeat }
+    val others = controls.customActions.filter { it.kind == ActionKind.Other }
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(start = SIDE_MARGIN, end = SIDE_MARGIN, bottom = BAR_BOTTOM_MARGIN),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Spacer(Modifier.weight(1f))
+        Column(Modifier.width(BAR_MIDDLE_WIDTH), horizontalAlignment = Alignment.CenterHorizontally) {
+            PlaybackRow(controls, shuffle, repeat, Modifier, skipWidth = BAR_SKIP_WIDTH)
+            Timeline(controls, shown, Modifier)
+        }
+        BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
+            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null).count { it } + others.size + 3
+            val room = maxWidth - SpicySpacing.S4
+            val size = ((room - COVER_BUTTON_GAP * (buttons - 1)) / buttons).coerceIn(COVER_BUTTON_MIN, COVER_BUTTON_MAX)
+            FloatingButtons(COVER_BUTTON_GAP) {
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded, onSwapSide = null, size = size)
             }
         }
     }
@@ -248,47 +306,128 @@ private fun FloatingButtonsContent(
     onOpenLyricsManager: (() -> Unit)?,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
+    /** Shows the button that moves the landscape panel to the other side when set. */
+    onSwapSide: (() -> Unit)?,
+    size: Dp,
 ) {
+    // Icons keep their size against the button's (drawn for a 48dp one).
+    fun icon(dp: Float) = size * (dp / FLOATING_SIZE.value)
     if (romanizeAvailable) {
         GlassButton(
-            size = FLOATING_SIZE,
+            size = size,
             onClick = onToggleRomanize,
             contentDescription = if (romanized) "Show original lyrics" else "Romanize lyrics",
         ) {
             // Shows what a tap switches to: "A" to go back, the kana mark to romanize.
             if (romanized) {
-                Image(rememberVectorPainter(SpicyIcons.DisableRomanization), null, Modifier.size(19.dp))
+                Image(rememberVectorPainter(SpicyIcons.DisableRomanization), null, Modifier.size(icon(19f)))
             } else {
-                Image(rememberVectorPainter(SpicyIcons.EnableRomanization), null, Modifier.size(17.dp))
+                Image(rememberVectorPainter(SpicyIcons.EnableRomanization), null, Modifier.size(icon(17f)))
             }
         }
     }
     others.forEach { action ->
-        GlassButton(onClick = { controls.onCustomAction(action.action) }, contentDescription = action.name, size = FLOATING_SIZE) {
-            ActionIcon(action, Modifier.size(23.dp))
+        GlassButton(onClick = { controls.onCustomAction(action.action) }, contentDescription = action.name, size = size) {
+            ActionIcon(action, Modifier.size(icon(23f)))
         }
     }
-    GlassButton(onClick = controls.onResync, contentDescription = "Resync lyrics", size = FLOATING_SIZE) {
-        Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(23.dp))
+    GlassButton(onClick = controls.onResync, contentDescription = "Resync lyrics", size = size) {
+        Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(icon(23f)))
     }
     GlassButton(
         onClick = onToggleExpanded,
         contentDescription = if (expanded) "Show lyrics" else "Show the cover",
-        size = FLOATING_SIZE,
+        size = size,
     ) {
-        Image(rememberVectorPainter(if (expanded) SpicyIcons.Collapse else SpicyIcons.Expand), null, Modifier.size(21.dp))
+        Image(rememberVectorPainter(if (expanded) SpicyIcons.Collapse else SpicyIcons.Expand), null, Modifier.size(icon(21f)))
     }
-    if (onOpenLyricsManager != null) {
-        GlassButton(onClick = onOpenLyricsManager, contentDescription = "Lyrics Manager", size = FLOATING_SIZE) {
-            Image(rememberVectorPainter(SpicyIcons.LyricsManager), null, Modifier.size(23.dp))
+    if (onSwapSide != null) {
+        GlassButton(onClick = onSwapSide, contentDescription = "Move the cover to the other side", size = size) {
+            Image(rememberVectorPainter(SpicyIcons.SwapSide), null, Modifier.size(icon(23f)))
         }
     }
-    GlassButton(onClick = onOpenSettings, contentDescription = "Settings", size = FLOATING_SIZE) {
-        Image(rememberVectorPainter(SpicyIcons.Settings), null, Modifier.size(23.dp))
+    if (onOpenLyricsManager != null) {
+        GlassButton(onClick = onOpenLyricsManager, contentDescription = "Lyrics Manager", size = size) {
+            Image(rememberVectorPainter(SpicyIcons.LyricsManager), null, Modifier.size(icon(23f)))
+        }
+    }
+    GlassButton(onClick = onOpenSettings, contentDescription = "Settings", size = size) {
+        Image(rememberVectorPainter(SpicyIcons.Settings), null, Modifier.size(icon(23f)))
+    }
+}
+
+/**
+ * All the controls over the landscape cover, the way the fullscreen now bar lays them over its
+ * cover: the floating glass buttons across the top, the playback row, and the timeline along the
+ * bottom. While they show, the cover darkens to 55% (`--ArtworkBrightness`) and they sit at 98.5%
+ * (`--ControlsOpacity`), both following [shown]. The glyphs and buttons scale with the cover so
+ * everything fits in one row; touches between them reach the cover's own gestures.
+ */
+@Composable
+fun CoverControls(
+    controls: PlaybackControlsState,
+    romanizeAvailable: Boolean,
+    romanized: Boolean,
+    onToggleRomanize: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenLyricsManager: (() -> Unit)?,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+    onSwapSide: (() -> Unit)?,
+    shown: () -> Float,
+    modifier: Modifier = Modifier,
+) {
+    val shuffle = controls.customActions.firstOrNull { it.kind == ActionKind.Shuffle }
+    val repeat = controls.customActions.firstOrNull { it.kind == ActionKind.Repeat }
+    val others = controls.customActions.filter { it.kind == ActionKind.Other }
+    BoxWithConstraints(modifier.fillMaxSize()) {
+        val side = maxWidth
+        Box(
+            Modifier
+                .matchParentSize()
+                .graphicsLayer {
+                    alpha = shown()
+                    shape = RoundedCornerShape(size.width * COVER_CORNER_FRACTION)
+                    clip = true
+                }
+                .background(Color.Black.copy(alpha = 0.45f)),
+        )
+        Column(
+            Modifier
+                .matchParentSize()
+                .graphicsLayer { alpha = shown() * 0.985f }
+                .padding(horizontal = side * 0.06f, vertical = side * 0.06f),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onSwapSide != null).count { it } + others.size + 3
+            val room = side * 0.88f
+            val size = ((room - COVER_BUTTON_GAP * (buttons - 1)) / buttons).coerceIn(COVER_BUTTON_MIN, COVER_BUTTON_MAX)
+            val gap = ((room - size * buttons) / (buttons - 1).coerceAtLeast(1)).coerceIn(2.dp, SpicySpacing.S3)
+            FloatingButtons(gap) {
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded, onSwapSide, size)
+            }
+            Spacer(Modifier.weight(1f))
+            PlaybackRow(controls, shuffle, repeat, Modifier, skipWidth = side * 0.15f, fillSlots = true)
+            Spacer(Modifier.weight(1f))
+            Timeline(controls, shown, Modifier)
+        }
     }
 }
 
 private val SIDE_MARGIN = 28.dp
+/** The bottom controls' widest, so they don't stretch across a landscape or tablet screen. */
+private val CONTROLS_MAX_WIDTH = 560.dp
+/** The glass buttons over the cover: as big as fits in one row, between these. */
+private val COVER_BUTTON_MAX = 40.dp
+private val COVER_BUTTON_MIN = 26.dp
+private val COVER_BUTTON_GAP = 6.dp
+/** The one-row landscape bar ([ControlsBar]). */
+private val BAR_MIDDLE_WIDTH = 360.dp
+private val BAR_SKIP_WIDTH = 36.dp
+private val BAR_BOTTOM_MARGIN = 12.dp
+private val BAR_SHADE_REACH = 72.dp
+/** The landscape cover's corners (`border-radius: 2cqh` against its square). */
+private const val COVER_CORNER_FRACTION = 0.02f
 private val ROW_GAP = 24.dp
 /** The floating buttons, sized to match the transport so they don't look lost under it. */
 private val FLOATING_SIZE = 48.dp
@@ -347,45 +486,47 @@ private fun PlaybackRow(
     shuffle: SessionCustomAction?,
     repeat: SessionCustomAction?,
     modifier: Modifier,
+    skipWidth: Dp = SKIP_WIDTH,
+    /** Each control gets an equal share of the row as its touch area, for rows too narrow for 48dp ones. */
+    fillSlots: Boolean = false,
 ) {
+    val playWidth = skipWidth * (9.25f / 12f)
+    val sideWidth = skipWidth * (7f / 12f)
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        SideAction(shuffle, controls)
-        PressableGlyph(rememberVectorPainter(SpicyIcons.TrackSkip), SKIP_WIDTH, SpicyIcons.TrackSkip.aspect, "Previous", rotate = true, onClick = controls.onPrevious)
+        val slot = if (fillSlots) Modifier.weight(1f).height(TOUCH_SIZE) else null
+        SideAction(shuffle, controls, sideWidth, slot)
+        PressableGlyph(rememberVectorPainter(SpicyIcons.TrackSkip), skipWidth, SpicyIcons.TrackSkip.aspect, "Previous", rotate = true, touch = slot, onClick = controls.onPrevious)
         val playIcon = if (controls.isPlaying) SpicyIcons.Pause else SpicyIcons.Play
         PressableGlyph(
-            rememberVectorPainter(playIcon), PLAY_WIDTH, playIcon.aspect,
+            rememberVectorPainter(playIcon), playWidth, playIcon.aspect,
             if (controls.isPlaying) "Pause" else "Play",
+            touch = slot,
             onClick = controls.onPlayPause,
         )
-        PressableGlyph(rememberVectorPainter(SpicyIcons.TrackSkip), SKIP_WIDTH, SpicyIcons.TrackSkip.aspect, "Next", onClick = controls.onNext)
-        SideAction(repeat, controls)
+        PressableGlyph(rememberVectorPainter(SpicyIcons.TrackSkip), skipWidth, SpicyIcons.TrackSkip.aspect, "Next", touch = slot, onClick = controls.onNext)
+        SideAction(repeat, controls, sideWidth, slot)
     }
 }
 
 /** Big, like Apple Music's transport, which suits a thumb. */
 private val SKIP_WIDTH = 52.dp
-private val PLAY_WIDTH = SKIP_WIDTH * (9.25f / 12f)
-private val SIDE_WIDTH = SKIP_WIDTH * (7f / 12f)
 
 @Composable
-private fun SideAction(action: SessionCustomAction?, controls: PlaybackControlsState) {
-    if (action == null) {
-        Spacer(Modifier.size(TOUCH_SIZE))
-        return
-    }
-    val bitmap = action.icon
+private fun SideAction(action: SessionCustomAction?, controls: PlaybackControlsState, width: Dp, slot: Modifier?) {
+    val bitmap = action?.icon
     if (bitmap == null) {
-        Spacer(Modifier.size(TOUCH_SIZE))
+        Spacer(slot ?: Modifier.size(TOUCH_SIZE))
         return
     }
     val painter = remember(bitmap) { BitmapPainter(bitmap.asImageBitmap()) }
     PressableGlyph(
-        painter, SIDE_WIDTH, 1f, action.name,
+        painter, width, 1f, action.name,
         colorFilter = ColorFilter.tint(SpicyColors.TextPrimary),
+        touch = slot,
         onClick = { controls.onCustomAction(action.action) },
     )
 }
@@ -410,6 +551,8 @@ private fun PressableGlyph(
     description: String,
     rotate: Boolean = false,
     colorFilter: ColorFilter? = null,
+    /** The touch area; null: at least 48dp square around the glyph. */
+    touch: Modifier? = null,
     onClick: () -> Unit,
 ) {
     val scale = remember { Animatable(1f) }
@@ -418,8 +561,7 @@ private fun PressableGlyph(
     // the press before it lifts.
     val currentOnClick by rememberUpdatedState(onClick)
     Box(
-        modifier = Modifier
-            .size(width = maxOf(TOUCH_SIZE, width + 12.dp), height = TOUCH_SIZE)
+        modifier = (touch ?: Modifier.size(width = maxOf(TOUCH_SIZE, width + 12.dp), height = TOUCH_SIZE))
             .semantics {
                 role = Role.Button
                 contentDescription = description
@@ -617,6 +759,14 @@ internal object SpicyIcons {
         "M21 3v5h-5",
         "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16",
         "M8 16H3v5",
+    )
+
+    /** A split panel with arrows out to both sides, for moving the landscape cover across. */
+    val SwapSide = lucide(
+        "M5.5 3h13A2.5 2.5 0 0 1 21 5.5v13a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 18.5v-13A2.5 2.5 0 0 1 5.5 3Z",
+        "M12 3v18",
+        "m8.5 9-3 3 3 3",
+        "m15.5 9 3 3-3 3",
     )
 
     /** A book leaning on another, for the Lyrics Manager. */

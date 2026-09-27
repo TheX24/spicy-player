@@ -63,6 +63,8 @@ class AppSettings(private val prefs: SharedPreferences) {
     var keepScreenOn by boolean("keepScreenOn", true)
     /** No song header: the lyrics fill the page and scroll with the active line near the centre. */
     var hideHeader by boolean("hideHeader", false)
+    /** Which side the now-playing panel sits on in landscape; the floating swap button, not a settings row. */
+    var panelSide by enum("panelSide", PanelSide.Left)
     /** The screen's full refresh rate (90/120 Hz) instead of 60 Hz, which costs battery. */
     var highRefreshRate by boolean("highRefreshRate", false)
     var autoHideControls by boolean("autoHideControls", true)
@@ -130,6 +132,8 @@ enum class BackgroundType(val label: String) {
 const val MAX_BACKGROUND_BLUR = 67
 
 /** Where the song's release year shows beside the artists, if at all. */
+enum class PanelSide { Left, Right }
+
 enum class ReleaseYearPosition(val label: String) { Off("Off"), Left("Left"), Right("Right") }
 
 /** The lyric text size against the default, which follows the screen width. */

@@ -443,7 +443,7 @@ internal fun ScreenContent(settings: AppSettings) {
         label = "Hide the song header",
         checked = settings.hideHeader,
         onCheckedChange = { settings.hideHeader = it },
-        description = "Show only the lyrics, centred on the page. The expand button still opens the big cover.",
+        description = "Show only the lyrics, centred on the page (in landscape, without the cover panel). The expand button still opens the big cover.",
         icon = Icons.Rounded.HideImage,
     )
     ToggleRow(
