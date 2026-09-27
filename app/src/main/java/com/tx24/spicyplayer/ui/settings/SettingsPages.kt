@@ -52,6 +52,9 @@ import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.DeleteForever
+import androidx.compose.material.icons.rounded.Memory
+import androidx.compose.material.icons.rounded.LibraryMusic
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.material.icons.rounded.KeyboardArrowUp
 import androidx.compose.material.icons.rounded.KeyboardDoubleArrowUp
@@ -82,6 +85,8 @@ import com.tx24.spicyplayer.network.data.ProviderAttemptOutcome
 import com.tx24.spicyplayer.network.data.RemoteLyricsQuality
 import com.tx24.spicyplayer.network.data.SourceReleaseChannel
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
+import com.tx24.spicyplayer.playback.LOCAL_SOURCE
+import com.tx24.spicyplayer.playback.UPLOADED_SOURCE
 import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.components.DISABLED_ALPHA
 import com.tx24.spicyplayer.ui.components.DescriptionStyle
@@ -108,7 +113,7 @@ import com.tx24.spicyplayer.update.UpdateViewModel
  */
 
 @Composable
-internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
+internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, onOpenLyricsManager: () -> Unit) {
     val context = LocalContext.current
     var spotifyInput by remember { mutableStateOf("") }
     LaunchedEffect(state.title, state.artist) { spotifyInput = "" }
@@ -153,6 +158,13 @@ internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
     }
     SettingRow(label = "Look again", description = "Ask the sources again instead of using the saved lyrics.", icon = Icons.Rounded.Refresh) {
         SpicyButton("Retry", onClick = { viewModel.loadLyrics(force = true) })
+    }
+    SettingRow(
+        label = "Lyrics Manager",
+        description = "Use your own TTML for this song, once or saved, and manage the songs you've saved.",
+        icon = Icons.Rounded.LibraryMusic,
+    ) {
+        SpicyButton("Open", onClick = onOpenLyricsManager)
     }
     state.status?.let { status ->
         Searchable("Status", status) {
@@ -434,6 +446,13 @@ internal fun ScreenContent(settings: AppSettings) {
         description = "Show only the lyrics, centred on the page. The expand button still opens the big cover.",
         icon = Icons.Rounded.HideImage,
     )
+    ToggleRow(
+        label = "Lyrics Manager Button",
+        checked = settings.lyricsManagerButton,
+        onCheckedChange = { settings.lyricsManagerButton = it },
+        description = "Add a floating button that opens the Lyrics Manager. It's always in This song too.",
+        icon = Icons.Rounded.LibraryMusic,
+    )
     SettingRow(
         label = "Release Year Position",
         description = "Show the release year beside the artists.",
@@ -624,8 +643,26 @@ private fun LyricsSourceDescriptor.summary(): String = buildList {
 
 @Composable
 internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, updater: UpdateViewModel, settings: AppSettings) {
-    SettingRow(label = "Clear lyrics cache", description = "Forget every saved lyric and look this song up again.", icon = Icons.Rounded.DeleteSweep) {
-        SpicyButton("Clear", onClick = viewModel::clearLyricsCache)
+    SettingRow(
+        label = "Clear All Caches for Current Song",
+        description = "Remove all cached lyrics data for the currently playing track.",
+        icon = Icons.Rounded.DeleteSweep,
+    ) {
+        SpicyButton("Clear", onClick = viewModel::clearCurrentSongCaches)
+    }
+    SettingRow(
+        label = "Clear Stored Lyrics Cache",
+        description = "Delete lyrics that have been cached for up to 3 days.",
+        icon = Icons.Rounded.DeleteForever,
+    ) {
+        SpicyButton("Clear Cache", onClick = viewModel::clearStoredLyricsCache)
+    }
+    SettingRow(
+        label = "Clear Current Song from Internal State",
+        description = "Remove the current song's lyrics from the in-memory state only.",
+        icon = Icons.Rounded.Memory,
+    ) {
+        SpicyButton("Clear State", onClick = viewModel::clearCurrentSongFromMemory)
     }
     if (updater.enabled) {
         SettingsSection("Updates") {
@@ -683,7 +720,8 @@ private fun InfoLines(lines: List<Pair<String, String>>) {
 
 @Composable
 private fun AttemptLine(attempt: ProviderAttempt, state: PlayerUiState) {
-    val name = state.sourceDescriptors.firstOrNull { it.id == attempt.sourceId }?.displayName ?: attempt.sourceId
+    val name = (state.sourceDescriptors + LOCAL_SOURCE + UPLOADED_SOURCE)
+        .firstOrNull { it.id == attempt.sourceId }?.displayName ?: attempt.sourceId
     val (outcome, color) = when (attempt.outcome) {
         ProviderAttemptOutcome.HIT -> "Found" to SpicyColors.StatusSuccess
         ProviderAttemptOutcome.MISS -> "Not found" to SpicyColors.TextTertiary

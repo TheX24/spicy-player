@@ -18,6 +18,7 @@ import androidx.core.graphics.drawable.toBitmap
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.lyrics.LocalLyricsStore
 import com.tx24.spicyplayer.lyrics.LyricsNotices
 import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.lyrics.NextLyricsBackend
@@ -30,6 +31,12 @@ import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsResolution
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
 import com.tx24.spicyplayer.network.data.TrackNameCleaner
+import com.tx24.spicyplayer.network.data.LyricsCapability
+import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
+import com.tx24.spicyplayer.network.data.measuredQuality
+import java.io.File
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import com.tx24.spicyplayer.network.data.ItunesReleaseYear
 import com.tx24.spicyplayer.network.data.spotify.AudioAnalysis
 import com.tx24.spicyplayer.network.data.spotify.LocalTrackMetadata
@@ -72,6 +79,11 @@ private const val LOADING_PAUSE_GRACE_MS = 3_000L
  * the new position a moment before the new title. An older one is the previous song's.
  */
 private const val TRACK_REPORT_FRESH_MS = 1_000L
+/** Lyrics saved in the Lyrics Manager, and lyrics uploaded for one song "just once". */
+internal val LOCAL_SOURCE = LyricsSourceDescriptor("local", "Local Lyrics DB", 0, setOf(LyricsCapability.WORD_SYNC))
+internal val UPLOADED_SOURCE = LyricsSourceDescriptor("uploaded", "Uploaded TTML", 0, setOf(LyricsCapability.WORD_SYNC))
+/** How wide a saved song's cover is kept for the Lyrics Manager's list. */
+private const val COVER_THUMB_PX = 128
 private val IN_BETWEEN_STATES = setOf(
     PlaybackState.STATE_BUFFERING,
     PlaybackState.STATE_CONNECTING,
@@ -125,6 +137,10 @@ data class PlayerUiState(
     /** The lead artist's Spotify header image, when asked for and they have one. */
     val artistHeaderUrl: String? = null,
     val artistHeaderPending: Boolean = false,
+    /** The Lyrics Manager's saved songs, newest first. */
+    val localLyrics: List<LocalLyricsStore.Entry> = emptyList(),
+    /** The playing song's key in the Lyrics Manager, saved there or not. */
+    val localLyricsKey: String? = null,
 )
 
 /** The lookups beyond the lyrics that the screen currently shows. */
@@ -156,6 +172,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         humanRomanizations = lyricsBackend.humanRomanizations,
     ))
     val state: StateFlow<PlayerUiState> = mutableState.asStateFlow()
+    private val mutableMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
+    /** Short notes on what an action did ("Removed from Local DB."), shown as toasts. */
+    val messages: SharedFlow<String> = mutableMessages
+
+    private val localLyrics = LocalLyricsStore(File(application.filesDir, "local-lyrics"))
+    /** A TTML applied to one song "just once" (by lyrics key): it holds until the song changes or is reset. */
+    private var temporaryLyrics: Pair<String, RemoteLyricsSelection>? = null
 
     private var controller: MediaController? = null
     // Which way our own skip buttons last moved, so the next track change can say so.
@@ -401,12 +424,164 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         loadLyrics()
     }
 
-    /** Forgets every lyric answer, on disk and in memory, and looks the current song up again. */
-    fun clearLyricsCache() {
-        lookupCache.clear()
-        synchronized(renderedCache) { renderedCache.clear() }
-        lyricsBackend.clearCache()
+    /** Forgets this song's lyrics everywhere they are kept (bar the Lyrics Manager) and asks the sources again. */
+    fun clearCurrentSongCaches() {
+        val request = currentRequest() ?: return noTrack()
+        forgetShown(request)
+        lyricsBackend.forgetRomanization(request.title, request.artist)
         loadLyrics(force = true)
+        mutableMessages.tryEmit("Lyrics for the current song have been removed from all caches.")
+    }
+
+    /** Deletes every stored pick. The lyrics on screen stay: they are held in memory. */
+    fun clearStoredLyricsCache() {
+        val backend = lyricsBackend
+        viewModelScope.launch(Dispatchers.IO) {
+            backend.clearCache()
+            mutableMessages.tryEmit("The lyrics cache has been cleared.")
+        }
+    }
+
+    /** Drops this song's lyrics from memory only, so they are read back from the cache or asked for again. */
+    fun clearCurrentSongFromMemory() {
+        val request = currentRequest() ?: return noTrack()
+        forgetShown(request)
+        loadLyrics()
+        mutableMessages.tryEmit("Lyrics for the current song have been removed from memory.")
+    }
+
+    /** Shows [message] as a toast. */
+    fun showMessage(message: String) {
+        mutableMessages.tryEmit(message)
+    }
+
+    private fun noTrack() = showMessage("No track is currently playing.")
+
+    /**
+     * Drops a just-once upload and makes the next load pick this song's lyrics afresh.
+     * [dropResults] also forgets the sources' answers and the rendered lyrics, so they are asked
+     * for and rendered again; without it what is already in is re-picked at once.
+     */
+    private fun forgetShown(request: LyricsLookupRequest, dropResults: Boolean = true) {
+        temporaryLyrics = null
+        if (dropResults) lookupCache.remove(request)
+        shownSelection?.takeIf { dropResults }?.let { shown ->
+            synchronized(renderedCache) { renderedCache.remove(shown) }
+            synchronized(humanCache) { humanCache.remove(shown) }
+        }
+        shownSelection = null
+    }
+
+    /** The playing song as the sources are asked for it. */
+    private fun currentRequest(): LyricsLookupRequest? {
+        val metadata = controller?.metadata ?: return null
+        return lookupRequest(metadata, manualSpotifyId ?: mutableState.value.detectedSpotifyId)
+            .takeIf { it.title.isNotBlank() && it.artist.isNotBlank() }
+    }
+
+    /** Re-reads the Lyrics Manager's list. */
+    fun refreshLocalLyrics() {
+        viewModelScope.launch {
+            val entries = withContext(Dispatchers.IO) { localLyrics.entries() }
+            mutableState.value = mutableState.value.copy(localLyrics = entries)
+        }
+    }
+
+    /**
+     * Shows [ttml] for the playing song: saved in the Lyrics Manager when [persistent] (it then
+     * beats every source), else for now only. False, with the reason said, when it can't be used.
+     */
+    suspend fun importTtml(ttml: String, persistent: Boolean): Boolean {
+        val request = currentRequest() ?: return false.also { noTrack() }
+        val selection = localSelection(ttml, persistent)
+        val usable = withContext(Dispatchers.Default) {
+            runCatching { RemoteLyricsAdapter.render(selection, request.durationSeconds * 1_000L) }
+                .getOrNull()?.lines?.isNotEmpty() == true
+        }
+        if (!usable) {
+            mutableMessages.tryEmit("Failed to parse TTML.")
+            return false
+        }
+        forgetShown(request, dropResults = false)
+        if (persistent) {
+            val state = mutableState.value
+            val artwork = state.artwork
+            withContext(Dispatchers.IO) {
+                val entry = localLyrics.put(request.title, request.artist, state.title, state.artist, state.album, ttml)
+                artwork?.let { saveCover(it, localLyrics.coverFile(entry.key)) }
+            }
+            refreshLocalLyrics()
+            mutableMessages.tryEmit("TTML saved to Local DB!")
+        } else {
+            temporaryLyrics = currentLyricsKey.orEmpty() to selection
+            mutableMessages.tryEmit("Lyrics parsed and applied!")
+        }
+        loadLyrics()
+        return true
+    }
+
+    /** Deletes a saved song; if it's the one playing, its lyrics are looked up again. */
+    fun removeLocalLyrics(key: String) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { localLyrics.remove(key) }
+            refreshLocalLyrics()
+            mutableMessages.tryEmit("Removed from Local DB.")
+            val request = currentRequest() ?: return@launch
+            if (LocalLyricsStore.keyOf(request.title, request.artist) == key) {
+                forgetShown(request, dropResults = false)
+                loadLyrics()
+            }
+        }
+    }
+
+    /** The TTML saved under [key], for exporting. */
+    suspend fun localLyricsText(key: String): String? = withContext(Dispatchers.IO) { localLyrics.raw(key) }
+
+    /** Where a saved song's cover thumbnail is, if it has one. */
+    fun localLyricsCover(key: String): File = localLyrics.coverFile(key)
+
+    /**
+     * Takes down lyrics applied just once, back to the ones found online. A saved song's stay (they
+     * beat the sources until deleted), which is said rather than seeming to do nothing.
+     */
+    fun resetTtml() {
+        val request = currentRequest() ?: return noTrack()
+        val uploaded = temporaryLyrics?.first == currentLyricsKey.orEmpty()
+        forgetShown(request, dropResults = false)
+        loadLyrics()
+        val saved = localLyrics.contains(request.title, request.artist)
+        showMessage(
+            when {
+                uploaded && saved -> "TTML has been reset. This song's saved lyrics are showing; delete them to use the online ones."
+                saved -> "This song's lyrics are saved in the Local DB. Delete them there to go back to the online ones."
+                uploaded -> "TTML has been reset."
+                else -> "No uploaded TTML to reset."
+            },
+        )
+    }
+
+    private fun localSelection(ttml: String, persistent: Boolean): RemoteLyricsSelection {
+        val payload = RemoteLyricsPayload(ttmlLyrics = ttml, sourceId = LOCAL_SOURCE.id)
+        return RemoteLyricsSelection(if (persistent) LOCAL_SOURCE else UPLOADED_SOURCE, payload, payload.measuredQuality())
+    }
+
+    /** The playing song's lyrics from the Lyrics Manager: a just-once upload, else a saved song. */
+    private fun localLyricsFor(identity: String?, request: LyricsLookupRequest): RemoteLyricsResolution? {
+        val selection = temporaryLyrics?.takeIf { it.first == identity.orEmpty() }?.second
+            ?: localLyrics.get(request.title, request.artist)?.let { localSelection(it, persistent = true) }
+            ?: return null
+        val message = if (selection.source == UPLOADED_SOURCE) "applied once" else "saved"
+        return RemoteLyricsResolution.Found(
+            selection,
+            listOf(ProviderAttempt(selection.source.id, ProviderAttemptOutcome.HIT, selection.quality, message = message)),
+        )
+    }
+
+    private fun saveCover(artwork: Bitmap, file: File) {
+        val height = (COVER_THUMB_PX * artwork.height / artwork.width.coerceAtLeast(1)).coerceAtLeast(1)
+        val scaled = Bitmap.createScaledBitmap(artwork, COVER_THUMB_PX, height, true)
+        runCatching { file.outputStream().use { scaled.compress(Bitmap.CompressFormat.JPEG, 88, it) } }
+        if (scaled !== artwork) scaled.recycle()
     }
 
     fun setSourceEnabled(id: String, enabled: Boolean) {
@@ -508,6 +683,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             if (mutableState.value.lyrics !is LyricsState.Ready) {
                 mutableState.value = mutableState.value.copy(lyrics = LyricsState.Loading, lookupStatus = "Starting lyric lookup…")
             }
+            // The Lyrics Manager's lyrics beat every source and the cache.
+            withContext(Dispatchers.IO) { localLyricsFor(identity, request) }?.let { local ->
+                publish(local, identity, request, final = true)
+                return@launch
+            }
             // The disk cache is keyed on title + artist; a manual Spotify ID asks the sources afresh.
             if (known.isEmpty() && manualSpotifyId == null) {
                 val cached = withContext(Dispatchers.IO) {
@@ -584,6 +764,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val backend = lyricsBackend
         warmJob = viewModelScope.launch(Dispatchers.IO) {
             for (request in upcoming) {
+                if (localLyrics.contains(request.title, request.artist)) continue
                 val resolution = backend.cachedResolution(request)
                     // Failures are not reported: nobody is looking at this song yet.
                     ?: runCatching { backend.resolve(request, ConcurrentHashMap()).also { backend.store(request, it) } }
@@ -842,6 +1023,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         if (lyricsChanged) {
             currentLyricsKey = lyricsKey
             shownSelection = null
+            temporaryLyrics = null
             manualSpotifyId = metadata.overrideKey()?.let { overrideStore.getString(it, null) }
             lyricsJob?.cancel()
         }
@@ -870,6 +1052,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 else -> LyricsState.Loading
             },
             providerAttempts = if (lyricsChanged) emptyList() else mutableState.value.providerAttempts,
+            localLyricsKey = if (lyricsChanged) {
+                metadata?.let { lookupRequest(it, null) }?.let { LocalLyricsStore.keyOf(it.title, it.artist) }
+            } else mutableState.value.localLyricsKey,
             lookupStatus = if (lyricsChanged) null else mutableState.value.lookupStatus,
             lastCommandLatencyMs = latency ?: mutableState.value.lastCommandLatencyMs,
             status = if (waitingForSeek || preserveStatus) mutableState.value.status else null,

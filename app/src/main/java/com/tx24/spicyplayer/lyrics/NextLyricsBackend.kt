@@ -205,6 +205,10 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         return lines
     }
 
+    fun forgetRomanization(title: String, artist: String) {
+        File(romanCache, cacheKey(title, artist) + ".json").delete()
+    }
+
     private data class StoredRoman(val expiresAt: Long, val lines: List<String>?)
 
     fun setPolicy(order: List<String>, disabledSourceIds: Set<String>) {

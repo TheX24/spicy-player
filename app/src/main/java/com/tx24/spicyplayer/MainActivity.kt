@@ -11,6 +11,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import com.tx24.spicyplayer.ui.components.SpicyButtonStyle
 import com.tx24.spicyplayer.ui.components.SpicyModal
+import com.tx24.spicyplayer.ui.components.SpicyToastHost
+import com.tx24.spicyplayer.ui.lyricsmanager.LyricsManagerModal
 import com.tx24.spicyplayer.ui.components.SpicyModalActions
 import com.tx24.spicyplayer.ui.components.SpicyModalButton
 import com.tx24.spicyplayer.ui.components.SpicyModalGap
@@ -267,6 +269,7 @@ private fun LyricsApp(
         ),
     )
     var showSettings by remember { mutableStateOf(false) }
+    var showLyricsManager by remember { mutableStateOf(false) }
     // Android before 12 can't blur, so nothing blurs the page there: the glass and pop-ups fall
     // back to their solid fills instead of showing the page through.
     val backdrop = remember { HazeState().takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S } }
@@ -461,6 +464,7 @@ private fun LyricsApp(
                         romanized = romanize,
                         onToggleRomanize = { settings.romanize = !settings.romanize },
                         onOpenSettings = { showSettings = true },
+                        onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null,
                         expanded = headerExpanded,
                         onToggleExpanded = toggleExpanded,
                         interactive = controlsVisible,
@@ -530,11 +534,25 @@ private fun LyricsApp(
                 backdrop = backdrop,
                 contentPadding = padding,
                 onClosed = { showSettings = false },
+                onOpenLyricsManager = { showLyricsManager = true },
             )
         }
 
+        // Over settings, since it opens from there too.
+        LyricsManagerModal(
+            visible = showLyricsManager,
+            state = state,
+            viewModel = viewModel,
+            settings = settings,
+            backdrop = backdrop,
+            onDismissRequest = { showLyricsManager = false },
+            modifier = Modifier.padding(padding),
+        )
+
         // Over settings, so a check from there answers in place.
         UpdatePopup(update, updater, backdrop, Modifier.padding(padding))
+
+        SpicyToastHost(viewModel.messages, Modifier.padding(padding).padding(top = SpicySpacing.S4))
     }
 }
 

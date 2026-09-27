@@ -14,6 +14,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -121,6 +122,8 @@ fun LyricsControls(
     romanized: Boolean,
     onToggleRomanize: () -> Unit,
     onOpenSettings: () -> Unit,
+    /** Shows the Lyrics Manager button when set. */
+    onOpenLyricsManager: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     expanded: Boolean = false,
     onToggleExpanded: () -> Unit = {},
@@ -168,7 +171,7 @@ fun LyricsControls(
                     awaitPointerEventScope { while (true) awaitPointerEvent() }
                 },
         ) {
-            ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, expanded, onToggleExpanded, shown)
+            ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded, shown)
             // Hidden controls swallow touches too: a touch there only brings them back, rather
             // than pressing a button nobody can see.
             if (!interactive) {
@@ -197,6 +200,7 @@ private fun ControlsColumn(
     romanized: Boolean,
     onToggleRomanize: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenLyricsManager: (() -> Unit)?,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
     shown: () -> Float,
@@ -217,42 +221,70 @@ private fun ControlsColumn(
         Spacer(Modifier.height(ROW_GAP))
         PlaybackRow(controls, shuffle, repeat, Modifier.padding(horizontal = SIDE_MARGIN - SpicySpacing.S2))
         Spacer(Modifier.height(ROW_GAP))
-        Row(
-            horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S4),
-        ) {
-            if (romanizeAvailable) {
-                GlassButton(
-                    size = FLOATING_SIZE,
-                    onClick = onToggleRomanize,
-                    contentDescription = if (romanized) "Show original lyrics" else "Romanize lyrics",
-                ) {
-                    // Shows what a tap switches to: "A" to go back, the kana mark to romanize.
-                    if (romanized) {
-                        Image(rememberVectorPainter(SpicyIcons.DisableRomanization), null, Modifier.size(19.dp))
-                    } else {
-                        Image(rememberVectorPainter(SpicyIcons.EnableRomanization), null, Modifier.size(17.dp))
-                    }
-                }
-            }
-            others.forEach { action ->
-                GlassButton(onClick = { controls.onCustomAction(action.action) }, contentDescription = action.name, size = FLOATING_SIZE) {
-                    ActionIcon(action, Modifier.size(23.dp))
-                }
-            }
-            GlassButton(onClick = controls.onResync, contentDescription = "Resync lyrics", size = FLOATING_SIZE) {
-                Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(23.dp))
-            }
-            GlassButton(
-                onClick = onToggleExpanded,
-                contentDescription = if (expanded) "Show lyrics" else "Show the cover",
-                size = FLOATING_SIZE,
-            ) {
-                Image(rememberVectorPainter(if (expanded) SpicyIcons.Collapse else SpicyIcons.Expand), null, Modifier.size(21.dp))
-            }
-            GlassButton(onClick = onOpenSettings, contentDescription = "Settings", size = FLOATING_SIZE) {
-                Image(rememberVectorPainter(SpicyIcons.Settings), null, Modifier.size(23.dp))
+        // The gap shrinks when a player adds enough buttons that the usual one runs off the screen.
+        val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null).count { it } + others.size + 3
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S2), contentAlignment = Alignment.Center) {
+            val fits = (maxWidth - FLOATING_SIZE * buttons) / (buttons - 1).coerceAtLeast(1)
+            FloatingButtons(fits.coerceIn(4.dp, SpicySpacing.S4)) {
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, expanded, onToggleExpanded)
             }
         }
+    }
+}
+
+@Composable
+private fun FloatingButtons(gap: Dp, content: @Composable () -> Unit) {
+    Row(horizontalArrangement = Arrangement.spacedBy(gap)) { content() }
+}
+
+@Composable
+private fun FloatingButtonsContent(
+    controls: PlaybackControlsState,
+    others: List<SessionCustomAction>,
+    romanizeAvailable: Boolean,
+    romanized: Boolean,
+    onToggleRomanize: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenLyricsManager: (() -> Unit)?,
+    expanded: Boolean,
+    onToggleExpanded: () -> Unit,
+) {
+    if (romanizeAvailable) {
+        GlassButton(
+            size = FLOATING_SIZE,
+            onClick = onToggleRomanize,
+            contentDescription = if (romanized) "Show original lyrics" else "Romanize lyrics",
+        ) {
+            // Shows what a tap switches to: "A" to go back, the kana mark to romanize.
+            if (romanized) {
+                Image(rememberVectorPainter(SpicyIcons.DisableRomanization), null, Modifier.size(19.dp))
+            } else {
+                Image(rememberVectorPainter(SpicyIcons.EnableRomanization), null, Modifier.size(17.dp))
+            }
+        }
+    }
+    others.forEach { action ->
+        GlassButton(onClick = { controls.onCustomAction(action.action) }, contentDescription = action.name, size = FLOATING_SIZE) {
+            ActionIcon(action, Modifier.size(23.dp))
+        }
+    }
+    GlassButton(onClick = controls.onResync, contentDescription = "Resync lyrics", size = FLOATING_SIZE) {
+        Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(23.dp))
+    }
+    GlassButton(
+        onClick = onToggleExpanded,
+        contentDescription = if (expanded) "Show lyrics" else "Show the cover",
+        size = FLOATING_SIZE,
+    ) {
+        Image(rememberVectorPainter(if (expanded) SpicyIcons.Collapse else SpicyIcons.Expand), null, Modifier.size(21.dp))
+    }
+    if (onOpenLyricsManager != null) {
+        GlassButton(onClick = onOpenLyricsManager, contentDescription = "Lyrics Manager", size = FLOATING_SIZE) {
+            Image(rememberVectorPainter(SpicyIcons.LyricsManager), null, Modifier.size(23.dp))
+        }
+    }
+    GlassButton(onClick = onOpenSettings, contentDescription = "Settings", size = FLOATING_SIZE) {
+        Image(rememberVectorPainter(SpicyIcons.Settings), null, Modifier.size(23.dp))
     }
 }
 
@@ -585,6 +617,13 @@ internal object SpicyIcons {
         "M21 3v5h-5",
         "M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16",
         "M8 16H3v5",
+    )
+
+    /** A book leaning on another, for the Lyrics Manager. */
+    val LyricsManager = lucide(
+        "M4.5 3h4A1.5 1.5 0 0 1 10 4.5v15A1.5 1.5 0 0 1 8.5 21h-4A1.5 1.5 0 0 1 3 19.5v-15A1.5 1.5 0 0 1 4.5 3Z",
+        "M6.5 3v18",
+        "M14.5 3.7 13 4.3a1 1 0 0 0-.56 1.3l5.4 14.1a1 1 0 0 0 1.3.56l1.5-.6a1 1 0 0 0 .56-1.3L15.8 4.26a1 1 0 0 0-1.3-.56Z",
     )
 
     /** A Lucide icon: 24-unit paths stroked 2 units wide with round caps and joins. */

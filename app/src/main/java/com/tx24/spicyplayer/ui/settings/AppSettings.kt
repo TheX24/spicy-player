@@ -66,6 +66,10 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** The screen's full refresh rate (90/120 Hz) instead of 60 Hz, which costs battery. */
     var highRefreshRate by boolean("highRefreshRate", false)
     var autoHideControls by boolean("autoHideControls", true)
+    /** A floating button that opens the Lyrics Manager (it is always in Settings → This song). */
+    var lyricsManagerButton by boolean("lyricsManagerButton", true)
+    /** How the Lyrics Manager's last upload was applied; the upload screen reopens on it. */
+    var ttmlUploadSaves by boolean("ttmlUploadSaves", true)
 
     /** Pre-releases offered as updates. On by default while the app itself is one (0.x). */
     var includePrereleases by boolean("includePrereleases", BuildConfig.VERSION_NAME.startsWith("0."))
