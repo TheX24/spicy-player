@@ -21,8 +21,8 @@ android {
         applicationId = "com.tx24.spicyplayer.next"
         minSdk = 23
         targetSdk = 36
-        versionCode = 3
-        versionName = "0.3.0"
+        versionCode = 4
+        versionName = "0.4.0"
         // A publishable (sl_pk_) key, made to ship in clients: SL rate-limits it per viewer IP.
         val clientKey = localClientKey()
         require(clientKey.isBlank() || clientKey.startsWith("sl_pk_")) {
