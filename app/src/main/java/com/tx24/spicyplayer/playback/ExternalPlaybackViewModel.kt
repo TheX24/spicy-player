@@ -49,6 +49,7 @@ import com.tx24.spicyplayer.ui.nowplaying.SessionCustomAction
 import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -82,6 +83,8 @@ private const val LOADING_PAUSE_GRACE_MS = 3_000L
  * the new position a moment before the new title. An older one is the previous song's.
  */
 private const val TRACK_REPORT_FRESH_MS = 1_000L
+/** Two relayed reports this far apart that agree on the clock being ahead are believed. */
+private const val DRIFT_AGREE_AFTER_MS = 500L
 /** Lyrics saved in the Lyrics Manager, and lyrics uploaded for one song "just once". */
 internal val LOCAL_SOURCE = LyricsSourceDescriptor("local", "Local Lyrics DB", 0, setOf(LyricsCapability.WORD_SYNC))
 internal val UPLOADED_SOURCE = LyricsSourceDescriptor("uploaded", "Uploaded TTML", 0, setOf(LyricsCapability.WORD_SYNC))
@@ -231,6 +234,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var trackChangedAt = Long.MIN_VALUE / 2
     /** Resync on a player that can't seek: the next fresh report re-anchors the clock outright. */
     private var resyncOnNextReport = false
+    /** How far the player's reports run behind the audio since a stale pause report ([ClockCorrection.isStalePause]). */
+    private var reportBiasMs = 0L
+    /** A fresh report that was behind the clock and not applied: its drift and when it came. */
+    private var unappliedDrift: Pair<Long, Long>? = null
 
     private val spotifyExtras = SharedSpotify.extras(application.cacheDir)
     private val itunesYear = ItunesReleaseYear(okhttp3.OkHttpClient())
@@ -294,12 +301,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val active = controller ?: return
         val expectPlaying = active.playbackState?.state != PlaybackState.STATE_PLAYING
         pendingCommand = PendingCommand.PlayState(expectPlaying, SystemClock.elapsedRealtime())
-        timeline = TimelineAnchor(
-            positionMs = currentPositionMs(),
-            atElapsedMs = SystemClock.elapsedRealtime(),
-            speed = active.playbackState?.playbackSpeed ?: 1f,
-            isPlaying = expectPlaying,
-        )
+        // Only the button changes now. The clock waits for the player's report: the song goes on
+        // for a moment after a pause is sent (and starts a moment after a play), and stopping the
+        // lyrics on the tap lost that moment on every pause.
         if (expectPlaying) active.transportControls.play() else active.transportControls.pause()
         mutableState.value = mutableState.value.copy(isPlaying = expectPlaying)
     }
@@ -374,6 +378,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             mutableState.value.durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE,
         )
         pendingCommand = PendingCommand.Seek(target, SystemClock.elapsedRealtime())
+        reportBiasMs = 0L
         timeline = timeline.copy(positionMs = target, atElapsedMs = SystemClock.elapsedRealtime())
         mutableState.value = mutableState.value.copy(status = null)
         active.transportControls.seekTo(target)
@@ -950,6 +955,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
         lastReport = null
         awaitingTrackReport = false
+        reportBiasMs = 0L
+        unappliedDrift = null
     }
 
     private fun updateFromController(metadataChanged: Boolean = false, preserveStatus: Boolean = false) {
@@ -1216,6 +1223,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             Log.d(SYNC_TAG, "track changed before its report; clock starts at 0")
             timeline = TimelineAnchor(0L, now, playback.playbackSpeed, playing)
             awaitingTrackReport = true
+            reportBiasMs = 0L
             return
         }
         if (!force && !fresh) return
@@ -1224,19 +1232,36 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val firstOfTrack = awaitingTrackReport && fresh
         if (firstOfTrack) awaitingTrackReport = false
         if (fresh) lastReportAt = now
+        val wasPlaying = lastReport?.state == PlaybackState.STATE_PLAYING
         lastReport = report
         val elapsed = if (playing) (now - playback.lastPositionUpdateTime).coerceAtLeast(0L) else 0L
-        val reported = (playback.position + elapsed * playback.playbackSpeed).toLong().coerceAtLeast(0L)
+        val raw = (playback.position + elapsed * playback.playbackSpeed).toLong().coerceAtLeast(0L)
         val predicted = currentPositionMs()
+        val mirrored = controller?.playbackInfo?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
+        // Not reset by a metadata change: players fill a song in over several updates. A new song
+        // starts far from the clock, which drops the bias by itself.
+        reportBiasMs = if (firstOfTrack) 0L else ClockCorrection.reportBiasMs(
+            rawMs = raw,
+            predictedMs = predicted,
+            biasMs = reportBiasMs,
+            pauseReport = fresh && wasPlaying && !playing,
+        )
+        val reported = raw + reportBiasMs
         val drift = reported - predicted
         val changedState = timeline.isPlaying != playing || timeline.speed != playback.playbackSpeed
-        val mirrored = controller?.playbackInfo?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
-        val adjustment = if (force || resync || firstOfTrack || changedState || !playing) drift else ClockCorrection.adjustmentMs(drift, mirrored)
+        val earlier = unappliedDrift?.takeIf { now - it.second >= DRIFT_AGREE_AFTER_MS }?.first
+        val adjustment = if (force || resync || firstOfTrack || changedState || !playing) drift else ClockCorrection.adjustmentMs(drift, mirrored, earlier)
+        if (fresh) {
+            // A run of reports behind the clock by about the same keeps its first time.
+            unappliedDrift = if (adjustment == 0L && drift < 0L && playing) {
+                unappliedDrift?.takeIf { abs(it.first - drift) < ClockCorrection.JITTER_MS } ?: (drift to now)
+            } else null
+        }
         Log.d(
             SYNC_TAG,
             "report ${controller?.packageName} state=${playback.state} pos=${playback.position} " +
                 "age=${now - playback.lastPositionUpdateTime}ms speed=${playback.playbackSpeed} " +
-                "drift=${drift}ms applied=${adjustment}ms force=$force changed=$changedState mirrored=$mirrored",
+                "drift=${drift}ms applied=${adjustment}ms bias=${reportBiasMs}ms force=$force changed=$changedState mirrored=$mirrored",
         )
         timeline = TimelineAnchor(
             positionMs = (predicted + adjustment).coerceAtLeast(0L),
