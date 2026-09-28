@@ -26,7 +26,6 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
@@ -49,6 +48,7 @@ import coil.request.SuccessResult
 import com.tx24.spicyplayer.lyrics.spicy.models.FooterLine
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
+import com.tx24.spicyplayer.ui.controls.keepsControlsHidden
 import kotlinx.coroutines.CancellationException
 import kotlin.math.roundToInt
 
@@ -68,7 +68,8 @@ enum class PinnedFooterMode(val label: String) {
 
 /**
  * What the lyrics screen and [LyricsView] share: which way the active line lies when it has been
- * scrolled out of view, a way to go back to it, and the credits on screen.
+ * scrolled out of view, a way to go back to it, the credits on screen, and a credit's profile
+ * waiting to be opened.
  */
 class LyricsViewState {
     /** Set while the user has scrolled the active line out of view; null otherwise. */
@@ -79,8 +80,20 @@ class LyricsViewState {
     var shownFooter by mutableStateOf<LyricsFooter?>(null)
         internal set
 
+    /** A tapped credit whose profile the screen asks about before opening; null otherwise. */
+    var profileRequest by mutableStateOf<FooterLine?>(null)
+        private set
+
     internal var scrollToActiveRequests by mutableIntStateOf(0)
         private set
+
+    internal fun requestProfile(line: FooterLine) {
+        profileRequest = line
+    }
+
+    fun dismissProfile() {
+        profileRequest = null
+    }
 
     fun scrollToActive() {
         scrollToActiveRequests++
@@ -193,9 +206,9 @@ internal fun DrawScope.drawFooterRows(rows: List<FooterRow>, tops: List<Float>, 
 }
 
 /** The row at [y] with a profile to open, if any. */
-internal fun footerProfileAt(rows: List<FooterRow>, tops: List<Float>, y: Float): String? =
+internal fun footerProfileAt(rows: List<FooterRow>, tops: List<Float>, y: Float): FooterLine? =
     rows.zip(tops).firstOrNull { (row, top) -> row.line.profileUrl != null && y in top..(top + row.height) }
-        ?.first?.line?.profileUrl
+        ?.first?.line
 
 @Composable
 internal fun rememberFooterAvatars(lines: List<FooterLine>): Map<String, ImageBitmap> {
@@ -210,19 +223,20 @@ internal fun rememberFooterAvatars(lines: List<FooterLine>): Map<String, ImageBi
 /**
  * The pinned credits: the rows [mode] pins, from the lyrics on screen, drawn as they are after
  * the lyrics but held in place. [onHeight] reports how tall they are (0 with nothing to show).
+ * Their links only take taps while [tappable].
  */
 @Composable
 fun PinnedLyricsFooter(
     state: LyricsViewState,
     mode: PinnedFooterMode,
     fontSizeScale: Float,
+    tappable: Boolean,
     onHeight: (Int) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val footer = state.shownFooter
     val lines = remember(footer, mode) { footer?.lines().orEmpty().filter { mode.pins(it.kind) } }
     val textMeasurer = rememberTextMeasurer()
-    val uriHandler = LocalUriHandler.current
     val avatars = rememberFooterAvatars(lines)
     BoxWithConstraints(modifier.fillMaxWidth()) {
         val density = LocalDensity.current.density
@@ -240,11 +254,13 @@ fun PinnedLyricsFooter(
             Modifier
                 .fillMaxWidth()
                 .height(with(LocalDensity.current) { height.toDp() })
-                .pointerInput(rows) {
-                    detectTapGestures { tap ->
-                        footerProfileAt(rows, tops, tap.y)?.let { runCatching { uriHandler.openUri(it) } }
-                    }
-                },
+                .then(
+                    if (!tappable) Modifier else Modifier
+                        .keepsControlsHidden(tapsOnly = true) { footerProfileAt(rows, tops, it.y) != null }
+                        .pointerInput(rows) {
+                            detectTapGestures { tap -> footerProfileAt(rows, tops, tap.y)?.let(state::requestProfile) }
+                        },
+                ),
         ) {
             drawFooterRows(rows, tops, slot.startPx, avatars)
         }

@@ -84,6 +84,7 @@ import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.Constraints
 import com.tx24.spicyplayer.ui.controls.SpicyIcons
+import com.tx24.spicyplayer.ui.controls.keepsControlsHidden
 import com.tx24.spicyplayer.ui.settings.ReleaseYearPosition
 import androidx.compose.foundation.layout.Row
 
@@ -174,7 +175,8 @@ fun CompactNowPlayingHeader(
                         layout(size, size) { placeable.place(0, 0) }
                     }
                     .offset { IntOffset(artLeft().roundToInt(), artTop().roundToInt()) }
-                    .then(if (interactive) Modifier.coverGestures(isPlaying, onPlayPause, onSkip) else Modifier),
+                    // Its gestures leave the controls as they are.
+                    .then(if (interactive) Modifier.coverGestures(isPlaying, onPlayPause, onSkip).keepsControlsHidden() else Modifier),
             )
             if (!hidden && panel == null) HeaderMetadata(
                 title = info.title,

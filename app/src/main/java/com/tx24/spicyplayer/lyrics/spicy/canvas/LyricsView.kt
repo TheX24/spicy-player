@@ -12,7 +12,6 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.buildAnnotatedString
@@ -56,6 +55,7 @@ import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.lyrics.spicy.models.FooterLine
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
 import com.tx24.spicyplayer.lyrics.spicy.parser.LetterSynthesizer
+import com.tx24.spicyplayer.ui.controls.keepsControlsHidden
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
@@ -148,7 +148,6 @@ fun LyricsView(
     // Wakes a resting frame loop at once (a drag or tap), rather than at its next look.
     val wake = remember(shownId) { Channel<Unit>(Channel.CONFLATED) }
     val context = LocalContext.current
-    val uriHandler = LocalUriHandler.current
     val haptics by rememberUpdatedState(LocalHapticFeedback.current)
 
     BoxWithConstraints(modifier = modifier.fillMaxSize().clipToBounds()) {
@@ -426,14 +425,18 @@ fun LyricsView(
                         }
                     )
                 }
+                // Tapping a credit leaves the controls as they are.
+                .keepsControlsHidden(tapsOnly = true) { position ->
+                    footerProfileAt(footerLayouts, footerRowTops(), position.y - (centerYUpdated + scrollManager.animScrollY)) != null
+                }
                 .pointerInput(isStatic, footerLayouts, shown) {
                     detectTapGestures { tapOffset ->
                         val currentScrollY = scrollManager.animScrollY
                         val adjustedTapY = tapOffset.y - (centerYUpdated + currentScrollY)
 
-                        // A credit with a profile opens it.
-                        footerProfileAt(footerLayouts, footerRowTops(), adjustedTapY)?.let { url ->
-                            runCatching { uriHandler.openUri(url) }
+                        // A credit with a profile asks the screen to open it.
+                        footerProfileAt(footerLayouts, footerRowTops(), adjustedTapY)?.let { line ->
+                            viewState?.requestProfile(line)
                             return@detectTapGestures
                         }
 

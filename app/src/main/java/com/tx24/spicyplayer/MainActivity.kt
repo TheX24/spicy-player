@@ -156,6 +156,13 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalUriHandler
+import com.tx24.spicyplayer.lyrics.spicy.models.FooterLine
+import com.tx24.spicyplayer.ui.controls.ControlsRevealGuard
+import com.tx24.spicyplayer.ui.controls.LocalControlsRevealGuard
 
 class MainActivity : ComponentActivity() {
     private val playbackViewModel: ExternalPlaybackViewModel by viewModels()
@@ -285,6 +292,8 @@ private fun LyricsApp(
     )
     // Where the cover is while the controls sit on it: only a touch there brings them up.
     val coverTouchArea = remember { CoverTouchArea() }
+    // Elsewhere, where a touch leaves the controls alone: the cover's gestures, credit links.
+    val revealGuard = remember { ControlsRevealGuard() }
     // Built fresh, not copied: the mode-dependent defaults are worked out in the constructor.
     val renderConfig = RenderConfig(
         simpleLyricsMode = settings.simpleLyricsMode,
@@ -358,15 +367,33 @@ private fun LyricsApp(
 
     // The bars are hidden, so this is only the camera cutout (and the keyboard in settings).
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing) { padding ->
+        CompositionLocalProvider(LocalControlsRevealGuard provides revealGuard) {
         Box(
             Modifier
                 .fillMaxSize()
+                .onGloballyPositioned { revealGuard.screen = it }
                 .pointerInput(Unit) {
                     // Sees every touch on its way down without taking it from what's underneath.
                     awaitPointerEventScope {
+                        // What the touch under way holds back, decided where its first finger lands.
+                        var hold = ControlsRevealGuard.Hold.None
+                        var downAt = Offset.Zero
                         while (true) {
                             val event = awaitPointerEvent(PointerEventPass.Initial)
                             val onCover = coverTouchArea.contains
+                            if (event.type == PointerEventType.Press && event.changes.count { it.pressed } == 1) {
+                                downAt = event.changes.first { it.pressed }.position
+                                // The cover that carries the controls brings them up; nothing else holds.
+                                hold = if (onCover != null) ControlsRevealGuard.Hold.None else revealGuard.holdAt(downAt)
+                            }
+                            if (hold == ControlsRevealGuard.Hold.Taps &&
+                                event.changes.any { (it.position - downAt).getDistance() > viewConfiguration.touchSlop }
+                            ) {
+                                hold = ControlsRevealGuard.Hold.None
+                            }
+                            val held = hold != ControlsRevealGuard.Hold.None
+                            if (event.changes.none { it.pressed }) hold = ControlsRevealGuard.Hold.None
+                            if (held) continue
                             if (onCover != null && event.changes.none { onCover(it.position) }) continue
                             controlsVisible = true
                             touches.value = SystemClock.uptimeMillis()
@@ -434,8 +461,9 @@ private fun LyricsApp(
                     position.x in left..(left + size) && position.y in top..(top + size)
                 }
                 var controlsHeightPx by remember { mutableIntStateOf(0) }
-                // Pinned credits sit just above whatever covers the bottom: the controls while they
-                // show, else the screen's edge. The lyrics fade out above them.
+                // Pinned credits sit just above the screen's edge, under the controls, and fade out
+                // while the bottom controls show (they'd move under a finger otherwise). The lyrics
+                // fade out above them.
                 var pinnedHeightPx by remember { mutableIntStateOf(0) }
                 val pinnedGapPx = with(LocalDensity.current) { PINNED_FOOTER_GAP.toPx() }
                 val pinnedClearPx = with(LocalDensity.current) { 8.dp.toPx() }
@@ -445,8 +473,6 @@ private fun LyricsApp(
                     tween(SpicyMotion.CONTROLS_FADE_MS),
                     label = "noticeBottom",
                 )
-                // Read where it's drawn only: it moves every frame the controls fade.
-                val pinnedBottomPx = { noticeBottomPx + pinnedGapPx }
                 // Out of the way under settings too: their glass would keep blurring behind it.
                 val controlsTarget = controlsVisible && !showSettings
                 // Quick to appear under the finger; a slow, soft fade when they time out.
@@ -528,7 +554,7 @@ private fun LyricsApp(
                             noticeBottomPx = { noticeBottomPx },
                             viewState = lyricsViewState,
                             pinnedFooter = pinnedFooter,
-                            maskBottomPx = { if (pinnedHeightPx > 0) pinnedBottomPx() + pinnedHeightPx + pinnedClearPx else 0f },
+                            maskBottomPx = { if (pinnedHeightPx > 0) pinnedGapPx + pinnedHeightPx + pinnedClearPx else 0f },
                             config = renderConfig,
                             fontSizeScale = lyricsFontScale,
                             modifier = Modifier.weight(1f),
@@ -612,14 +638,17 @@ private fun LyricsApp(
                     state = lyricsViewState,
                     mode = pinnedFooter,
                     fontSizeScale = lyricsFontScale,
+                    // Faded out, they let the controls under them take the touch.
+                    tappable = !(bottomBar && controlsTarget),
                     onHeight = { pinnedHeightPx = it },
                     modifier = Modifier
                         .align(if (landscape) Alignment.BottomStart else Alignment.BottomCenter)
                         .padding(belowTop)
                         .inLyricsBox()
                         .graphicsLayer {
-                            translationY = -pinnedBottomPx()
-                            alpha = (1f - expansion) * swapFade()
+                            translationY = -pinnedGapPx
+                            val underControls = if (bottomBar) controlsShown * barFade() else 0f
+                            alpha = (1f - expansion) * swapFade() * (1f - underControls)
                         },
                 )
                 CompositionLocalProvider(LocalBackdrop provides backdrop?.takeUnless { lowPerformance }) {
@@ -633,11 +662,12 @@ private fun LyricsApp(
                             hideHeader -> headerMetrics.barTopPx
                             else -> headerMetrics.lyricsTopPx
                         },
-                        bottomPx = { pinnedBottomPx() + if (pinnedHeightPx > 0) pinnedHeightPx + pinnedClearPx else 0f },
+                        bottomPx = { pinnedGapPx + maxOf(noticeBottomPx, if (pinnedHeightPx > 0) pinnedHeightPx + pinnedClearPx else 0f) },
                         modifier = Modifier.padding(belowTop).inLyricsBox(),
                     )
                 }
             }
+        }
         }
 
         // Coming back from the system's settings refreshes the grant (onResume), which closes it.
@@ -660,6 +690,18 @@ private fun LyricsApp(
             modifier = Modifier.padding(padding),
         ) {
             lastLimit?.let { SpotifyLimitMessage(it, viewModel::dismissLimitNotice) }
+        }
+
+        // Kept through the closing animation, after it's been answered.
+        var lastProfile by remember { mutableStateOf<FooterLine?>(null) }
+        lyricsViewState.profileRequest?.let { lastProfile = it }
+        SpicyModal(
+            visible = lyricsViewState.profileRequest != null,
+            onDismissRequest = lyricsViewState::dismissProfile,
+            backdrop = backdrop,
+            modifier = Modifier.padding(padding),
+        ) {
+            lastProfile?.let { OpenProfileMessage(it, lyricsViewState::dismissProfile) }
         }
 
         if (showSettings) {
@@ -886,6 +928,26 @@ private fun DownloadProgress(progress: Float) {
             "Downloading… ${(progress * 100).roundToInt()}%",
             style = SpicyType.Footnote.copy(color = SpicyColors.TextSecondary, fontFeatureSettings = "tnum"),
         )
+    }
+}
+
+/** Asks before leaving the app for a credit's profile, since the links sit where thumbs land. */
+@Composable
+private fun OpenProfileMessage(line: FooterLine, onDismiss: () -> Unit) {
+    val uriHandler = LocalUriHandler.current
+    val url = line.profileUrl ?: return
+    SpicyModalMessage(
+        title = line.name?.let { "Open @$it's profile?" } ?: "Open this profile?",
+        description = url.removePrefix("https://").substringBefore('/'),
+        icon = { Icon(Icons.AutoMirrored.Rounded.OpenInNew, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary) },
+    )
+    SpicyModalGap()
+    SpicyModalActions {
+        SpicyModalButton("Cancel", onDismiss)
+        SpicyModalButton("Open", {
+            onDismiss()
+            runCatching { uriHandler.openUri(url) }
+        }, style = SpicyButtonStyle.Primary)
     }
 }
 
