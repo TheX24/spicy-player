@@ -13,11 +13,8 @@ import kotlin.math.abs
  *
  * A relayed session ([Report.relayed], e.g. KDE Connect for a PC player) stamps a report when it
  * arrives, and now and then sends a stray one: its first after a resume or a seek runs up to
- * ~0.6 s ahead, often as a burst of copies, and the truth follows ~0.25 s later (Spotify Connect
- * likewise reports a seek's target first and where the other device got to after). So after a
- * seek, a jump, a new song or a resume, the first burst that comes [SETTLE_AFTER_MS] or more later
- * is taken outright. Otherwise its reports are votes, and the clock moves once two votes at least
- * [AGREE_AFTER_MS] apart agree. A jump of [JUMP_MS] or more is too big to be a
+ * ~0.6 s ahead, often as a burst of copies. So its reports are votes, and the clock moves once two
+ * votes at least [AGREE_AFTER_MS] apart agree. A jump of [JUMP_MS] or more is too big to be a
  * stray one (a seek or a new song) and is taken at once, and so is any report in a song's first
  * [SONG_START_MS], where players restart a song's start and the clock has nothing better to go on.
  *
@@ -59,8 +56,6 @@ internal class LyricClock(nowMs: Long) {
     /** How far the player's reports run behind the audio since a stale pause report ([ClockCorrection.reportBiasMs]). */
     var biasMs = 0L
         private set
-    /** When the clock last moved to a new place (seek, jump, new song, resume) and hasn't settled since. */
-    private var transitionAtMs: Long? = null
     /** The position of the pause report that set [biasMs]. */
     private var stalePauseAtMs = 0L
     private val votes = ArrayDeque<Vote>()
@@ -103,7 +98,6 @@ internal class LyricClock(nowMs: Long) {
         val adjustment = when {
             snap || speedChanged || !report.playing -> {
                 votes.clear()
-                transitionAtMs = if (report.playing) nowMs else null
                 drift
             }
             !report.relayed -> {
@@ -114,7 +108,6 @@ internal class LyricClock(nowMs: Long) {
             // vote: it is the one most often off.
             !anchor.isPlaying -> {
                 votes.clear()
-                transitionAtMs = nowMs
                 vote(reported, drift, nowMs, report.speed)
             }
             else -> vote(reported, drift, nowMs, report.speed)
@@ -137,18 +130,7 @@ internal class LyricClock(nowMs: Long) {
         if (abs(driftMs) >= JUMP_MS || (reportedMs < SONG_START_MS && abs(driftMs) >= MIN_MOVE_MS)) {
             votes.clear()
             votes.addLast(vote)
-            transitionAtMs = nowMs
             return driftMs
-        }
-        // The burst after a transition's first report: where the player really got to.
-        val sinceTransition = transitionAtMs?.let { nowMs - it }
-        if (sinceTransition != null && sinceTransition >= SETTLE_AFTER_MS) {
-            transitionAtMs = null
-            if (sinceTransition <= SETTLE_WINDOW_MS && abs(driftMs) >= MIN_MOVE_MS) {
-                votes.clear()
-                votes.addLast(vote)
-                return driftMs
-            }
         }
         votes.addLast(vote)
         if (abs(driftMs) < MIN_MOVE_MS) return 0L
@@ -164,7 +146,6 @@ internal class LyricClock(nowMs: Long) {
         anchor = anchor.copy(positionMs = targetMs, atMs = nowMs)
         biasMs = 0L
         votes.clear()
-        transitionAtMs = nowMs
     }
 
     /** A new song before its first report: it starts from 0 until the player reports. */
@@ -172,7 +153,6 @@ internal class LyricClock(nowMs: Long) {
         anchor = Anchor(0L, nowMs, speed, playing)
         biasMs = 0L
         votes.clear()
-        transitionAtMs = nowMs
     }
 
     /** No player: back to the start, stopped. */
@@ -181,7 +161,6 @@ internal class LyricClock(nowMs: Long) {
         lastReport = null
         biasMs = 0L
         votes.clear()
-        transitionAtMs = null
     }
 
     companion object {
@@ -193,10 +172,6 @@ internal class LyricClock(nowMs: Long) {
         const val JUMP_MS = 1_000L
         /** A report this early in a song is the player starting it, and is taken as it comes. */
         const val SONG_START_MS = 3_000L
-        /** A relayed report this long after a transition is past the transition's own burst. */
-        const val SETTLE_AFTER_MS = 150L
-        /** Past this, a transition with no later report is over. */
-        const val SETTLE_WINDOW_MS = 5_000L
         /** Two votes this far apart that agree win: closer ones are one report sent several times. */
         const val AGREE_AFTER_MS = 300L
         /**
