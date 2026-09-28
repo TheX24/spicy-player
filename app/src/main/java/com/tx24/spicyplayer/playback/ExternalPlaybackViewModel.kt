@@ -49,7 +49,6 @@ import com.tx24.spicyplayer.ui.nowplaying.SessionCustomAction
 import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
 import java.security.MessageDigest
 import java.util.concurrent.ConcurrentHashMap
-import kotlin.math.abs
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -83,8 +82,6 @@ private const val LOADING_PAUSE_GRACE_MS = 3_000L
  * the new position a moment before the new title. An older one is the previous song's.
  */
 private const val TRACK_REPORT_FRESH_MS = 1_000L
-/** Two relayed reports this far apart that agree on the clock being ahead are believed. */
-private const val DRIFT_AGREE_AFTER_MS = 500L
 /** Lyrics saved in the Lyrics Manager, and lyrics uploaded for one song "just once". */
 internal val LOCAL_SOURCE = LyricsSourceDescriptor("local", "Local Lyrics DB", 0, setOf(LyricsCapability.WORD_SYNC))
 internal val UPLOADED_SOURCE = LyricsSourceDescriptor("uploaded", "Uploaded TTML", 0, setOf(LyricsCapability.WORD_SYNC))
@@ -219,11 +216,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     // the title), so lyrics follow title + artist only; the clock follows the full identity.
     private var currentLyricsKey: String? = null
     private var pendingCommand: PendingCommand? = null
-    // Read off the main thread by the music haptics.
-    @Volatile private var timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
+    private val clock = LyricClock(SystemClock.elapsedRealtime())
     private var lastPeriodicCheckMs = 0L
-    private var lastReport: SessionReport? = null
-    /** When [lastReport] arrived. */
+    /** When the last fresh report arrived. */
     private var lastReportAt = Long.MIN_VALUE / 2
     /** The song changed before its first report: that report re-anchors the clock outright. */
     private var awaitingTrackReport = false
@@ -234,10 +229,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var trackChangedAt = Long.MIN_VALUE / 2
     /** Resync on a player that can't seek: the next fresh report re-anchors the clock outright. */
     private var resyncOnNextReport = false
-    /** How far the player's reports run behind the audio since a stale pause report ([ClockCorrection.isStalePause]). */
-    private var reportBiasMs = 0L
-    /** A fresh report that was behind the clock and not applied: its drift and when it came. */
-    private var unappliedDrift: Pair<Long, Long>? = null
 
     private val spotifyExtras = SharedSpotify.extras(application.cacheDir)
     private val itunesYear = ItunesReleaseYear(okhttp3.OkHttpClient())
@@ -378,16 +369,15 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             mutableState.value.durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE,
         )
         pendingCommand = PendingCommand.Seek(target, SystemClock.elapsedRealtime())
-        reportBiasMs = 0L
-        timeline = timeline.copy(positionMs = target, atElapsedMs = SystemClock.elapsedRealtime())
+        clock.seekTo(target, SystemClock.elapsedRealtime())
         mutableState.value = mutableState.value.copy(status = null)
         active.transportControls.seekTo(target)
     }
 
     /**
      * Android can't ask a player where it is, only take its last report. So this seeks the player
-     * to where the lyrics think it is: it must answer with a fresh report, which the clock then
-     * snaps to (a relayed player too). A player that can't seek (Spotify Free) snaps to its last
+     * to where the lyrics think it is: it must answer with fresh reports, which the clock then
+     * follows once they agree (a relayed player too). A player that can't seek (Spotify Free) snaps to its last
      * report now and to its next one outright; Spotify sends one every couple of seconds.
      */
     fun resync() {
@@ -398,7 +388,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             seekTo(currentPositionMs())
             return
         }
-        active?.playbackState?.let { reconcileClock(it, force = true) }
+        active?.playbackState?.let { reconcileClock(it, force = true, snap = it.state == PlaybackState.STATE_PLAYING) }
         resyncOnNextReport = active != null
         mutableState.value = mutableState.value.copy(
             lastCommandLatencyMs = null,
@@ -952,11 +942,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         currentLyricsKey = null
         manualSpotifyId = null
         lyricsJob?.cancel()
-        timeline = TimelineAnchor(0L, SystemClock.elapsedRealtime(), 0f, false)
-        lastReport = null
+        clock.reset(SystemClock.elapsedRealtime())
         awaitingTrackReport = false
-        reportBiasMs = 0L
-        unappliedDrift = null
     }
 
     private fun updateFromController(metadataChanged: Boolean = false, preserveStatus: Boolean = false) {
@@ -1209,85 +1196,47 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         }
     }
 
-    private fun reconcileClock(playback: PlaybackState, force: Boolean = false, trackChanged: Boolean = false) {
+    /**
+     * [force]: take the report even if it isn't new. [snap]: move the clock to it outright rather
+     * than count it as a vote ([LyricClock]).
+     */
+    private fun reconcileClock(playback: PlaybackState, force: Boolean = false, trackChanged: Boolean = false, snap: Boolean = trackChanged) {
         if (playback.position < 0L) return
-        // Only a new report says anything new: re-reading the same one would just re-apply it.
-        val report = SessionReport(playback.state, playback.position, playback.lastPositionUpdateTime, playback.playbackSpeed)
-        val fresh = report != lastReport
-        val now = SystemClock.elapsedRealtime()
         val playing = playback.state == PlaybackState.STATE_PLAYING
+        val relayed = controller?.playbackInfo?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
+        val report = LyricClock.Report(playback.state, playing, playback.position, playback.lastPositionUpdateTime, playback.playbackSpeed, relayed)
+        val fresh = clock.isFresh(report)
+        val now = SystemClock.elapsedRealtime()
         if (trackChanged && !fresh && now - lastReportAt > TRACK_REPORT_FRESH_MS) {
             // No report for the new song yet: the one we have is the previous song's position.
             // Seeding the clock from it jumps the new lyrics ahead and forces a scroll, so the
             // song starts from 0 until the player reports.
             Log.d(SYNC_TAG, "track changed before its report; clock starts at 0")
-            timeline = TimelineAnchor(0L, now, playback.playbackSpeed, playing)
+            clock.startTrack(now, playback.playbackSpeed, playing)
             awaitingTrackReport = true
-            reportBiasMs = 0L
             return
         }
         if (!force && !fresh) return
-        val resync = resyncOnNextReport && fresh
+        // A pause report is judged as ever ([ClockCorrection.reportBiasMs]): it is the one most often stale.
+        val resync = resyncOnNextReport && fresh && playing
         if (resync) resyncOnNextReport = false
         val firstOfTrack = awaitingTrackReport && fresh
         if (firstOfTrack) awaitingTrackReport = false
         if (fresh) lastReportAt = now
-        val wasPlaying = lastReport?.state == PlaybackState.STATE_PLAYING
-        lastReport = report
-        val elapsed = if (playing) (now - playback.lastPositionUpdateTime).coerceAtLeast(0L) else 0L
-        val raw = (playback.position + elapsed * playback.playbackSpeed).toLong().coerceAtLeast(0L)
-        val predicted = currentPositionMs()
-        val mirrored = controller?.playbackInfo?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
-        // Not reset by a metadata change: players fill a song in over several updates. A new song
-        // starts far from the clock, which drops the bias by itself.
-        reportBiasMs = if (firstOfTrack) 0L else ClockCorrection.reportBiasMs(
-            rawMs = raw,
-            predictedMs = predicted,
-            biasMs = reportBiasMs,
-            pauseReport = fresh && wasPlaying && !playing,
-        )
-        val reported = raw + reportBiasMs
-        val drift = reported - predicted
-        val changedState = timeline.isPlaying != playing || timeline.speed != playback.playbackSpeed
-        val earlier = unappliedDrift?.takeIf { now - it.second >= DRIFT_AGREE_AFTER_MS }?.first
-        val adjustment = if (force || resync || firstOfTrack || changedState || !playing) drift else ClockCorrection.adjustmentMs(drift, mirrored, earlier)
-        if (fresh) {
-            // A run of reports behind the clock by about the same keeps its first time.
-            unappliedDrift = if (adjustment == 0L && drift < 0L && playing) {
-                unappliedDrift?.takeIf { abs(it.first - drift) < ClockCorrection.JITTER_MS } ?: (drift to now)
-            } else null
-        }
+        val outcome = clock.onReport(report, now, snap = snap || resync || firstOfTrack)
         Log.d(
             SYNC_TAG,
             "report ${controller?.packageName} state=${playback.state} pos=${playback.position} " +
                 "age=${now - playback.lastPositionUpdateTime}ms speed=${playback.playbackSpeed} " +
-                "drift=${drift}ms applied=${adjustment}ms bias=${reportBiasMs}ms force=$force changed=$changedState mirrored=$mirrored",
+                "drift=${outcome.driftMs}ms applied=${outcome.appliedMs}ms bias=${outcome.biasMs}ms force=$force snap=${snap || resync || firstOfTrack} relayed=$relayed",
         )
-        timeline = TimelineAnchor(
-            positionMs = (predicted + adjustment).coerceAtLeast(0L),
-            atElapsedMs = now,
-            speed = playback.playbackSpeed,
-            isPlaying = playing,
-        )
-        mutableState.value = mutableState.value.copy(clockDriftMs = drift)
+        mutableState.value = mutableState.value.copy(clockDriftMs = outcome.driftMs)
     }
 
     fun currentPositionMs(): Long {
-        val elapsed = if (timeline.isPlaying) {
-            (SystemClock.elapsedRealtime() - timeline.atElapsedMs).coerceAtLeast(0L)
-        } else 0L
-        val position = (timeline.positionMs + elapsed * timeline.speed).toLong().coerceAtLeast(0L)
+        val position = clock.positionAt(SystemClock.elapsedRealtime())
         return mutableState.value.durationMs.takeIf { it > 0L }?.let(position::coerceAtMost) ?: position
     }
-
-    private data class SessionReport(val state: Int, val position: Long, val updatedAt: Long, val speed: Float)
-
-    private data class TimelineAnchor(
-        val positionMs: Long,
-        val atElapsedMs: Long,
-        val speed: Float,
-        val isPlaying: Boolean,
-    )
 
     override fun onCleared() {
         runCatching { sessionManager.removeOnActiveSessionsChangedListener(activeSessionsListener) }

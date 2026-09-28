@@ -4,34 +4,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class ClockCorrectionTest {
-    @Test fun ignoresTinySessionJitter() {
-        for (mirrored in listOf(false, true)) {
-            assertEquals(0L, ClockCorrection.adjustmentMs(149L, mirrored))
-            assertEquals(0L, ClockCorrection.adjustmentMs(-149L, mirrored))
-        }
-    }
-
-    @Test fun localPlayerDriftIsAppliedAtOnce() {
-        assertEquals(200L, ClockCorrection.adjustmentMs(200L, mirrored = false))
-        assertEquals(-200L, ClockCorrection.adjustmentMs(-200L, mirrored = false))
-    }
-
-    @Test fun mirroredReportsOnlyPullBackOnARealSeek() {
-        assertEquals(400L, ClockCorrection.adjustmentMs(400L, mirrored = true))
-        assertEquals(0L, ClockCorrection.adjustmentMs(-400L, mirrored = true))
-        assertEquals(0L, ClockCorrection.adjustmentMs(-1_499L, mirrored = true))
-        assertEquals(-1_500L, ClockCorrection.adjustmentMs(-1_500L, mirrored = true))
-    }
-
-    @Test fun mirroredReportsThatAgreeOnTheClockBeingAheadWin() {
-        // KDE Connect after a resume: the clock took a report 610 ms ahead, the steady ones say -485.
-        assertEquals(0L, ClockCorrection.adjustmentMs(-485L, mirrored = true, earlierDriftMs = null))
-        assertEquals(-470L, ClockCorrection.adjustmentMs(-470L, mirrored = true, earlierDriftMs = -485L))
-        // One that disagrees is still taken for lag.
-        assertEquals(0L, ClockCorrection.adjustmentMs(-470L, mirrored = true, earlierDriftMs = -160L))
-        assertEquals(0L, ClockCorrection.adjustmentMs(-470L, mirrored = true, earlierDriftMs = 200L))
-    }
-
     // The positions below are from device logs, checked against the audio mixer's own count.
 
     @Test fun youTubeMusicPauseAndResume() {
@@ -67,5 +39,7 @@ class ClockCorrectionTest {
     @Test fun seekOrNewSongDropsTheBias() {
         assertEquals(0L, ClockCorrection.reportBiasMs(90_000L, 30_000L, 800L, pauseReport = false))
         assertEquals(0L, ClockCorrection.reportBiasMs(40L, 208_150L, 1_323L, pauseReport = false))
+        // YouTube Music paused 363 ms short at 2 791, then stopped back at 0: 0 is not 363.
+        assertEquals(0L, ClockCorrection.reportBiasMs(0L, 3_154L, 363L, pauseReport = false))
     }
 }
