@@ -55,6 +55,9 @@ class AnonymousSpotifyCatalogSearch constructor(
             }
         }
 
+    override suspend fun search(query: String): List<SpotifyTrackCandidate> =
+        withContext(Dispatchers.IO) { searchOnceWithTokenRetry(query) }
+
     override suspend fun warmUp() {
         withContext(Dispatchers.IO) { session() }
     }
@@ -225,12 +228,18 @@ internal object SpotifyWebParser {
                 .orEmpty()
             if (artists.isEmpty()) return@mapNotNull null
 
+            val album = data.objectAt("albumOfTrack")
             SpotifyTrackCandidate(
                 id = id,
                 title = title,
                 artists = artists,
-                album = data.objectAt("albumOfTrack")?.string("name").orEmpty(),
+                album = album?.string("name").orEmpty(),
                 durationMs = duration,
+                // The smallest cover, for the manual search's list.
+                coverUrl = album?.objectAt("coverArt")?.getAsJsonArray("sources")
+                    ?.mapNotNull { it.takeIf { it.isJsonObject }?.asJsonObject }
+                    ?.minByOrNull { it.get("width")?.takeIf { w -> w.isJsonPrimitive }?.asInt ?: Int.MAX_VALUE }
+                    ?.string("url"),
             )
         }
     }

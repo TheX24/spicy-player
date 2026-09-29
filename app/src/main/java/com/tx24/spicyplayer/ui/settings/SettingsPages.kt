@@ -46,6 +46,7 @@ import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.StayCurrentPortrait
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Link
+import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Translate
@@ -77,6 +78,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
+import com.tx24.spicyplayer.lyrics.spicy.SyllableMerge
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.network.data.LyricsCapability
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor
@@ -113,7 +115,12 @@ import com.tx24.spicyplayer.update.UpdateViewModel
  */
 
 @Composable
-internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, onOpenLyricsManager: () -> Unit) {
+internal fun ThisSongContent(
+    state: PlayerUiState,
+    viewModel: ExternalPlaybackViewModel,
+    onOpenLyricsManager: () -> Unit,
+    onOpenSpotifySearch: () -> Unit,
+) {
     val context = LocalContext.current
     var spotifyInput by remember { mutableStateOf("") }
     LaunchedEffect(state.title, state.artist) { spotifyInput = "" }
@@ -150,6 +157,9 @@ internal fun ThisSongContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
                 SpicyButton("Use", onClick = { viewModel.overrideSpotifyId(spotifyInput) })
             }
         }
+    }
+    SettingRow(label = "Find on Spotify", description = "Pick the right recording from Spotify's results for this song.", icon = Icons.Rounded.Search) {
+        SpicyButton("Search", onClick = onOpenSpotifySearch)
     }
     state.manualSpotifyId?.let { id ->
         SettingRow(label = "Using your Spotify link", description = id, icon = Icons.Rounded.Link) {
@@ -210,6 +220,18 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
         description = "The desktop amount of grow and lift on sung words. Off: ${AppSettings.WORD_MOTION_BOOST}×, which reads better on a phone.",
         icon = Icons.Rounded.Height,
     )
+    SettingRow(
+        label = "Merge syllables",
+        description = "Draw a word split into syllables as one word. Held words only merges the words that are then long enough for the held-word letter effect.",
+        icon = Icons.Rounded.CallMerge,
+    ) {
+        SpicySelect(
+            value = settings.syllableMerge.name,
+            options = SyllableMerge.entries.map { it.name },
+            labels = SyllableMerge.entries.map { it.label },
+            onChange = { settings.syllableMerge = SyllableMerge.valueOf(it) },
+        )
+    }
     ToggleRow(
         label = "Duet Line Padding",
         checked = settings.duetLinePadding,

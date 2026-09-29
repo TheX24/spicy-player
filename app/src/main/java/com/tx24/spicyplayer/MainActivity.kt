@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer
 
+import com.tx24.spicyplayer.lyrics.LyricsNotices
+import com.tx24.spicyplayer.ui.spotifysearch.SpotifySearchModal
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -15,6 +17,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.tx24.spicyplayer.haptics.HapticPlayer
 import com.tx24.spicyplayer.haptics.ProvideTouchHaptics
 import com.tx24.spicyplayer.haptics.playMusicHaptics
+import com.tx24.spicyplayer.ui.components.SpicyButton
 import com.tx24.spicyplayer.ui.components.SpicyButtonStyle
 import com.tx24.spicyplayer.ui.components.SpicyModal
 import com.tx24.spicyplayer.ui.components.SpicyToastHost
@@ -301,6 +304,7 @@ private fun LyricsApp(
         simpleAnimationStyle = settings.simpleAnimationStyle,
         wordMotionBoost = settings.wordMotionBoost,
         wideDuetPadding = settings.duetLinePadding,
+        syllableMerge = settings.syllableMerge,
         distanceBlurEnabled = settings.distanceBlur && !lowPerformance,
         glowEnabled = settings.glow && !lowPerformance,
         scroll = ScrollConfig(
@@ -311,6 +315,7 @@ private fun LyricsApp(
     )
     var showSettings by remember { mutableStateOf(false) }
     var showLyricsManager by remember { mutableStateOf(false) }
+    var showSpotifySearch by remember { mutableStateOf(false) }
     // Android before 12 can't blur, so nothing blurs the page there: the glass and pop-ups fall
     // back to their solid fills instead of showing the page through.
     val backdrop = remember { HazeState().takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S } }
@@ -557,6 +562,7 @@ private fun LyricsApp(
                             maskBottomPx = { if (pinnedHeightPx > 0) pinnedGapPx + pinnedHeightPx + pinnedClearPx else 0f },
                             config = renderConfig,
                             fontSizeScale = lyricsFontScale,
+                            onSearchSpotify = { showSpotifySearch = true },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -714,6 +720,7 @@ private fun LyricsApp(
                 contentPadding = padding,
                 onClosed = { showSettings = false },
                 onOpenLyricsManager = { showLyricsManager = true },
+                onOpenSpotifySearch = { showSpotifySearch = true },
             )
         }
 
@@ -725,6 +732,16 @@ private fun LyricsApp(
             settings = settings,
             backdrop = backdrop,
             onDismissRequest = { showLyricsManager = false },
+            modifier = Modifier.padding(padding),
+        )
+
+        // Over settings, since it opens from there too.
+        SpotifySearchModal(
+            visible = showSpotifySearch,
+            state = state,
+            viewModel = viewModel,
+            backdrop = backdrop,
+            onDismissRequest = { showSpotifySearch = false },
             modifier = Modifier.padding(padding),
         )
 
@@ -769,7 +786,13 @@ private val CssEaseOut = CubicBezierEasing(0f, 0f, 0.58f, 1f)
  * [bottomPx] is how much of the panel's bottom the controls cover right now.
  */
 @Composable
-private fun LyricsNotice(message: String, detail: String?, bottomPx: () -> Float, modifier: Modifier) {
+private fun LyricsNotice(
+    message: String,
+    detail: String?,
+    bottomPx: () -> Float,
+    modifier: Modifier,
+    onSearchSpotify: (() -> Unit)? = null,
+) {
     BoxWithConstraints(modifier.fillMaxSize()) {
         val cqw = maxWidth.value / 100f
         val cqh = maxHeight / 100f
@@ -793,6 +816,9 @@ private fun LyricsNotice(message: String, detail: String?, bottomPx: () -> Float
                         color = SpicyColors.TextSecondary,
                     ),
                 )
+            }
+            if (onSearchSpotify != null) {
+                SpicyButton("Find on Spotify", onClick = onSearchSpotify, modifier = Modifier.padding(top = cqh * 3))
             }
         }
     }
@@ -986,6 +1012,7 @@ private fun LyricsPanel(
     maskBottomPx: () -> Float,
     config: RenderConfig,
     fontSizeScale: Float,
+    onSearchSpotify: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     // The loading skeleton: up as soon as the lookup starts, over whatever the panel
@@ -993,7 +1020,7 @@ private fun LyricsPanel(
     Box(modifier) {
         LyricsPanelContent(
             lyrics, currentTimeMs, onSeek, romanize, isPlaying, activeLineTopPx, centredLiftPx, noticeBottomPx,
-            viewState, pinnedFooter, maskBottomPx, config, fontSizeScale, Modifier.fillMaxSize(),
+            viewState, pinnedFooter, maskBottomPx, config, fontSizeScale, onSearchSpotify, Modifier.fillMaxSize(),
         )
         AnimatedVisibility(
             visible = lyrics == LyricsState.Loading,
@@ -1030,12 +1057,17 @@ private fun LyricsPanelContent(
     maskBottomPx: () -> Float,
     config: RenderConfig,
     fontSizeScale: Float,
+    onSearchSpotify: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     when (lyrics) {
         LyricsState.Idle -> LyricsNotice("Waiting for a song", null, noticeBottomPx, modifier)
         LyricsState.Loading -> Unit
-        is LyricsState.Error -> LyricsNotice(lyrics.message, lyrics.detail, noticeBottomPx, modifier)
+        // A song that was looked up and missed may just be matched to the wrong recording.
+        is LyricsState.Error -> LyricsNotice(
+            lyrics.message, lyrics.detail, noticeBottomPx, modifier,
+            onSearchSpotify = onSearchSpotify.takeIf { lyrics !== LyricsNotices.missingMetadata },
+        )
         is LyricsState.Ready -> {
             val rendererLines = remember(lyrics.lines, config.isMinimal, config.isSimple) {
                 buildDisplayTimeline(lyrics.lines.map { line ->

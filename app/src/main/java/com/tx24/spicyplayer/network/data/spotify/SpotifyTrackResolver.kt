@@ -32,6 +32,16 @@ class SpotifyTrackResolver(private val catalogSearch: SpotifyCatalogSearch) {
         }
     }
 
+    /**
+     * The results the automatic match picks from (the same searches), closest to [track] first,
+     * for the user to pick from when it picked wrong or nothing.
+     */
+    suspend fun candidates(track: LocalTrackMetadata): List<SpotifyTrackCandidate> =
+        catalogSearch.search(track).sortedByDescending { SpotifyTrackMatcher.score(track, it).score }
+
+    /** Spotify's results for a query the user typed. */
+    suspend fun search(query: String): List<SpotifyTrackCandidate> = catalogSearch.search(query)
+
     private fun remembered(track: LocalTrackMetadata) = synchronized(recent) { recent[track] }
 
     private suspend fun search(track: LocalTrackMetadata): SpotifyTrackResolution {

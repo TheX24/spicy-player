@@ -44,6 +44,7 @@ import com.tx24.spicyplayer.network.data.ItunesReleaseYear
 import com.tx24.spicyplayer.network.data.spotify.AudioAnalysis
 import com.tx24.spicyplayer.network.data.spotify.LocalTrackMetadata
 import com.tx24.spicyplayer.network.data.spotify.SharedSpotify
+import com.tx24.spicyplayer.network.data.spotify.SpotifyTrackCandidate
 import com.tx24.spicyplayer.lyrics.spicy.canvas.kawarp.BackgroundSpeed
 import com.tx24.spicyplayer.ui.nowplaying.SessionCustomAction
 import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
@@ -640,6 +641,25 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             status = null,
         )
         loadLyrics()
+    }
+
+    /**
+     * Spotify's results for the playing song: the automatic match's own when [query] is null,
+     * else for [query]. Null when there's no song or the search failed.
+     */
+    suspend fun searchSpotify(query: String?): List<SpotifyTrackCandidate>? {
+        val request = currentRequest() ?: return null
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                if (query == null) {
+                    SharedSpotify.resolver.candidates(
+                        LocalTrackMetadata(request.title, request.artist, request.album, request.durationSeconds * 1_000L),
+                    )
+                } else {
+                    SharedSpotify.resolver.search(query)
+                }
+            }
+        }.onFailure { if (it is CancellationException) throw it }.getOrNull()
     }
 
     fun clearSpotifyIdOverride() {

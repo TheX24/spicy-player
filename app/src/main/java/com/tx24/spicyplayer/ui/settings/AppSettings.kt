@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
+import com.tx24.spicyplayer.lyrics.spicy.SyllableMerge
 import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
@@ -34,6 +35,7 @@ class AppSettings(private val prefs: SharedPreferences) {
     var showScrollToActive by boolean("showScrollToActive", true)
     var pinnedFooter by enum("pinnedFooter", PinnedFooterMode.Off)
     var duetLinePadding by boolean("duetLinePadding", true)
+    var syllableMerge by enum("syllableMerge", SyllableMerge.Off)
 
     var scrollLeadEnabled by boolean("scrollLeadEnabled", false)
     var scrollLeadMs by int("scrollLeadMs", 250)

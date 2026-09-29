@@ -2,6 +2,15 @@ package com.tx24.spicyplayer.lyrics.spicy
 
 enum class SimpleAnimationStyle { CALCULATE, ANIMATE }
 
+/** Whether a word's syllables are drawn as one word, filling evenly from its first syllable to its last. */
+enum class SyllableMerge(val label: String) {
+    Off("Off"),
+    /** Every split word. */
+    Full("Full"),
+    /** Only words long enough, merged, for the held-word letter emphasis. */
+    Held("Held words only"),
+}
+
 /** How the lyrics follow the song and answer a tap. None of it changes how lines are measured. */
 data class ScrollConfig(
     /** Early Scroll: the view picks its line as if the song were this far ahead. 0 is off. */
@@ -40,6 +49,7 @@ data class RenderConfig(
     val lettersEnabled: Boolean = true,
     val letterDurationThresholdMs: Long = if (simpleLyricsMode) 1050L else 1000L,
     val letterMaxLength: Int = if (simpleLyricsMode) 12 else Int.MAX_VALUE,
+    val syllableMerge: SyllableMerge = SyllableMerge.Off,
     /**
      * Multiplies how far sung words and letters grow (their scale away from 1) and lift
      * (their y offset). 1 is the desktop amount.

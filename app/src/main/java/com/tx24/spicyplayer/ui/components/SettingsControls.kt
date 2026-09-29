@@ -28,10 +28,19 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicSecureTextField
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.input.KeyboardActionHandler
+import androidx.compose.foundation.text.input.TextFieldDecorator
+import androidx.compose.foundation.text.input.TextFieldLineLimits
+import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.text.input.setTextAndPlaceCursorAtEnd
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -58,9 +67,6 @@ import androidx.compose.ui.layout.Layout
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.PasswordVisualTransformation
-import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
@@ -401,7 +407,13 @@ private fun PressSurface(
     )
 }
 
-/** A text field: tinted, hairline ring, brighter while focused. */
+/**
+ * A text field: tinted, hairline ring, brighter while focused.
+ *
+ * Built on the state-based text field, whose cursor handle scrolls a long line when dragged to
+ * the edge; the older value-based one stops at what's visible. [value] still drives it: an
+ * outside change replaces the text, and typing reports through [onValueChange].
+ */
 @Composable
 fun SpicyTextField(
     value: String,
@@ -411,38 +423,64 @@ fun SpicyTextField(
     password: Boolean = false,
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
+    /** The keyboard's action key becomes Search and calls this. */
+    onSearch: (() -> Unit)? = null,
 ) {
+    val state = rememberTextFieldState(value)
+    val latestValue by rememberUpdatedState(value)
+    val latestOnValueChange by rememberUpdatedState(onValueChange)
+    LaunchedEffect(value) {
+        if (state.text.toString() != value) state.setTextAndPlaceCursorAtEnd(value)
+    }
+    LaunchedEffect(state) {
+        snapshotFlow { state.text.toString() }.collect { if (it != latestValue) latestOnValueChange(it) }
+    }
+
     var focused by remember { mutableStateOf(false) }
     val shape = RoundedCornerShape(SpicyRadii.Sm)
-    BasicTextField(
-        value = value,
-        onValueChange = onValueChange,
-        modifier = modifier.onFocusChanged { focused = it.isFocused },
-        singleLine = true,
-        textStyle = SpicyType.Body,
-        cursorBrush = SolidColor(SpicyColors.TextPrimary),
-        visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = if (password) KeyboardOptions(keyboardType = KeyboardType.Password) else KeyboardOptions.Default,
-        decorationBox = { field ->
-            Row(
-                Modifier
-                    .heightIn(min = 40.dp)
-                    .clip(shape)
-                    .background(if (focused) SpicyColors.TintBgPressed else SpicyColors.TintBg)
-                    .border(1.dp, if (focused) SpicyColors.HairlineStrong else SpicyColors.Hairline, shape)
-                    .padding(horizontal = 10.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2),
-            ) {
-                leading?.invoke()
-                Box(Modifier.weight(1f)) {
-                    if (value.isEmpty()) Text(placeholder, style = SpicyType.Body.copy(color = SpicyColors.TextSecondary))
-                    field()
-                }
-                trailing?.invoke()
+    val fieldModifier = modifier.onFocusChanged { focused = it.isFocused }
+    val onKeyboardAction = onSearch?.let { search -> KeyboardActionHandler { search() } }
+    val decorator = TextFieldDecorator { field ->
+        Row(
+            Modifier
+                .heightIn(min = 40.dp)
+                .clip(shape)
+                .background(if (focused) SpicyColors.TintBgPressed else SpicyColors.TintBg)
+                .border(1.dp, if (focused) SpicyColors.HairlineStrong else SpicyColors.Hairline, shape)
+                .padding(horizontal = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2),
+        ) {
+            leading?.invoke()
+            Box(Modifier.weight(1f)) {
+                if (state.text.isEmpty()) Text(placeholder, style = SpicyType.Body.copy(color = SpicyColors.TextSecondary))
+                field()
             }
-        },
-    )
+            trailing?.invoke()
+        }
+    }
+    val cursorBrush = SolidColor(SpicyColors.TextPrimary)
+    if (password) {
+        BasicSecureTextField(
+            state = state,
+            modifier = fieldModifier,
+            textStyle = SpicyType.Body,
+            onKeyboardAction = onKeyboardAction,
+            cursorBrush = cursorBrush,
+            decorator = decorator,
+        )
+    } else {
+        BasicTextField(
+            state = state,
+            modifier = fieldModifier,
+            textStyle = SpicyType.Body,
+            keyboardOptions = if (onSearch != null) KeyboardOptions(imeAction = ImeAction.Search) else KeyboardOptions.Default,
+            onKeyboardAction = onKeyboardAction,
+            lineLimits = TextFieldLineLimits.SingleLine,
+            cursorBrush = cursorBrush,
+            decorator = decorator,
+        )
+    }
 }
 
 /** The search bar: the magnifier, the field, and a clear button once there's text. */

@@ -123,6 +123,7 @@ fun SettingsScreen(
     contentPadding: PaddingValues,
     onClosed: () -> Unit,
     onOpenLyricsManager: () -> Unit = {},
+    onOpenSpotifySearch: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val modal = tween<Float>(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal)
@@ -252,7 +253,7 @@ fun SettingsScreen(
                     if (query.isBlank()) {
                         HomeGroups(state, settings, updater, onOpen = ::show)
                     } else {
-                        SearchResults(query, state, viewModel, updater, settings, onOpenLyricsManager)
+                        SearchResults(query, state, viewModel, updater, settings, onOpenLyricsManager, onOpenSpotifySearch)
                     }
                 }
             }
@@ -273,7 +274,7 @@ fun SettingsScreen(
                         .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent() } },
                     header = { Spacer(Modifier.height(SpicySpacing.S2)) },
                 ) {
-                    PageContent(shown, state, viewModel, updater, settings, onOpenLyricsManager)
+                    PageContent(shown, state, viewModel, updater, settings, onOpenLyricsManager, onOpenSpotifySearch)
                 }
             }
         }
@@ -288,9 +289,10 @@ private fun PageContent(
     updater: UpdateViewModel,
     settings: AppSettings,
     onOpenLyricsManager: () -> Unit,
+    onOpenSpotifySearch: () -> Unit,
 ) {
     when (page) {
-        SettingsPage.ThisSong -> ThisSongContent(state, viewModel, onOpenLyricsManager)
+        SettingsPage.ThisSong -> ThisSongContent(state, viewModel, onOpenLyricsManager, onOpenSpotifySearch)
         SettingsPage.Lyrics -> LyricsContent(state, viewModel, settings)
         SettingsPage.Appearance -> AppearanceContent(settings)
         SettingsPage.Screen -> ScreenContent(settings)
@@ -351,9 +353,9 @@ private fun PageSkeleton(page: SettingsPage) {
     when (page) {
         SettingsPage.ThisSong -> {
             SettingsSkeleton(rows = 1, cards = true)
-            SettingsSkeleton(rows = 3)
+            SettingsSkeleton(rows = 4)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 14)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 15)
         SettingsPage.Appearance -> SettingsSkeleton(rows = 6)
         SettingsPage.Screen -> SettingsSkeleton(rows = 11)
         SettingsPage.Sync -> SettingsSkeleton(rows = 2)
@@ -532,13 +534,13 @@ private fun updateLine(status: UpdateStatus): String = when (status) {
 
 /** Every page's rows at once, each hiding unless it matches the search. */
 @Composable
-private fun SearchResults(query: String, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, updater: UpdateViewModel, settings: AppSettings, onOpenLyricsManager: () -> Unit) {
+private fun SearchResults(query: String, state: PlayerUiState, viewModel: ExternalPlaybackViewModel, updater: UpdateViewModel, settings: AppSettings, onOpenLyricsManager: () -> Unit, onOpenSpotifySearch: () -> Unit) {
     CompositionLocalProvider(LocalSettingsQuery provides query) {
         EmptyOr(
             content = {
                 Column(Modifier.fillMaxWidth()) {
                     SettingsPage.entries.forEach { page ->
-                        SettingsSection(page.title) { PageContent(page, state, viewModel, updater, settings, onOpenLyricsManager) }
+                        SettingsSection(page.title) { PageContent(page, state, viewModel, updater, settings, onOpenLyricsManager, onOpenSpotifySearch) }
                     }
                     AboutCardSpacer(updater, settings)
                 }

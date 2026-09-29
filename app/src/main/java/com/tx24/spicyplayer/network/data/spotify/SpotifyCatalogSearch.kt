@@ -9,6 +9,9 @@ package com.tx24.spicyplayer.network.data.spotify
 interface SpotifyCatalogSearch {
     suspend fun search(track: LocalTrackMetadata): List<SpotifyTrackCandidate>
 
+    /** Spotify's results for a query typed by the user, in Spotify's order. */
+    suspend fun search(query: String): List<SpotifyTrackCandidate> = emptyList()
+
     /** Readies the transport (e.g. its token) so the first search doesn't pay for it. */
     suspend fun warmUp() {}
 }

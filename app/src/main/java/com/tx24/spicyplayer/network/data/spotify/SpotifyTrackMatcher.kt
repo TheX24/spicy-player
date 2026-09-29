@@ -19,6 +19,7 @@ data class SpotifyTrackCandidate(
     val artists: List<String>,
     val album: String,
     val durationMs: Long,
+    val coverUrl: String? = null,
 )
 
 data class ScoredSpotifyTrack(

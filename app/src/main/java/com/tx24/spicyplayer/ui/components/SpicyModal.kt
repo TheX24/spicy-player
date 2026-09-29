@@ -115,21 +115,27 @@ fun SpicyModal(
 
     if (onDismissRequest != null) BackHandler(enabled = visible) { onDismissRequest() }
 
+    // Set by the plate when a touch lands on it. Marking rather than consuming: drags inside the
+    // plate (a text field's scroll, say) give up on a touch that something else consumed.
+    val touchOnPlate = remember { BooleanArray(1) }
     BoxWithConstraints(
         modifier
             .fillMaxSize()
             // The dim: rgba(0,0,0,.45), fading with the modal.
             .drawBehind { drawRect(Color.Black.copy(alpha = OVERLAY_ALPHA * open.value)) }
             // Takes every touch, so nothing reaches the page; a tap outside the plate dismisses.
-            // The plate consumes its own touches first, which is how this tells them apart.
+            // The plate sees its touches first and marks them, which is how this tells them apart.
             .pointerInput(onDismissRequest) {
                 awaitPointerEventScope {
                     while (true) {
                         val event = awaitPointerEvent()
-                        val outside = event.changes.none { it.isConsumed }
-                        event.changes.forEach { it.consume() }
-                        val released = event.changes.all { !it.pressed && it.previousPressed }
-                        if (onDismissRequest != null && outside && released) onDismissRequest()
+                        val outside = !touchOnPlate[0]
+                        if (outside) event.changes.forEach { it.consume() }
+                        if (event.changes.none { it.pressed }) {
+                            touchOnPlate[0] = false
+                            val released = event.changes.all { it.previousPressed }
+                            if (onDismissRequest != null && outside && released) onDismissRequest()
+                        }
                     }
                 }
             },
@@ -158,7 +164,7 @@ fun SpicyModal(
                 .background(PLATE_FILL)
                 .plateEdges()
                 // Touches on the plate stay on the plate.
-                .pointerInput(Unit) { awaitPointerEventScope { while (true) awaitPointerEvent().changes.forEach { it.consume() } } },
+                .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(); touchOnPlate[0] = true } } },
         ) {
             if (title != null) ModalHeader(title, onDismissRequest)
             // The body: padding 20px 24px 24px, scrolling when it runs long.
