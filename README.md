@@ -1,3 +1,5 @@
+![Spicy Player: word-synced lyrics for whatever is playing on your phone](.github/assets/banner.webp)
+
 # Spicy Player
 
 > [!NOTE]
