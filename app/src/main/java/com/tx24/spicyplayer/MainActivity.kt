@@ -101,6 +101,7 @@ import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsView
 import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsViewState
 import com.tx24.spicyplayer.lyrics.spicy.canvas.ActiveLineDirection
 import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
+import com.tx24.spicyplayer.ui.profile.ProfileModal
 import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedLyricsFooter
 import com.tx24.spicyplayer.ui.components.GlassButton
 import com.tx24.spicyplayer.ui.settings.LyricsFont
@@ -558,7 +559,9 @@ private fun LyricsApp(
                             centredLiftPx = centredLiftPx,
                             noticeBottomPx = { noticeBottomPx },
                             viewState = lyricsViewState,
-                            pinnedFooter = pinnedFooter,
+                            // Pinned credits fade out under the controls, so while those show the
+                            // credits go back to the end of the lyrics.
+                            pinnedFooter = if (controlsVisible && bottomBar) PinnedFooterMode.Off else pinnedFooter,
                             maskBottomPx = { if (pinnedHeightPx > 0) pinnedGapPx + pinnedHeightPx + pinnedClearPx else 0f },
                             config = renderConfig,
                             fontSizeScale = lyricsFontScale,
@@ -681,7 +684,6 @@ private fun LyricsApp(
             visible = !state.accessGranted,
             onDismissRequest = null,
             backdrop = backdrop,
-            modifier = Modifier.padding(padding),
         ) {
             NotificationAccessMessage(openNotificationAccess)
         }
@@ -693,7 +695,6 @@ private fun LyricsApp(
             visible = state.limitNotice != null,
             onDismissRequest = viewModel::dismissLimitNotice,
             backdrop = backdrop,
-            modifier = Modifier.padding(padding),
         ) {
             lastLimit?.let { SpotifyLimitMessage(it, viewModel::dismissLimitNotice) }
         }
@@ -701,11 +702,12 @@ private fun LyricsApp(
         // Kept through the closing animation, after it's been answered.
         var lastProfile by remember { mutableStateOf<FooterLine?>(null) }
         lyricsViewState.profileRequest?.let { lastProfile = it }
-        SpicyModal(
+        if (!settings.profilesInBrowser) {
+            ProfileModal(lastProfile, lyricsViewState.profileRequest != null, backdrop, lyricsViewState::dismissProfile)
+        } else SpicyModal(
             visible = lyricsViewState.profileRequest != null,
             onDismissRequest = lyricsViewState::dismissProfile,
             backdrop = backdrop,
-            modifier = Modifier.padding(padding),
         ) {
             lastProfile?.let { OpenProfileMessage(it, lyricsViewState::dismissProfile) }
         }
@@ -732,7 +734,6 @@ private fun LyricsApp(
             settings = settings,
             backdrop = backdrop,
             onDismissRequest = { showLyricsManager = false },
-            modifier = Modifier.padding(padding),
         )
 
         // Over settings, since it opens from there too.
@@ -742,11 +743,10 @@ private fun LyricsApp(
             viewModel = viewModel,
             backdrop = backdrop,
             onDismissRequest = { showSpotifySearch = false },
-            modifier = Modifier.padding(padding),
         )
 
         // Over settings, so a check from there answers in place.
-        UpdatePopup(update, updater, backdrop, Modifier.padding(padding))
+        UpdatePopup(update, updater, backdrop)
 
         SpicyToastHost(viewModel.messages, Modifier.padding(padding).padding(top = SpicySpacing.S4))
     }
@@ -896,7 +896,7 @@ private fun NotificationAccessMessage(openNotificationAccess: () -> Unit) {
 }
 
 @Composable
-private fun UpdatePopup(update: UpdateUiState, updater: UpdateViewModel, backdrop: HazeState?, modifier: Modifier) {
+private fun UpdatePopup(update: UpdateUiState, updater: UpdateViewModel, backdrop: HazeState?) {
     // Kept through the closing animation.
     var shown by remember { mutableStateOf(update.status) }
     if (update.prompt) shown = update.status
@@ -911,7 +911,6 @@ private fun UpdatePopup(update: UpdateUiState, updater: UpdateViewModel, backdro
         visible = update.prompt && release != null,
         onDismissRequest = updater::later,
         backdrop = backdrop,
-        modifier = modifier,
     ) {
         if (release == null) return@SpicyModal
         SpicyModalHeading("Update available", release.name.takeIf { it != release.tag && it != release.version })

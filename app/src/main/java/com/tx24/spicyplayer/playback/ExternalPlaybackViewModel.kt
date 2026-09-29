@@ -232,6 +232,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var trackChangedAt = Long.MIN_VALUE / 2
     /** Resync on a player that can't seek: the next fresh report re-anchors the clock outright. */
     private var resyncOnNextReport = false
+    /** The player that last ignored a seek it lists (Spotify Free): its resyncs go by its reports. */
+    private var seekRefusedBy: String? = null
 
     private val spotifyExtras = SharedSpotify.extras(application.cacheDir)
     private val itunesYear = ItunesReleaseYear(okhttp3.OkHttpClient())
@@ -358,7 +360,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         seekTo(target)
     }
 
-    fun seekTo(targetMs: Long) {
+    fun seekTo(targetMs: Long) = seekTo(targetMs, resync = false)
+
+    private fun seekTo(targetMs: Long, resync: Boolean) {
         val active = controller ?: return
         if (((active.playbackState?.actions ?: 0L) and PlaybackState.ACTION_SEEK_TO) == 0L) {
             mutableState.value = mutableState.value.copy(
@@ -371,7 +375,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             0L,
             mutableState.value.durationMs.takeIf { it > 0L } ?: Long.MAX_VALUE,
         )
-        pendingCommand = PendingCommand.Seek(target, SystemClock.elapsedRealtime())
+        pendingCommand = PendingCommand.Seek(target, SystemClock.elapsedRealtime(), resync)
         clock.seekTo(target, SystemClock.elapsedRealtime())
         mutableState.value = mutableState.value.copy(status = null)
         active.transportControls.seekTo(target)
@@ -379,18 +383,24 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     /**
      * Android can't ask a player where it is, only take its last report. So this seeks the player
-     * to where the lyrics think it is: it must answer with fresh reports, which the clock then
-     * follows once they agree (a relayed player too). A player that can't seek (Spotify Free) snaps to its last
-     * report now and to its next one outright; Spotify sends one every couple of seconds.
+     * to where the lyrics think it is: it must answer with a fresh report, which the clock takes
+     * outright. A player that can't seek, or lists seeking but ignores it (Spotify Free, found out
+     * on the first try), snaps to its last report now and to its next one outright.
      */
     fun resync() {
         pendingCommand = null
         refresh()
         val active = controller
-        if (active != null && ((active.playbackState?.actions ?: 0L) and PlaybackState.ACTION_SEEK_TO) != 0L) {
-            seekTo(currentPositionMs())
+        val seekable = ((active?.playbackState?.actions ?: 0L) and PlaybackState.ACTION_SEEK_TO) != 0L
+        if (active != null && seekable && active.packageName != seekRefusedBy) {
+            seekTo(currentPositionMs(), resync = true)
             return
         }
+        resyncFromReports()
+    }
+
+    private fun resyncFromReports() {
+        val active = controller
         active?.playbackState?.let { reconcileClock(it, force = true, snap = it.state == PlaybackState.STATE_PLAYING) }
         resyncOnNextReport = active != null
         mutableState.value = mutableState.value.copy(
@@ -1001,7 +1011,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             SystemClock.elapsedRealtime() - pendingCommand!!.issuedAtMs < 1_500L
         // A command the player has just confirmed (play, pause, seek) re-anchors on its report.
         val confirmed = pendingCommand?.acknowledged(playback, trackIdentity) == true
-        if (!waitingForSeek && playback != null) reconcileClock(playback, force = trackChanged || confirmed, trackChanged = trackChanged)
+        val resyncConfirmed = confirmed && (pendingCommand as? PendingCommand.Seek)?.resync == true
+        if (confirmed && pendingCommand is PendingCommand.Seek) seekRefusedBy = null
+        if (!waitingForSeek && playback != null) {
+            reconcileClock(playback, force = trackChanged || confirmed, trackChanged = trackChanged, snap = trackChanged || resyncConfirmed)
+        }
         val mediaId = metadata?.description?.mediaId
         val spotifyId = sequenceOf(
             mediaId,
@@ -1220,7 +1234,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 val seek = pendingCommand as? PendingCommand.Seek
                 if (seek != null && SystemClock.elapsedRealtime() - seek.issuedAtMs >= 1_500L) {
                     pendingCommand = null
+                    seekRefusedBy = controller?.packageName
                     updateFromController()
+                    // Spotify Free lists seeking but ignores it: resync from its reports instead.
+                    if (seek.resync) resyncFromReports()
                     mutableState.value = mutableState.value.copy(
                         status = "Seek not confirmed by ${controller?.packageName ?: "player"}; timeline restored",
                     )
@@ -1310,7 +1327,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 playback != null && (playback.state == PlaybackState.STATE_PLAYING) == playing
         }
 
-        data class Seek(val targetMs: Long, override val issuedAtMs: Long) : PendingCommand {
+        /** [resync]: sent by [resync] to draw a fresh report, which the clock then takes outright. */
+        data class Seek(val targetMs: Long, override val issuedAtMs: Long, val resync: Boolean = false) : PendingCommand {
             override fun acknowledged(playback: PlaybackState?, trackIdentity: String?) =
                 playback != null && kotlin.math.abs(playback.position - targetMs) < 750L
         }

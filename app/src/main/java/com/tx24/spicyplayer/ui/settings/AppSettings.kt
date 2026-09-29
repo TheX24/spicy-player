@@ -34,6 +34,8 @@ class AppSettings(private val prefs: SharedPreferences) {
     var customFontName by string("customFontName", "")
     var showScrollToActive by boolean("showScrollToActive", true)
     var pinnedFooter by enum("pinnedFooter", PinnedFooterMode.Off)
+    /** A credit's profile opens in the browser (after asking) rather than in a pop-up. */
+    var profilesInBrowser by boolean("profilesInBrowser", false)
     var duetLinePadding by boolean("duetLinePadding", true)
     var syllableMerge by enum("syllableMerge", SyllableMerge.Off)
 

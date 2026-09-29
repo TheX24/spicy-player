@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -27,6 +28,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -98,6 +101,8 @@ fun SpicyModal(
     backdrop: HazeState?,
     modifier: Modifier = Modifier,
     title: String? = null,
+    /** The plate takes its full height and the body neither scrolls nor pads, for a page that scrolls itself. */
+    fillBody: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val open = remember { Animatable(0f) }
@@ -138,7 +143,9 @@ fun SpicyModal(
                         }
                     }
                 }
-            },
+            }
+            // The dim covers the whole screen, bars included; the plate keeps clear of them.
+            .windowInsetsPadding(WindowInsets.safeDrawing),
         contentAlignment = Alignment.Center,
     ) {
         val shape = RoundedCornerShape(SpicyRadii.Lg)
@@ -148,7 +155,7 @@ fun SpicyModal(
                 .widthIn(max = PLATE_WIDTH)
                 .fillMaxWidth()
                 .padding(horizontal = SpicySpacing.S4)
-                .heightIn(max = maxHeight * 0.9f)
+                .then(if (fillBody) Modifier.height(maxHeight * 0.9f) else Modifier.heightIn(max = maxHeight * 0.9f))
                 .graphicsLayer {
                     val scale = CLOSED_SCALE + (1f - CLOSED_SCALE) * open.value
                     scaleX = scale
@@ -167,15 +174,19 @@ fun SpicyModal(
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(); touchOnPlate[0] = true } } },
         ) {
             if (title != null) ModalHeader(title, onDismissRequest)
-            // The body: padding 20px 24px 24px, scrolling when it runs long.
-            Column(
-                Modifier
-                    .weight(1f, fill = false)
-                    .verticalScroll(rememberScrollState())
-                    .padding(start = SpicySpacing.S6, end = SpicySpacing.S6, top = SpicySpacing.S5, bottom = SpicySpacing.S6),
-                verticalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
-                content = content,
-            )
+            if (fillBody) {
+                Column(Modifier.weight(1f), content = content)
+            } else {
+                // The body: padding 20px 24px 24px, scrolling when it runs long.
+                Column(
+                    Modifier
+                        .weight(1f, fill = false)
+                        .verticalScroll(rememberScrollState())
+                        .padding(start = SpicySpacing.S6, end = SpicySpacing.S6, top = SpicySpacing.S5, bottom = SpicySpacing.S6),
+                    verticalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+                    content = content,
+                )
+            }
         }
     }
 }

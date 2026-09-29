@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.FormatSize
 import androidx.compose.material.icons.rounded.FormatIndentIncrease
 import androidx.compose.material.icons.rounded.FontDownload
 import androidx.compose.material.icons.rounded.FolderOpen
+import androidx.compose.material.icons.rounded.OpenInBrowser
 import androidx.compose.material.icons.rounded.PushPin
 import androidx.compose.material.icons.rounded.VerticalAlignCenter
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -263,6 +264,13 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
                 onChange = { settings.pinnedFooter = PinnedFooterMode.valueOf(it) },
             )
         }
+        ToggleRow(
+            label = "Open Profiles in Browser",
+            checked = settings.profilesInBrowser,
+            onCheckedChange = { settings.profilesInBrowser = it },
+            description = "Open contributor profiles in your browser instead of inside the app.",
+            icon = Icons.Rounded.OpenInBrowser,
+        )
     }
     SettingsSection("Scrolling") {
         ToggleRow(

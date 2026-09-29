@@ -1,5 +1,27 @@
 package com.tx24.spicyplayer.ui.components
 
+import android.os.SystemClock
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.KeyboardArrowDown
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.PopupPositionProvider
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
@@ -300,8 +322,8 @@ private val ToggleKnobOff = Color(245, 245, 245).copy(alpha = 0.78f)
 private fun lerp(a: Color, b: Color, t: Float) = androidx.compose.ui.graphics.lerp(a, b, t)
 
 /**
- * A tinted pill showing the chosen label; tapped, it draws the list of options (dark text on
- * white, like a browser's `<select>`) under the pill.
+ * A tinted pill showing the chosen label with a chevron; tapped, it opens the options on a dark
+ * plate under the pill (over it when there's no room below), the chosen one ticked.
  */
 @Composable
 fun SpicySelect(
@@ -312,54 +334,136 @@ fun SpicySelect(
     labels: List<String> = options,
     enabled: Boolean = true,
 ) {
-    var open by remember { mutableStateOf(false) }
+    // Drives the open and close animation; the popup stays up until the close finishes.
+    val menu = remember { MutableTransitionState(false) }
+    // A tap on the pill while open lands after the popup has closed itself on touch-down;
+    // without this it would open again at once.
+    var closedAt by remember { mutableStateOf(0L) }
+    val close = {
+        if (menu.targetState) closedAt = SystemClock.uptimeMillis()
+        menu.targetState = false
+    }
+    val open = menu.targetState
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val shape = RoundedCornerShape(SpicyRadii.Sm)
     val haptics = LocalHapticFeedback.current
     Box(modifier) {
-        Text(
-            labels.getOrElse(options.indexOf(value)) { value },
-            style = SpicyType.Caption.copy(fontWeight = FontWeight.Medium),
-            modifier = Modifier
+        Row(
+            Modifier
+                .alpha(if (enabled) 1f else DISABLED_ALPHA)
                 .clip(shape)
                 .background(if (pressed || open) SpicyColors.TintBgPressed else SpicyColors.TintBg)
                 .border(1.dp, if (pressed || open) SpicyColors.HairlineStrong else SpicyColors.Hairline, shape)
                 .clickable(interaction, indication = null, enabled = enabled, role = Role.DropdownList) {
+                    if (open || SystemClock.uptimeMillis() - closedAt < REOPEN_GUARD_MS) return@clickable
                     haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
-                    open = true
+                    menu.targetState = true
                 }
-                .padding(horizontal = 10.dp, vertical = 6.dp),
-        )
-        if (open) {
-            Popup(onDismissRequest = { open = false }, properties = PopupProperties(focusable = true)) {
-                Column(
-                    Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color.White)
-                        .padding(vertical = 4.dp),
+                .padding(start = 10.dp, end = 6.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(labels.getOrElse(options.indexOf(value)) { value }, style = SpicyType.Caption.copy(fontWeight = FontWeight.Medium))
+            val turn by animateFloatAsState(if (open) 180f else 0f, tween(SpicyMotion.FAST_MS), label = "selectChevron")
+            Icon(
+                Icons.Rounded.KeyboardArrowDown,
+                contentDescription = null,
+                tint = SpicyColors.TextSecondary,
+                modifier = Modifier.size(16.dp).graphicsLayer { rotationZ = turn },
+            )
+        }
+        if (menu.currentState || menu.targetState) {
+            val margin = with(LocalDensity.current) { SpicySpacing.S2.roundToPx() }
+            val position = remember(margin) { SelectMenuPosition(margin) }
+            Popup(popupPositionProvider = position, onDismissRequest = close, properties = PopupProperties(focusable = true)) {
+                val origin = TransformOrigin(1f, if (position.above) 1f else 0f)
+                AnimatedVisibility(
+                    visibleState = menu,
+                    enter = fadeIn(tween(SpicyMotion.FAST_MS)) +
+                        scaleIn(tween(SpicyMotion.FAST_MS, easing = SpicyMotion.Modal), initialScale = 0.94f, transformOrigin = origin),
+                    exit = fadeOut(tween(SpicyMotion.FAST_MS)) +
+                        scaleOut(tween(SpicyMotion.FAST_MS), targetScale = 0.94f, transformOrigin = origin),
                 ) {
-                    options.forEachIndexed { i, option ->
-                        Text(
-                            labels.getOrElse(i) { option },
-                            style = SpicyType.Caption.copy(
-                                color = Color.Black.copy(alpha = 0.92f),
-                                fontWeight = if (option == value) FontWeight.SemiBold else FontWeight.Normal,
-                            ),
-                            modifier = Modifier
-                                .clickable {
-                                    haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                                    open = false
-                                    if (option != value) onChange(option)
-                                }
-                                .padding(horizontal = 14.dp, vertical = 10.dp),
-                        )
+                    val plate = RoundedCornerShape(SpicyRadii.Md)
+                    Column(
+                        Modifier
+                            .widthIn(min = 180.dp, max = 280.dp)
+                            .width(IntrinsicSize.Max)
+                            .heightIn(max = 360.dp)
+                            .clip(plate)
+                            .background(MENU_FILL)
+                            .border(1.dp, SpicyColors.HairlineStrong, plate)
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = SpicySpacing.S1),
+                    ) {
+                        options.forEachIndexed { i, option ->
+                            SelectOption(labels.getOrElse(i) { option }, selected = option == value) {
+                                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                                close()
+                                if (option != value) onChange(option)
+                            }
+                        }
                     }
                 }
             }
         }
     }
 }
+
+@Composable
+private fun SelectOption(label: String, selected: Boolean, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .padding(horizontal = SpicySpacing.S1)
+            .clip(RoundedCornerShape(SpicyRadii.Sm))
+            .background(if (pressed) SpicyColors.TintBgPressed else Color.Transparent)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = SpicySpacing.S3),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+    ) {
+        Text(
+            label,
+            modifier = Modifier.weight(1f),
+            style = SpicyType.Body.copy(
+                color = if (selected) SpicyColors.TextPrimary else SpicyColors.TextSecondary,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            ),
+        )
+        Box(Modifier.size(18.dp)) {
+            if (selected) Icon(Icons.Rounded.Check, contentDescription = "Selected", tint = SpicyColors.TextPrimary, modifier = Modifier.size(18.dp))
+        }
+    }
+}
+
+/**
+ * Puts the menu under its pill, right edges lined up (the pills sit at a row's end), or over the
+ * pill when it doesn't fit below; always [margin] inside the window.
+ */
+private class SelectMenuPosition(private val margin: Int) : PopupPositionProvider {
+    var above by mutableStateOf(false)
+        private set
+
+    override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize): IntOffset {
+        val gap = margin / 2
+        val maxX = (windowSize.width - popupContentSize.width - margin).coerceAtLeast(margin)
+        val x = (anchorBounds.right - popupContentSize.width).coerceIn(margin, maxX)
+        val below = anchorBounds.bottom + gap
+        val fitsBelow = below + popupContentSize.height <= windowSize.height - margin
+        above = !fitsBelow && anchorBounds.top - gap - popupContentSize.height >= margin
+        val y = if (above) anchorBounds.top - gap - popupContentSize.height else below
+        val maxY = (windowSize.height - popupContentSize.height - margin).coerceAtLeast(margin)
+        return IntOffset(x, y.coerceIn(margin, maxY))
+    }
+}
+
+private val MENU_FILL = Color(30, 30, 34).copy(alpha = 0.98f)
+private const val REOPEN_GUARD_MS = 300L
 
 /** A flat tinted pill that shrinks to 0.97 while held. */
 @Composable
