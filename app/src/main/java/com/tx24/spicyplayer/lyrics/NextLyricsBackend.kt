@@ -51,20 +51,39 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     ): RemoteLyricsResolution = source.resolveLyrics(request, policy(), known = known, onUpdate = onUpdate)
 
     /**
+     * A stored pick. [settled] is false when a source ranked above it had no real answer (an error,
+     * or no Spotify match for a request without a length): the pick shows at once, but those
+     * sources are asked again. [answers] are what may be reused without asking.
+     */
+    class CachedPick(val resolution: RemoteLyricsResolution, val settled: Boolean) {
+        val answers: Map<String, ProviderResult> get() = buildMap {
+            resolution.attempts.filter { it.outcome == ProviderAttemptOutcome.MISS }.forEach { put(it.sourceId, ProviderResult.Miss) }
+            // A blend is rebuilt from its donors, never taken as an answer.
+            (resolution as? RemoteLyricsResolution.Found)?.selection
+                ?.takeIf { LyricsBlends.byId(it.source.id) == null }
+                ?.let { put(it.source.id, ProviderResult.Hit(it.payload)) }
+        }
+    }
+
+    /**
      * The last final pick for [request]: kept [CACHE_DAYS] days,
      * "no lyrics" included, errors never. Only reused while the enabled source order is the one it
      * was picked under, since another order could pick differently.
      */
-    fun cachedResolution(request: LyricsLookupRequest): RemoteLyricsResolution? {
+    fun cachedResolution(request: LyricsLookupRequest): CachedPick? {
         val stored = runCatching { gson.fromJson(cacheFile(request).readText(), StoredPick::class.java) }.getOrNull()
             ?: return null
         if (stored.version != CACHE_VERSION || stored.expiresAt < System.currentTimeMillis() || stored.order != enabledOrder()) return null
-        val payload = stored.payload ?: return RemoteLyricsResolution.NotFound(emptyList())
+        val attempts = stored.attempts.orEmpty().mapNotNull(StoredAttempt::restore)
+        val payload = stored.payload ?: return CachedPick(RemoteLyricsResolution.NotFound(attempts), stored.settled)
         val source = (descriptors + blendDescriptors).firstOrNull { it.id == stored.sourceId } ?: return null
         val quality = payload.measuredQuality()
-        return RemoteLyricsResolution.Found(
-            RemoteLyricsSelection(source, payload, quality),
-            listOf(ProviderAttempt(source.id, ProviderAttemptOutcome.HIT, quality, message = "cached")),
+        return CachedPick(
+            RemoteLyricsResolution.Found(
+                RemoteLyricsSelection(source, payload, quality),
+                attempts.map { if (it.sourceId == source.id) it.copy(message = "cached") else it },
+            ),
+            stored.settled,
         )
     }
 
@@ -77,6 +96,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
             order = enabledOrder(),
             sourceId = found?.selection?.source?.id,
             payload = found?.selection?.payload,
+            attempts = resolution.attempts.map(StoredAttempt::of),
+            settled = isSettled(request, resolution),
         )
         runCatching { diskCache.mkdirs(); cacheFile(request).writeText(gson.toJson(stored)) }
     }
@@ -112,9 +133,48 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         val order: List<String>,
         val sourceId: String?,
         val payload: RemoteLyricsPayload?,
+        val attempts: List<StoredAttempt>?,
+        val settled: Boolean,
     )
 
+    /** An attempt by names, so a renamed or dropped enum value only loses that one line. */
+    private data class StoredAttempt(
+        val sourceId: String,
+        val outcome: String,
+        val quality: String,
+        val category: String?,
+        val message: String?,
+    ) {
+        fun restore(): ProviderAttempt? = runCatching {
+            ProviderAttempt(
+                sourceId,
+                ProviderAttemptOutcome.valueOf(outcome),
+                RemoteLyricsQuality.valueOf(quality),
+                failureCategory = category?.let(ProviderFailureCategory::valueOf),
+                message = message,
+            )
+        }.getOrNull()
+
+        companion object {
+            fun of(attempt: ProviderAttempt) = StoredAttempt(
+                attempt.sourceId, attempt.outcome.name, attempt.quality.name, attempt.failureCategory?.name, attempt.message,
+            )
+        }
+    }
+
     companion object {
+        /** Whether every source ranked above the pick (every source, for "no lyrics") really answered. */
+        internal fun isSettled(request: LyricsLookupRequest, resolution: RemoteLyricsResolution): Boolean {
+            val pick = (resolution as? RemoteLyricsResolution.Found)?.selection?.source?.id
+            val above = resolution.attempts.takeWhile { it.sourceId != pick }
+            return above.none {
+                it.outcome in UNANSWERED ||
+                    // Matched on title and artist alone (a queue entry, or a player that sends the
+                    // length later): with the length, the match may well be found.
+                    (it.outcome == ProviderAttemptOutcome.NEEDS_MATCH && request.durationSeconds <= 0)
+            }
+        }
+
         /** Every source the app asks, built on [client]. Also used by the live source check test. */
         fun createProviders(
             client: OkHttpClient,
@@ -153,7 +213,14 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         }
 
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        private const val CACHE_VERSION = 12
+        private const val CACHE_VERSION = 13
+        /** Outcomes that are no answer at all: a later lookup may get one. */
+        private val UNANSWERED = setOf(
+            ProviderAttemptOutcome.UNAVAILABLE,
+            ProviderAttemptOutcome.COOLING_DOWN,
+            ProviderAttemptOutcome.QUEUED,
+            ProviderAttemptOutcome.PENDING,
+        )
         /** Bump when the default source order or on/off set changes, to reset saved choices once. */
         private const val SOURCE_DEFAULTS_VERSION = 1
         private val LRCLIB_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"

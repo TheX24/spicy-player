@@ -209,10 +209,13 @@ object SpotifyTrackMatcher {
         }
     }
 
-    private fun splitArtists(value: String): List<String> = value
-        .split(Regex("(?i)\\s+(?:feat(?:uring)?|ft|with|x)\\.?\\s+|[,;/]") )
+    // The whole name stays in too: "&" is both a join (YouTube Music's "Beyoncé & JAY-Z", which
+    // Spotify lists as two artists) and part of a name ("Simon & Garfunkel").
+    private fun splitArtists(value: String): List<String> = (listOf(value) + value
+        .split(Regex("(?i)\\s+(?:feat(?:uring)?|ft|with|x)\\.?\\s+|\\s+&\\s+|[,;/]")))
         .map(::normalize)
         .filter(String::isNotEmpty)
+        .distinct()
 
     private fun versionTerms(value: String): Set<String> {
         val tokens = normalize(value).split(' ').toSet()

@@ -25,6 +25,16 @@ class SpotifyTrackMatcherTest {
     }
 
     @Test
+    fun `artists joined with an ampersand match separately listed artists`() {
+        val result = SpotifyTrackMatcher.resolve(
+            source.copy(title = "Deja Vu", artist = "Beyoncé & JAY-Z"),
+            listOf(candidate(id = "correct", title = "Deja Vu")),
+        )
+
+        assertTrue(result is SpotifyTrackResolution.Matched)
+    }
+
+    @Test
     fun `rejects a live version for a studio source`() {
         val result = SpotifyTrackMatcher.resolve(
             source.copy(title = "Deja Vu"),

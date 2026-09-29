@@ -4,6 +4,7 @@
 # Gson reads and writes these by field name: the disk cache of picked lyrics and romanizations,
 # and LRCLIB's responses.
 -keepclassmembers class com.tx24.spicyplayer.lyrics.NextLyricsBackend$StoredPick { <fields>; }
+-keepclassmembers class com.tx24.spicyplayer.lyrics.NextLyricsBackend$StoredAttempt { <fields>; }
 -keepclassmembers class com.tx24.spicyplayer.lyrics.NextLyricsBackend$StoredRoman { <fields>; }
 -keepclassmembers class com.tx24.spicyplayer.network.data.RemoteLyricsPayload { <fields>; }
 -keepclassmembers class com.tx24.spicyplayer.network.data.LyricsAttribution { <fields>; }

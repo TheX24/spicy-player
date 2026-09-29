@@ -196,6 +196,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var warmJob: Job? = null
     private var shownSelection: RemoteLyricsSelection? = null
     private var shownRequest: LyricsLookupRequest? = null
+    /** What the last lookup asked for, to notice the player filling in the song's length later. */
+    private var lookedUp: LyricsLookupRequest? = null
     private var humanJob: Job? = null
     // Lyrics with Genius's romanization laid over, per pick, so a replay doesn't wait for it again.
     private val humanCache = object : LinkedHashMap<RemoteLyricsSelection, LyricsState.Ready>(16, 0.75f, true) {
@@ -668,6 +670,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             metadata,
             spotifyIdInput?.spotifyTrackId() ?: manualSpotifyId ?: mutableState.value.detectedSpotifyId,
         )
+        lookedUp = request
         if (request.title.isBlank() || request.artist.isBlank()) {
             mutableState.value = mutableState.value.copy(lyrics = LyricsNotices.missingMetadata)
             return
@@ -690,19 +693,26 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 return@launch
             }
             // The disk cache is keyed on title + artist; a manual Spotify ID asks the sources afresh.
+            val freshLookup = known.isEmpty()
             if (known.isEmpty() && manualSpotifyId == null) {
                 val cached = withContext(Dispatchers.IO) {
                     if (force) lyricsBackend.forget(request)
                     lyricsBackend.cachedResolution(request)
                 }
                 if (cached != null) {
-                    (cached as? RemoteLyricsResolution.Found)?.let { known[it.selection.source.id] = ProviderResult.Hit(it.selection.payload) }
-                    publish(cached, identity, request, final = true)
-                    warmAhead()
-                    return@launch
+                    known.putAll(cached.answers)
+                    if (cached.settled) {
+                        publish(cached.resolution, identity, request, final = true)
+                        warmAhead()
+                        return@launch
+                    }
+                    // Picked without a real answer from a source ranked above it (often a queue
+                    // entry fetched ahead, which has no length for the Spotify match): the pick
+                    // shows now, and only those sources are asked again below.
+                    publish(cached.resolution, identity, request, final = false)
                 }
             }
-            if (skipping && known.isEmpty()) delay(TRACK_SETTLE_MS)
+            if (skipping && freshLookup) delay(TRACK_SETTLE_MS)
             runCatching {
                 withContext(Dispatchers.IO) {
                     lyricsBackend.resolve(request, known) { update ->
@@ -766,7 +776,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         warmJob = viewModelScope.launch(Dispatchers.IO) {
             for (request in upcoming) {
                 if (localLyrics.contains(request.title, request.artist)) continue
-                val resolution = backend.cachedResolution(request)
+                val resolution = backend.cachedResolution(request)?.resolution
                     // Failures are not reported: nobody is looking at this song yet.
                     ?: runCatching { backend.resolve(request, ConcurrentHashMap()).also { backend.store(request, it) } }
                         .onFailure { if (it is CancellationException) throw it }
@@ -1076,7 +1086,26 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         if (lyricsChanged) {
             loadExtras()
             loadLyrics(settle = true)
+        } else if (metadataChanged && metadata != null) {
+            rematchWithLength(metadata)
         }
+    }
+
+    /**
+     * YouTube Music reports the song's length (and album) a moment after its title, so the lookup
+     * started then matched Spotify without them, and a song with several releases of different
+     * lengths came out ambiguous. When the length arrives and a source still wants a match, or the
+     * lookup is still out, it's asked again with it; answers that didn't need it are kept.
+     */
+    private fun rematchWithLength(metadata: MediaMetadata) {
+        val before = lookedUp ?: return
+        if (before.durationSeconds > 0) return
+        val now = lookupRequest(metadata, before.spotifyTrackId)
+        if (now.durationSeconds <= 0) return
+        val known = lookupCache[before].orEmpty()
+        if (lyricsJob?.isActive != true && known.values.none { it == ProviderResult.NeedsMatch }) return
+        lookupCache[now] = ConcurrentHashMap(known.filterValues { it != ProviderResult.NeedsMatch })
+        loadLyrics()
     }
 
     /**

@@ -78,14 +78,24 @@ class SpicyLyricsProvider @Inject constructor(
         }
 
         val ids = request.spotifyTrackId?.let(::listOf) ?: run {
-            val resolution = spotifyResolver.resolve(
-                LocalTrackMetadata(
-                    title = request.title,
-                    artist = request.artist,
-                    album = request.album,
-                    durationMs = request.durationSeconds * 1_000L,
+            // The match is a Spotify search, which fails on its own terms (rate limits, a rotated
+            // query hash). Left uncaught, those reached the lookup as an "unknown" error.
+            val resolution = try {
+                spotifyResolver.resolve(
+                    LocalTrackMetadata(
+                        title = request.title,
+                        artist = request.artist,
+                        album = request.album,
+                        durationMs = request.durationSeconds * 1_000L,
+                    )
                 )
-            )
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: IOException) {
+                return ProviderResult.Unavailable(ProviderFailureCategory.NETWORK, "Spotify match: ${error.message}", retryable = true)
+            } catch (error: Exception) {
+                return ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, "Spotify match: ${error.message ?: error::class.simpleName}")
+            }
             when (resolution) {
                 is SpotifyTrackResolution.Matched ->
                     (listOf(resolution.track) + resolution.alternates).map { it.candidate.id }

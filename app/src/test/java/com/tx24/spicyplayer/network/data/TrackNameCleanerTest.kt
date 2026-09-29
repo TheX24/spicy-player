@@ -7,7 +7,17 @@ import org.junit.Test
 class TrackNameCleanerTest {
     @Test fun taggedTrackPassesThrough() {
         assertEquals(Names("7 rings", "Ariana Grande"), TrackNameCleaner.clean("7 rings", "Ariana Grande"))
-        assertEquals(Names("Song - Remix (Official Video)", "A"), TrackNameCleaner.clean("Song - Remix (Official Video)", "A"))
+        assertEquals(Names("Song - Remix", "A"), TrackNameCleaner.clean("Song - Remix (Official Video)", "A"))
+        assertEquals(Names("Song (Remix)", "A"), TrackNameCleaner.clean("Song (Remix)", "A"))
+    }
+
+    @Test fun youTubeVideoBecomesTheSong() {
+        assertEquals(Names("Never Gonna Give You Up", "Rick Astley"),
+            TrackNameCleaner.clean("Rick Astley - Never Gonna Give You Up (Official Music Video)", "RickAstleyVEVO"))
+        assertEquals(Names("Blinding Lights", "The Weeknd"), TrackNameCleaner.clean("Blinding Lights", "The Weeknd - Topic"))
+        assertEquals(Names("Levitating", "Dua Lipa"), TrackNameCleaner.clean("Levitating [Official Visualiser]", "Dua Lipa"))
+        // The part before the dash isn't the channel: it stays in the title.
+        assertEquals(Names("Intro - Outro", "Band"), TrackNameCleaner.clean("Intro - Outro", "Band"))
     }
 
     @Test fun fileNameWithoutArtistIsSplit() {
