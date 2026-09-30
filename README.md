@@ -18,6 +18,16 @@ An Android lyrics screen for music playing in another app. It follows the active
 
 Playback controls depend on what the music app exposes through Android MediaSession. Some apps or account tiers limit seek and skip; the app explains when Spotify Free refuses one. Lyrics depend on the source having a usable match; a missing or uncertain Spotify match is not silently replaced with a different recording.
 
+## Battery and performance
+
+The app is fully native (Kotlin and Jetpack Compose, no WebView), and it only works while you can see it. Measured on a Pixel 7 with the power rails built into the phone:
+
+- **In the background: under 1% of one CPU core.** With the screen off, or with another app open, it only listens for song changes.
+- **While showing lyrics: about 0.34 W more than the home screen**, roughly 2% of the battery per hour on top of what the screen costs anyway.
+- **Smooth: 1 janky frame in 5,600** at 90 Hz. The 90 Hz mode (Settings → Device → Smoother motion) adds only about 0.05 W.
+
+Your numbers will differ with your phone, the brightness and the background you choose. Settings → Device → Low performance mode turns off the most expensive effects.
+
 ## Build from source
 
 You need JDK 17 or newer and the Android SDK for API 37. Android Studio can install both. `local.properties` may point to your SDK; it is ignored by Git.

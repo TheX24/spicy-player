@@ -618,7 +618,7 @@ internal fun DeviceContent(settings: AppSettings) {
             label = "Smoother motion",
             checked = settings.highRefreshRate,
             onCheckedChange = { settings.highRefreshRate = it },
-            description = "Draw at your screen's full refresh rate instead of 60 Hz. Uses more battery.",
+            description = "Draw at your screen's full refresh rate instead of 60 Hz. Uses slightly more battery.",
             icon = Icons.Rounded.Animation,
         )
         ToggleRow(
