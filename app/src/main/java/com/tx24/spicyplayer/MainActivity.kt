@@ -200,9 +200,19 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onStart() {
+        super.onStart()
+        playbackViewModel.setUiStarted(true)
+    }
+
     override fun onResume() {
         super.onResume()
         playbackViewModel.refresh()
+    }
+
+    override fun onStop() {
+        playbackViewModel.setUiStarted(false)
+        super.onStop()
     }
 
     // Dialogs and the keyboard can bring the bars back; hide them again once the window is ours.

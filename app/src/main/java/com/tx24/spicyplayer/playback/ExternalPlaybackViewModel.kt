@@ -57,6 +57,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -221,6 +222,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var pendingCommand: PendingCommand? = null
     private val clock = LyricClock(SystemClock.elapsedRealtime())
     private var lastPeriodicCheckMs = 0L
+    /** Whether the lyrics screen is started. The ticker only polls while it is. */
+    private val uiStarted = MutableStateFlow(true)
     /** When the last fresh report arrived. */
     private var lastReportAt = Long.MIN_VALUE / 2
     /** The song changed before its first report: that report re-anchors the clock outright. */
@@ -1105,10 +1108,14 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             trackDirection = direction,
             customActions = customActions,
             artwork = if (refreshArtwork) {
-                metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
+                val fresh = metadata?.getBitmap(MediaMetadata.METADATA_KEY_ALBUM_ART)
                     ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_ART)
                     ?: metadata?.getBitmap(MediaMetadata.METADATA_KEY_DISPLAY_ICON)
                     ?: metadata?.description?.iconBitmap
+                // Players re-send the same cover with every metadata update, each time as a new
+                // bitmap. Keeping the one already shown spares the header and background redoing it.
+                val shown = mutableState.value.artwork
+                if (!trackChanged && fresh != null && shown != null && fresh.sameAs(shown)) shown else fresh
             } else mutableState.value.artwork,
             artworkUri = if (refreshArtwork) {
                 metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM_ART_URI)
@@ -1220,8 +1227,18 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         return getString(MediaMetadata.METADATA_KEY_DATE)?.take(4)?.takeIf { it.length == 4 && it.all(Char::isDigit) }
     }
 
+    fun setUiStarted(started: Boolean) {
+        uiStarted.value = started
+    }
+
     private fun startTicker() = viewModelScope.launch {
         while (isActive) {
+            if (!uiStarted.value) {
+                // Nothing is shown: park instead of waking ten times a second. The session's
+                // callbacks still arrive, and the first pass back runs the periodic check at once.
+                uiStarted.first { it }
+                lastPeriodicCheckMs = 0L
+            }
             val now = SystemClock.elapsedRealtime()
             if (now - lastPeriodicCheckMs >= 2_000L) {
                 lastPeriodicCheckMs = now
