@@ -283,6 +283,9 @@ fun LyricsView(
                         // which interludes are open at that time, or the target moves again when
                         // the dots really open or close.
                         val scrollTime = currentTime + scrollConfigUpdated.leadMs
+                        // Where an open interlude's dots sit below its start: the middle of the gap
+                        // before it plus its row, i.e. halfway between the lines around it.
+                        val interludeCentre = (rowHeightUpdated - lineGapUpdated) / 2f
                         for (i in currentLayouts.indices) {
                             val layout = currentLayouts[i]
                             val state = animStates.getOrNull(i)
@@ -291,18 +294,19 @@ fun LyricsView(
                                 val line = layout.line
                                 val open = if (scrollTime >= line.startMs &&
                                     scrollTime <= line.endMs - LyricsAnimator.PRE_HIDDEN_DOT_LINE_MS) 1f else 0f
-                                settledYScratch[i] = layout.yOffset + settledY + rowHeightUpdated / 2f * open
-                                settledY += (rowHeightUpdated + lineGapUpdated) * open
+                                settledYScratch[i] = layout.yOffset + settledY + interludeCentre * open
+                                settledY += rowHeightUpdated * open
                             } else {
                                 settledYScratch[i] = layout.yOffset + settledY
                             }
 
                             if (layout.isInterlude) {
-                                // An open interlude is a full lyric row plus the normal gap;
-                                // the dots are drawn centred in that row.
+                                // An open interlude is one lyric row; the gap before it is already
+                                // there, so it adds none after. The dots sit centred between the two
+                                // lines, as far from each as two lines are from each other.
                                 val scale = state?.scale?.coerceIn(0f, 1f) ?: 0f
-                                newDynamicYOffsets[i] = layout.yOffset + accumulatedY + rowHeightUpdated / 2f * scale
-                                accumulatedY += (rowHeightUpdated + lineGapUpdated) * scale
+                                newDynamicYOffsets[i] = layout.yOffset + accumulatedY + interludeCentre * scale
+                                accumulatedY += rowHeightUpdated * scale
                             } else {
                                 newDynamicYOffsets[i] = layout.yOffset + accumulatedY
                             }
@@ -329,7 +333,7 @@ fun LyricsView(
                             // An interlude's offset is already the centre of its dots, in a row
                             // one lyric line tall.
                             val half = when {
-                                alignTopUpdated -> if (currentLayouts[index].isInterlude) -rowHeightUpdated / 2f else 0f
+                                alignTopUpdated -> if (currentLayouts[index].isInterlude) -interludeCentre else 0f
                                 currentLayouts[index].isInterlude -> 0f
                                 else -> currentLayouts[index].height / 2f
                             }
