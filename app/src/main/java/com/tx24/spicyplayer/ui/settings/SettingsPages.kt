@@ -245,6 +245,24 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
         description = "Indents lyrics lines on the side they lean away from when a song has duet lines, so the two voices read as separate columns. Disable to give every line the same slight padding.",
         icon = Icons.Rounded.FormatIndentIncrease,
     )
+    SettingsSection("Effects") {
+        ToggleRow(
+            label = "Blur distant lines",
+            checked = settings.distanceBlur && !settings.lowPerformance,
+            onCheckedChange = { settings.distanceBlur = it },
+            description = "Soften the lines further from the one being sung.",
+            icon = Icons.Rounded.BlurOn,
+            enabled = !settings.lowPerformance,
+        )
+        ToggleRow(
+            label = "Glow",
+            checked = settings.glow && !settings.lowPerformance,
+            onCheckedChange = { settings.glow = it },
+            description = "Let sung words glow.",
+            icon = Icons.Rounded.Flare,
+            enabled = !settings.lowPerformance,
+        )
+    }
     SettingsSection("Text") {
         SettingRow(label = "Lyrics size", description = "Make the lyrics smaller or bigger than the screen's default.", icon = Icons.Rounded.FormatSize) {
             SpicySelect(
@@ -255,67 +273,6 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
             )
         }
         LyricsFontRows(settings)
-    }
-    SettingsSection("Credits") {
-        SettingRow(
-            label = "Pinned Lyrics Footer",
-            description = "Keep source and community credits visible. Full also pins writers.",
-            icon = Icons.Rounded.PushPin,
-        ) {
-            SpicySelect(
-                value = settings.pinnedFooter.name,
-                options = PinnedFooterMode.entries.map { it.name },
-                labels = PinnedFooterMode.entries.map { it.label },
-                onChange = { settings.pinnedFooter = PinnedFooterMode.valueOf(it) },
-            )
-        }
-        ToggleRow(
-            label = "Open Profiles in Browser",
-            checked = settings.profilesInBrowser,
-            onCheckedChange = { settings.profilesInBrowser = it },
-            description = "Open contributor profiles in your browser instead of inside the app.",
-            icon = Icons.Rounded.OpenInBrowser,
-        )
-    }
-    SettingsSection("Scrolling") {
-        ToggleRow(
-            label = "Early Scroll",
-            checked = settings.scrollLeadEnabled,
-            onCheckedChange = { settings.scrollLeadEnabled = it },
-            description = "Start scrolling to the next line slightly before it becomes active, so the move feels less abrupt.",
-            icon = Icons.Rounded.KeyboardDoubleArrowUp,
-        )
-        SettingRow(
-            label = "Early Scroll Time",
-            description = "How early the next line is scrolled to, before it becomes active.",
-            icon = Icons.Rounded.Timer,
-            enabled = settings.scrollLeadEnabled,
-            stacked = true,
-        ) {
-            SpicyBipolarSlider(
-                value = settings.scrollLeadMs,
-                range = 0..800,
-                step = 10,
-                onValueChange = { settings.scrollLeadMs = it },
-                default = 250,
-                unit = "ms",
-                enabled = settings.scrollLeadEnabled,
-            )
-        }
-        ToggleRow(
-            label = "Show Scroll to Active Button",
-            checked = settings.showScrollToActive,
-            onCheckedChange = { settings.showScrollToActive = it },
-            description = "Show an arrow when the active lyric is outside the viewport.",
-            icon = Icons.Rounded.VerticalAlignCenter,
-        )
-        ToggleRow(
-            label = "Smooth Scrolling",
-            checked = settings.smoothScrolling,
-            onCheckedChange = { settings.smoothScrolling = it },
-            description = "Makes the lyrics scroll smoothly.",
-            icon = Icons.Rounded.Waves,
-        )
     }
 }
 
@@ -373,7 +330,78 @@ private val FONT_MIME_TYPES = arrayOf(
 )
 
 @Composable
-internal fun AppearanceContent(settings: AppSettings) {
+internal fun ScrollSyncContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
+    SettingRow(
+        label = "Lyric delay",
+        description = "Saved for ${state.outputLabel}. Move it right if the lyrics run ahead of the song.",
+        icon = Icons.Rounded.Timer,
+        stacked = true,
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+            SpicyBipolarSlider(
+                value = state.lyricDelayMs,
+                range = -DELAY_RANGE_MS..DELAY_RANGE_MS,
+                step = DELAY_STEP_MS,
+                onValueChange = viewModel::setLyricDelay,
+                unit = "ms",
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+                SpicyButton("−$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(-DELAY_STEP_MS) })
+                SpicyButton("+$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(DELAY_STEP_MS) })
+            }
+        }
+    }
+    ToggleRow(
+        label = "Seek Fade-in Compensation",
+        checked = settings.seekFadeCompensation,
+        onCheckedChange = { settings.seekFadeCompensation = it },
+        description = "Tapping a line jumps 300ms before it, so the player's fade-in doesn't cut off the start. Best for rap or fast-paced songs.",
+        icon = Icons.Rounded.FastRewind,
+    )
+    SettingsSection("Scrolling") {
+        ToggleRow(
+            label = "Early Scroll",
+            checked = settings.scrollLeadEnabled,
+            onCheckedChange = { settings.scrollLeadEnabled = it },
+            description = "Start scrolling to the next line slightly before it becomes active, so the move feels less abrupt.",
+            icon = Icons.Rounded.KeyboardDoubleArrowUp,
+        )
+        SettingRow(
+            label = "Early Scroll Time",
+            description = "How early the next line is scrolled to, before it becomes active.",
+            icon = Icons.Rounded.Timer,
+            enabled = settings.scrollLeadEnabled,
+            stacked = true,
+        ) {
+            SpicyBipolarSlider(
+                value = settings.scrollLeadMs,
+                range = 0..800,
+                step = 10,
+                onValueChange = { settings.scrollLeadMs = it },
+                default = 250,
+                unit = "ms",
+                enabled = settings.scrollLeadEnabled,
+            )
+        }
+        ToggleRow(
+            label = "Show Scroll to Active Button",
+            checked = settings.showScrollToActive,
+            onCheckedChange = { settings.showScrollToActive = it },
+            description = "Show an arrow when the active lyric is outside the viewport.",
+            icon = Icons.Rounded.VerticalAlignCenter,
+        )
+        ToggleRow(
+            label = "Smooth Scrolling",
+            checked = settings.smoothScrolling,
+            onCheckedChange = { settings.smoothScrolling = it },
+            description = "Makes the lyrics scroll smoothly.",
+            icon = Icons.Rounded.Waves,
+        )
+    }
+}
+
+@Composable
+internal fun BackgroundContent(settings: AppSettings) {
     val type = settings.backgroundType
     SettingRow(
         label = "Background Type",
@@ -433,50 +461,10 @@ internal fun AppearanceContent(settings: AppSettings) {
             enabled = !settings.staticBackground && !settings.lowPerformance,
         )
     }
-    ToggleRow(
-        label = "Show the cover without lyrics",
-        checked = settings.expandWithoutLyrics,
-        onCheckedChange = { settings.expandWithoutLyrics = it },
-        description = "Grow the song header into the big cover when a song has no lyrics.",
-        icon = Icons.Rounded.Album,
-    )
-    ToggleRow(
-        label = "Animated Cover",
-        checked = settings.animatedCover && !settings.lowPerformance,
-        onCheckedChange = { settings.animatedCover = it },
-        description = "Play the album's animated cover from Apple Music, where it has one.",
-        icon = Icons.Rounded.Animation,
-        enabled = !settings.lowPerformance,
-    )
-    SettingsSection("Effects") {
-        ToggleRow(
-            label = "Blur distant lines",
-            checked = settings.distanceBlur && !settings.lowPerformance,
-            onCheckedChange = { settings.distanceBlur = it },
-            description = "Soften the lines further from the one being sung.",
-            icon = Icons.Rounded.BlurOn,
-            enabled = !settings.lowPerformance,
-        )
-        ToggleRow(
-            label = "Glow",
-            checked = settings.glow && !settings.lowPerformance,
-            onCheckedChange = { settings.glow = it },
-            description = "Let sung words glow.",
-            icon = Icons.Rounded.Flare,
-            enabled = !settings.lowPerformance,
-        )
-    }
 }
 
 @Composable
-internal fun ScreenContent(settings: AppSettings) {
-    ToggleRow(
-        label = "Keep the screen on",
-        checked = settings.keepScreenOn,
-        onCheckedChange = { settings.keepScreenOn = it },
-        description = "Stop the screen from turning off while music plays.",
-        icon = Icons.Rounded.StayCurrentPortrait,
-    )
+internal fun NowPlayingContent(settings: AppSettings) {
     ToggleRow(
         label = "Hide the song header",
         checked = settings.hideHeader,
@@ -509,36 +497,74 @@ internal fun ScreenContent(settings: AppSettings) {
             onChange = { settings.releaseYearPosition = ReleaseYearPosition.valueOf(it) },
         )
     }
-    SettingsSection("Controls") {
-        ToggleRow(
-            label = "Hide controls",
-            checked = settings.autoHideControls,
-            onCheckedChange = { settings.autoHideControls = it },
-            description = "Fade the controls out a while after the last touch. A touch brings them back.",
-            icon = Icons.Rounded.TouchApp,
-        )
+    ToggleRow(
+        label = "Show the cover without lyrics",
+        checked = settings.expandWithoutLyrics,
+        onCheckedChange = { settings.expandWithoutLyrics = it },
+        description = "Grow the song header into the big cover when a song has no lyrics.",
+        icon = Icons.Rounded.Album,
+    )
+    ToggleRow(
+        label = "Animated Cover",
+        checked = settings.animatedCover && !settings.lowPerformance,
+        onCheckedChange = { settings.animatedCover = it },
+        description = "Play the album's animated cover from Apple Music, where it has one.",
+        icon = Icons.Rounded.Animation,
+        enabled = !settings.lowPerformance,
+    )
+    SettingsSection("Credits") {
         SettingRow(
-            label = "Hide After",
-            description = "How long the controls stay after the last touch.",
-            icon = Icons.Rounded.Timer,
-            enabled = settings.autoHideControls,
+            label = "Pinned Lyrics Footer",
+            description = "Keep source and community credits visible. Full also pins writers.",
+            icon = Icons.Rounded.PushPin,
         ) {
             SpicySelect(
-                value = settings.controlsHideDelay.name,
-                options = ControlsHideDelay.entries.map { it.name },
-                labels = ControlsHideDelay.entries.map { it.label },
-                onChange = { settings.controlsHideDelay = ControlsHideDelay.valueOf(it) },
+                value = settings.pinnedFooter.name,
+                options = PinnedFooterMode.entries.map { it.name },
+                labels = PinnedFooterMode.entries.map { it.label },
+                onChange = { settings.pinnedFooter = PinnedFooterMode.valueOf(it) },
             )
         }
         ToggleRow(
-            label = "Hide while paused",
-            checked = settings.hideControlsWhilePaused,
-            onCheckedChange = { settings.hideControlsWhilePaused = it },
-            description = "Fade the controls while the song is paused too, not only while it plays.",
-            icon = Icons.Rounded.PauseCircle,
-            enabled = settings.autoHideControls,
+            label = "Open Profiles in Browser",
+            checked = settings.profilesInBrowser,
+            onCheckedChange = { settings.profilesInBrowser = it },
+            description = "Open contributor profiles in your browser instead of inside the app.",
+            icon = Icons.Rounded.OpenInBrowser,
         )
     }
+}
+
+@Composable
+internal fun ControlsContent(settings: AppSettings) {
+    ToggleRow(
+        label = "Hide controls",
+        checked = settings.autoHideControls,
+        onCheckedChange = { settings.autoHideControls = it },
+        description = "Fade the controls out a while after the last touch. A touch brings them back.",
+        icon = Icons.Rounded.TouchApp,
+    )
+    SettingRow(
+        label = "Hide After",
+        description = "How long the controls stay after the last touch.",
+        icon = Icons.Rounded.Timer,
+        enabled = settings.autoHideControls,
+    ) {
+        SpicySelect(
+            value = settings.controlsHideDelay.name,
+            options = ControlsHideDelay.entries.map { it.name },
+            labels = ControlsHideDelay.entries.map { it.label },
+            onChange = { settings.controlsHideDelay = ControlsHideDelay.valueOf(it) },
+        )
+    }
+    ToggleRow(
+        label = "Hide while paused",
+        checked = settings.hideControlsWhilePaused,
+        onCheckedChange = { settings.hideControlsWhilePaused = it },
+        description = "Fade the controls while the song is paused too, not only while it plays.",
+        icon = Icons.Rounded.PauseCircle,
+        enabled = settings.autoHideControls,
+    )
     SettingsSection("Floating Buttons") {
         ToggleRow(
             label = "Player buttons",
@@ -576,6 +602,17 @@ internal fun ScreenContent(settings: AppSettings) {
             icon = Icons.Rounded.LibraryMusic,
         )
     }
+}
+
+@Composable
+internal fun DeviceContent(settings: AppSettings) {
+    ToggleRow(
+        label = "Keep the screen on",
+        checked = settings.keepScreenOn,
+        onCheckedChange = { settings.keepScreenOn = it },
+        description = "Stop the screen from turning off while music plays.",
+        icon = Icons.Rounded.StayCurrentPortrait,
+    )
     SettingsSection("Performance") {
         ToggleRow(
             label = "Smoother motion",
@@ -593,37 +630,6 @@ internal fun ScreenContent(settings: AppSettings) {
         )
     }
     HapticsSection(settings)
-}
-
-@Composable
-internal fun SyncContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
-    SettingRow(
-        label = "Lyric delay",
-        description = "Saved for ${state.outputLabel}. Move it right if the lyrics run ahead of the song.",
-        icon = Icons.Rounded.Timer,
-        stacked = true,
-    ) {
-        Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-            SpicyBipolarSlider(
-                value = state.lyricDelayMs,
-                range = -DELAY_RANGE_MS..DELAY_RANGE_MS,
-                step = DELAY_STEP_MS,
-                onValueChange = viewModel::setLyricDelay,
-                unit = "ms",
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-                SpicyButton("−$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(-DELAY_STEP_MS) })
-                SpicyButton("+$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(DELAY_STEP_MS) })
-            }
-        }
-    }
-    ToggleRow(
-        label = "Seek Fade-in Compensation",
-        checked = settings.seekFadeCompensation,
-        onCheckedChange = { settings.seekFadeCompensation = it },
-        description = "Tapping a line jumps 300ms before it, so the player's fade-in doesn't cut off the start. Best for rap or fast-paced songs.",
-        icon = Icons.Rounded.FastRewind,
-    )
 }
 
 @Composable

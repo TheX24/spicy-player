@@ -17,7 +17,7 @@ import com.tx24.spicyplayer.ui.components.SpicyBipolarSlider
 import com.tx24.spicyplayer.ui.components.SpicySelect
 import com.tx24.spicyplayer.ui.components.ToggleRow
 
-/** Screen → Haptics: touch feedback, and vibrating with the music. */
+/** Device → Haptics: touch feedback, and vibrating with the music. */
 @Composable
 internal fun HapticsSection(settings: AppSettings) {
     val context = LocalContext.current

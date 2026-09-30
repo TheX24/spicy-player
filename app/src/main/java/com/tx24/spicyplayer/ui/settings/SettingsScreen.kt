@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.ui.settings
 
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.Album
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.BackEventCompat
@@ -97,10 +99,12 @@ import kotlin.coroutines.cancellation.CancellationException
 internal enum class SettingsPage(val title: String) {
     ThisSong("This song"),
     Lyrics("Lyrics"),
-    Appearance("Appearance"),
-    Screen("Screen"),
-    Sync("Sync"),
+    ScrollSync("Scroll & Sync"),
+    Background("Background"),
+    NowPlaying("Now Playing"),
+    Controls("Controls"),
     Sources("Sources"),
+    Device("Device"),
     Advanced("Advanced"),
 }
 
@@ -294,10 +298,12 @@ private fun PageContent(
     when (page) {
         SettingsPage.ThisSong -> ThisSongContent(state, viewModel, onOpenLyricsManager, onOpenSpotifySearch)
         SettingsPage.Lyrics -> LyricsContent(state, viewModel, settings)
-        SettingsPage.Appearance -> AppearanceContent(settings)
-        SettingsPage.Screen -> ScreenContent(settings)
-        SettingsPage.Sync -> SyncContent(state, viewModel, settings)
+        SettingsPage.ScrollSync -> ScrollSyncContent(state, viewModel, settings)
+        SettingsPage.Background -> BackgroundContent(settings)
+        SettingsPage.NowPlaying -> NowPlayingContent(settings)
+        SettingsPage.Controls -> ControlsContent(settings)
         SettingsPage.Sources -> SourcesContent(state, viewModel)
+        SettingsPage.Device -> DeviceContent(settings)
         SettingsPage.Advanced -> AdvancedContent(state, viewModel, updater, settings)
     }
 }
@@ -355,11 +361,13 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 1, cards = true)
             SettingsSkeleton(rows = 4)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 16)
-        SettingsPage.Appearance -> SettingsSkeleton(rows = 6)
-        SettingsPage.Screen -> SettingsSkeleton(rows = 18)
-        SettingsPage.Sync -> SettingsSkeleton(rows = 2)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 11)
+        SettingsPage.ScrollSync -> SettingsSkeleton(rows = 6)
+        SettingsPage.Background -> SettingsSkeleton(rows = 3)
+        SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
+        SettingsPage.Controls -> SettingsSkeleton(rows = 8)
         SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
+        SettingsPage.Device -> SettingsSkeleton(rows = 7)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 8)
     }
 }
@@ -391,46 +399,71 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
                     LyricsFont.System -> "system font"
                     LyricsFont.Custom -> settings.customFontName.ifBlank { "custom font" }
                 },
+                "no blur".takeIf { !settings.distanceBlur || settings.lowPerformance },
+                "no glow".takeIf { !settings.glow || settings.lowPerformance },
             ).joinToString().replaceFirstChar(Char::uppercase),
         ) { onOpen(SettingsPage.Lyrics) }
         GroupDivider()
         GroupRow(
+            Icons.Rounded.Timer,
+            SettingsPage.ScrollSync.title,
+            listOfNotNull(
+                if (state.lyricDelayMs == 0) "No delay on ${state.outputLabel}" else "${state.lyricDelayMs.signed()} ms on ${state.outputLabel}",
+                "early scroll".takeIf { settings.scrollLeadEnabled },
+                "smooth scrolling".takeIf { settings.smoothScrolling },
+            ).joinToString(),
+        ) { onOpen(SettingsPage.ScrollSync) }
+        GroupDivider()
+        GroupRow(
             Icons.Rounded.Palette,
-            SettingsPage.Appearance.title,
-            listOf(
+            SettingsPage.Background.title,
+            listOfNotNull(
                 when (settings.backgroundType) {
-                    BackgroundType.Default -> "Dynamic background"
-                    else -> "${settings.backgroundType.label} background"
+                    BackgroundType.Default -> "Dynamic"
+                    else -> settings.backgroundType.label
                 },
                 "still".takeIf { settings.backgroundType.moving && (settings.staticBackground || settings.lowPerformance) },
+                "animated".takeIf { settings.backgroundType == BackgroundType.CoverArt && settings.animatedBackground && !settings.lowPerformance },
+            ).joinToString(),
+        ) { onOpen(SettingsPage.Background) }
+        GroupDivider()
+        GroupRow(
+            Icons.Rounded.Album,
+            SettingsPage.NowPlaying.title,
+            listOfNotNull(
+                if (settings.hideHeader) "Header hidden" else "${settings.headerSize.label} header",
                 "animated cover".takeIf { settings.animatedCover && !settings.lowPerformance },
-                "no blur".takeIf { !settings.distanceBlur || settings.lowPerformance },
-                "no glow".takeIf { !settings.glow || settings.lowPerformance },
-            ).filterNotNull().joinToString(),
-        ) { onOpen(SettingsPage.Appearance) }
+                "release year".takeIf { settings.releaseYearPosition != ReleaseYearPosition.Off },
+            ).joinToString(),
+        ) { onOpen(SettingsPage.NowPlaying) }
+        GroupDivider()
+        GroupRow(
+            Icons.Rounded.TouchApp,
+            SettingsPage.Controls.title,
+            listOf(
+                if (settings.autoHideControls) "Hide after ${settings.controlsHideDelay.label}" else "Always shown",
+                "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.lyricsManagerButton).count { it }} of 5 extra buttons",
+            ).joinToString(),
+        ) { onOpen(SettingsPage.Controls) }
+    }
+    Spacer(Modifier.height(SpicySpacing.S3))
+    Column(Modifier.fillMaxWidth().outlinedCard()) {
+        GroupRow(
+            Icons.Rounded.Layers,
+            SettingsPage.Sources.title,
+            "${state.sourceOrder.count { it !in state.disabledSourceIds }} of ${state.sourceOrder.size} on",
+        ) { onOpen(SettingsPage.Sources) }
         GroupDivider()
         GroupRow(
             Icons.Rounded.Smartphone,
-            SettingsPage.Screen.title,
+            SettingsPage.Device.title,
             listOfNotNull(
                 if (settings.keepScreenOn) "Stays on while playing" else "Turns off as usual",
                 if (settings.highRefreshRate) "full refresh rate" else "60 Hz",
                 "low performance".takeIf { settings.lowPerformance },
                 "haptics to the music".takeIf { settings.musicHaptics },
             ).joinToString(),
-        ) { onOpen(SettingsPage.Screen) }
-        GroupDivider()
-        GroupRow(
-            Icons.Rounded.Timer,
-            SettingsPage.Sync.title,
-            if (state.lyricDelayMs == 0) "No delay on ${state.outputLabel}" else "${state.lyricDelayMs.signed()} ms on ${state.outputLabel}",
-        ) { onOpen(SettingsPage.Sync) }
-        GroupDivider()
-        GroupRow(
-            Icons.Rounded.Layers,
-            SettingsPage.Sources.title,
-            "${state.sourceOrder.count { it !in state.disabledSourceIds }} of ${state.sourceOrder.size} on",
-        ) { onOpen(SettingsPage.Sources) }
+        ) { onOpen(SettingsPage.Device) }
         GroupDivider()
         GroupRow(Icons.Rounded.Tune, SettingsPage.Advanced.title, "Updates, cache and diagnostics") { onOpen(SettingsPage.Advanced) }
     }
