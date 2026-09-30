@@ -2,6 +2,8 @@ package com.tx24.spicyplayer.network.data.providers
 
 import com.google.gson.Gson
 import com.google.gson.JsonArray
+import com.google.gson.JsonObject
+import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
 import com.tx24.spicyplayer.network.data.isNoWordsNote
 import org.junit.Assert.assertEquals
@@ -27,6 +29,23 @@ class ProviderTextTest {
         )
         val ttml = RichSyncToTtml.convert(rows)!!
         assertTrue(ttml, ttml.contains("""<span begin="10.000s" end="10.300s">Hel</span><span begin="10.300s" end="10.600s">lo</span> <span begin="11.000s" end="12.000s">there</span>"""))
+    }
+
+    @Test fun rmmSaysWhereItsLyricsComeFrom() {
+        fun rmm(json: String) = (rmmPayload(Gson().fromJson(json, JsonObject::class.java)) as ProviderResult.Hit).payload.attribution!!
+        val relayed = rmm("""{"ttml":"<tt/>","lyricsSource":"spicylyrics","lyricsProviderSource":"apple_music","uploadAttribution":null,"songWriters":["A","B"]}""")
+        assertEquals("Apple Music", relayed.originName)
+        assertEquals(listOf("A", "B"), relayed.songwriters)
+        assertEquals(null, relayed.maker)
+
+        val community = rmm("""{"ttml":"<tt/>","lyricsProviderSource":"spicy_lyrics","uploadAttribution":{"Maker":{"username":"maker","url":"https://spicylyrics.org/uid/1"},"Uploader":{"username":"uploader"}}}""")
+        assertEquals("Spicy Lyrics Community", community.originName)
+        assertEquals("maker", community.maker?.username)
+        assertEquals("https://spicylyrics.org/uid/1", community.maker?.profileUrl)
+        assertEquals("uploader", community.uploader?.username)
+
+        // Unlabelled: nothing to go by, so it keeps RMM Revival's own place.
+        assertEquals(null, rmm("""{"ttml":"<tt/>"}""").originName)
     }
 
     @Test fun geniusSkipsNestedPageFurniture() {

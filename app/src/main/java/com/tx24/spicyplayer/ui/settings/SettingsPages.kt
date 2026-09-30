@@ -883,6 +883,18 @@ internal fun lyricsSummary(lyrics: LyricsState): String = when (lyrics) {
     LyricsState.Idle -> "No lyrics yet"
 }
 
+/**
+ * [lyricsSummary], naming the source the lookup is still waiting on while the lyrics shown are a
+ * stand-in that may yet be replaced.
+ */
+internal fun songSummary(state: PlayerUiState): String {
+    val summary = lyricsSummary(state.lyrics)
+    if (state.lyrics !is LyricsState.Ready) return summary
+    val waiting = state.providerAttempts.firstOrNull { it.outcome == ProviderAttemptOutcome.PENDING } ?: return summary
+    val name = state.sourceDescriptors.firstOrNull { it.id == waiting.sourceId }?.displayName ?: waiting.sourceId
+    return "$summary · checking $name…"
+}
+
 /** The delay slider's reach and step; the buttons nudge by one step. */
 private const val DELAY_RANGE_MS = 1_000
 private const val DELAY_STEP_MS = 10

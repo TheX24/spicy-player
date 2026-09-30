@@ -7,11 +7,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.channels.ReceiveChannel
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
+import kotlinx.coroutines.selects.onTimeout
+import kotlinx.coroutines.selects.select
 
 enum class ProviderAttemptOutcome {
     HIT,
@@ -128,8 +131,8 @@ class RemoteLyricsSource @Inject constructor(
             qualities.getOrPut(id) { hit.payload.measuredQuality() }
         } ?: RemoteLyricsQuality.NONE
         fun answered(id: String) = id in known || id in cooling
-        // Spicy Lyrics stands in its own place only for community syncs: what it relays from
-        // another catalogue ranks where that catalogue does.
+        // Relayed lyrics rank where they came from: Spicy Lyrics' Apple Music copy with Apple
+        // Music, RMM Revival's copy of a Spicy Lyrics sync with Spicy Lyrics.
         fun byOrigin() = rankByOrigin(ranked, known)
         fun startBlends() {
             for (blend in blends) {
@@ -172,7 +175,13 @@ class RemoteLyricsSource @Inject constructor(
         startBlends()
         // Not asked yet counts as still out: a relayed answer can land below sources the lead skipped.
         fun outstanding() = pending + waiting + toAsk.map { it.descriptor.id }.filter { it !in known }
-        while (!settled(resolution, byOrigin(), outstanding())) {
+        // A relay still out may yet bring a Spicy Lyrics sync, which ranks in that place, while
+        // Spicy Lyrics itself has no real answer (e.g. no Spotify match; RMM Revival asks by Apple ID).
+        fun bestCase(): List<LyricsSourceDescriptor> {
+            if (known[SPICY_ID].let { it is ProviderResult.Hit || it == ProviderResult.Miss }) return byOrigin()
+            return rankByOrigin(ranked, known + (outstanding() intersect RELAY_IDS).associateWith { SPICY_SYNC })
+        }
+        while (!settled(resolution, bestCase(), outstanding())) {
             if (!fannedOut && pending.isEmpty()) {
                 // The lead answered without settling the song: ask everyone else.
                 toAsk.drop(1).forEach(::ask)
@@ -180,7 +189,7 @@ class RemoteLyricsSource @Inject constructor(
                 startBlends()
             }
             if (pending.isEmpty()) break
-            val next = if (fannedOut) landed.receive() else withTimeoutOrNull(LEAD_HOLD_MS) { landed.receive() }
+            val next = if (fannedOut) landed.receive() else landed.receiveWithin(LEAD_HOLD_MS)
             if (next == null) {
                 // ponytail: fixed hold for a slow lead; adapt per source if its latency varies a lot
                 toAsk.drop(1).forEach(::ask)
@@ -389,21 +398,31 @@ class RemoteLyricsSource @Inject constructor(
 
     internal companion object {
         /**
-         * [ranked] with a Spicy Lyrics answer moved to where it came from: Apple Music lyrics it
-         * serves rank in Apple Music's place, and any other relayed catalogue after every source.
-         * Its own place is kept for its community syncs (and for no answer yet).
+         * [ranked] with the relays' answers ([RELAY_IDS]) moved to where their lyrics came from:
+         * Spicy Lyrics syncs rank in Spicy Lyrics' place, Apple Music lyrics in Apple Music's, and
+         * any other relayed catalogue after every source. Answers from one place keep the user's
+         * order between them. A relay with no answer yet, or no origin, keeps its own place.
          */
         fun rankByOrigin(ranked: List<LyricsSourceDescriptor>, known: Map<String, ProviderResult>): List<LyricsSourceDescriptor> {
-            val spicy = ranked.firstOrNull { it.id == SPICY_ID } ?: return ranked
-            val origin = (known[SPICY_ID] as? ProviderResult.Hit)?.payload?.attribution?.originName ?: return ranked
-            if (origin in SPICY_OWN_ORIGINS) return ranked
-            val rest = ranked - spicy
-            val slot = if (origin == "Apple Music") rest.indexOfFirst { it.id == APPLE_MUSIC_ID } else -1
-            return if (slot < 0) rest + spicy else rest.take(slot) + spicy + rest.drop(slot)
+            val own = ranked.withIndex().associate { (index, source) -> source.id to index }
+            fun place(id: String): Int {
+                val at = own.getValue(id)
+                if (id !in RELAY_IDS) return at
+                return when ((known[id] as? ProviderResult.Hit)?.payload?.attribution?.originName ?: return at) {
+                    in SPICY_OWN_ORIGINS -> own[SPICY_ID] ?: at
+                    "Apple Music" -> own[APPLE_MUSIC_ID] ?: Int.MAX_VALUE
+                    else -> Int.MAX_VALUE
+                }
+            }
+            return ranked.sortedWith(compareBy({ place(it.id) }, { own.getValue(it.id) }))
         }
 
         const val SPICY_ID = "spicy_lyrics"
         const val APPLE_MUSIC_ID = "apple_music"
+        /** Sources that pass on lyrics from elsewhere and say where from (RMM Revival relays Spicy Lyrics' API). */
+        val RELAY_IDS = setOf(SPICY_ID, "rmm_revival")
+        /** Stands in for a relay's answer that isn't in yet, at the highest place it could take. */
+        private val SPICY_SYNC = ProviderResult.Hit(RemoteLyricsPayload(attribution = LyricsAttribution("", originName = "Spicy Lyrics")))
         /** Origin names (SpicyLyricsProvider.spicyOriginName) for Spicy Lyrics' own syncs. */
         val SPICY_OWN_ORIGINS = setOf("Spicy Lyrics", "Spicy Lyrics Community")
 
@@ -419,4 +438,14 @@ class RemoteLyricsSource @Inject constructor(
         candidate.isBefore(current) -> candidate
         else -> current
     }
+}
+
+/**
+ * The next element, or null once [ms] pass. Unlike `withTimeoutOrNull { receive() }`, an element
+ * arriving as the time runs out is never taken and then dropped.
+ */
+@OptIn(ExperimentalCoroutinesApi::class)
+private suspend fun <T> ReceiveChannel<T>.receiveWithin(ms: Long): T? = select {
+    onReceive { it }
+    onTimeout(ms) { null }
 }

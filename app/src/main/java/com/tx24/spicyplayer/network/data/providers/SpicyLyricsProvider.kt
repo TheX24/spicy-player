@@ -102,12 +102,18 @@ class SpicyLyricsProvider @Inject constructor(
                 is SpotifyTrackResolution.Ambiguous, SpotifyTrackResolution.NotFound -> return ProviderResult.NeedsMatch
             }
         }
-        val first = fetchId(ids.first())
-        if (ids.size == 1 || (first.quality() == RemoteLyricsQuality.WORD_SYNCED && first.isUpload())) return first
+        if (ids.size == 1) return fetchId(ids.single())
         // A community upload lives on one Spotify ID; the song's other IDs (single, album,
-        // compilation) often answer with the catalogue copy instead, or nothing.
-        val results = listOf(first) + coroutineScope {
-            ids.drop(1).map { id -> async { fetchId(id) } }.awaitAll()
+        // compilation) often answer with the catalogue copy instead, or nothing. All are asked at
+        // once, so a song whose best ID has no upload costs one round trip, not two.
+        val results = coroutineScope {
+            val asks = ids.map { id -> async { fetchId(id) } }
+            val first = asks.first().await()
+            if (first.quality() == RemoteLyricsQuality.WORD_SYNCED && first.isUpload()) {
+                asks.drop(1).forEach { it.cancel() }
+                return@coroutineScope listOf(first)
+            }
+            listOf(first) + asks.drop(1).awaitAll()
         }
         // Better timing first, then an upload over the catalogue copy, then the best-ranked ID.
         return results.filterIsInstance<ProviderResult.Hit>()
@@ -203,29 +209,31 @@ class SpicyLyricsProvider @Inject constructor(
         ProviderFailureCategory.MALFORMED_RESPONSE,
         message,
     )
+}
 
-    private fun JsonObject.contributor(name: String): LyricsContributor? {
-        val value = get(name) ?: return null
-        if (value.isJsonPrimitive) return value.asString.takeIf(String::isNotBlank)?.let(::LyricsContributor)
-        if (!value.isJsonObject) return null
-        val item = value.asJsonObject
-        val username = sequenceOf("username", "Username", "name", "Name")
-            .mapNotNull { key -> item.get(key)?.takeIf { it.isJsonPrimitive }?.asString }
-            .firstOrNull(String::isNotBlank) ?: return null
-        val url = sequenceOf("url", "Url", "profileUrl", "ProfileUrl")
-            .mapNotNull { key -> item.get(key)?.takeIf { it.isJsonPrimitive }?.asString }
-            .firstOrNull { it.startsWith("https://") }
-        val avatar = item.get("avatar")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.startsWith("https://") }
-        return LyricsContributor(username, url, avatar)
-    }
+/** A maker or uploader in a Spicy Lyrics upload attribution (RMM Revival passes them on as is). */
+internal fun JsonObject.contributor(name: String): LyricsContributor? {
+    val value = get(name) ?: return null
+    if (value.isJsonPrimitive) return value.asString.takeIf(String::isNotBlank)?.let(::LyricsContributor)
+    if (!value.isJsonObject) return null
+    val item = value.asJsonObject
+    val username = sequenceOf("username", "Username", "name", "Name")
+        .mapNotNull { key -> item.get(key)?.takeIf { it.isJsonPrimitive }?.asString }
+        .firstOrNull(String::isNotBlank) ?: return null
+    val url = sequenceOf("url", "Url", "profileUrl", "ProfileUrl")
+        .mapNotNull { key -> item.get(key)?.takeIf { it.isJsonPrimitive }?.asString }
+        .firstOrNull { it.startsWith("https://") }
+    val avatar = item.get("avatar")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.startsWith("https://") }
+    return LyricsContributor(username, url, avatar)
+}
 
-    private fun spicyOriginName(raw: String?): String = when (raw?.trim()?.lowercase()?.replace('-', '_')?.replace(' ', '_')) {
-        "apple", "apple_music", "am" -> "Apple Music"
-        "spotify", "spotify_lyrics" -> "Spotify"
-        "spicy", "spicy_lyrics", "community" -> "Spicy Lyrics Community"
-        null, "" -> "Spicy Lyrics"
-        else -> raw.trim()
-    }
+/** Where Spicy Lyrics' API says a song's lyrics come from, by the names the ranking knows. */
+internal fun spicyOriginName(raw: String?): String = when (raw?.trim()?.lowercase()?.replace('-', '_')?.replace(' ', '_')) {
+    "apple", "apple_music", "am" -> "Apple Music"
+    "spotify", "spotify_lyrics" -> "Spotify"
+    "spicy", "spicy_lyrics", "community" -> "Spicy Lyrics Community"
+    null, "" -> "Spicy Lyrics"
+    else -> raw.trim()
 }
 
 internal object SpicyLyricsTtmlConverter {

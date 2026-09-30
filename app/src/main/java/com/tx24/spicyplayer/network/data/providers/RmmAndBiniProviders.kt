@@ -30,9 +30,28 @@ class RmmRevivalLyricsProvider @Inject constructor(private val client: OkHttpCli
             ?.minByOrNull { item -> kotlin.math.abs((item.get("trackTimeMillis")?.asLong ?: 0L) / 1000 - request.durationSeconds) }
             ?.get("trackId")?.asString ?: return@guarded ProviderResult.Miss
         val url = "https://lyrics.rmmreviv.al/lyrics".toHttpUrl().newBuilder().addQueryParameter("id", appleId).build()
-        val data = client.json(url, gson)
-        payloadOf(data) ?: ProviderResult.Miss
+        rmmPayload(client.json(url, gson)) ?: ProviderResult.Miss
     }
+}
+
+/**
+ * RMM Revival relays Spicy Lyrics' API by Apple Music ID (now and then another Apple Music relay),
+ * so an answer is Apple Music's lyrics or a Spicy Lyrics sync. `lyricsProviderSource` says which,
+ * and the ranking places it by that, as it does Spicy Lyrics' own answers.
+ */
+internal fun rmmPayload(data: JsonObject): ProviderResult? {
+    val hit = payloadOf(data) as? ProviderResult.Hit ?: return null
+    fun obj(key: String) = data.get(key)?.takeIf { it.isJsonObject }?.asJsonObject
+    val upload = obj("uploadAttribution") ?: obj("UploadAttribution")
+    val origin = data.get("lyricsProviderSource")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf(String::isNotBlank)
+    return ProviderResult.Hit(hit.payload.copy(attribution = LyricsAttribution(
+        providerName = "RMM Revival",
+        originName = origin?.let(::spicyOriginName),
+        songwriters = data.get("songWriters")?.takeIf { it.isJsonArray }?.asJsonArray
+            ?.mapNotNull { it.takeIf { value -> value.isJsonPrimitive }?.asString }.orEmpty(),
+        maker = upload?.contributor("Maker"),
+        uploader = upload?.contributor("Uploader"),
+    )))
 }
 
 @Singleton

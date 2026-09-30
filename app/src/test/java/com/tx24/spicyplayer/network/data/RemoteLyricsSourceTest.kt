@@ -59,6 +59,59 @@ class RemoteLyricsSourceTest {
     }
 
     @Test
+    fun `RMM Revival's Apple Music copy ranks with Apple Music, behind Spicy Lyrics' copy`() = runBlocking {
+        fun apple(by: String) = wordTtml(by).copy(attribution = LyricsAttribution(by, originName = "Apple Music"))
+        // RMM Revival ordered above Apple Music: its copy must still not jump Spicy Lyrics' own.
+        val source = source(
+            provider("spicy_lyrics", 1, result = ProviderResult.Hit(apple("Spicy Lyrics"))),
+            provider("amll_ttml_db", 2, result = ProviderResult.Miss),
+            provider("rmm_revival", 3, result = ProviderResult.Hit(apple("RMM Revival"))),
+            provider("apple_music", 4, result = ProviderResult.Miss),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("spicy_lyrics", result.selection.source.id)
+    }
+
+    @Test
+    fun `RMM Revival's copy of a Spicy Lyrics sync ranks in Spicy Lyrics' place`() = runBlocking {
+        val community = wordTtml("community").copy(attribution = LyricsAttribution("RMM Revival", originName = "Spicy Lyrics Community"))
+        val slowRmm = object : RemoteLyricsProvider {
+            override val descriptor = descriptor("rmm_revival", 3)
+            override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
+                kotlinx.coroutines.delay(100)
+                return ProviderResult.Hit(community)
+            }
+        }
+        // No Spotify match for Spicy Lyrics; AMLL answers first, but the relay is waited for.
+        val source = source(
+            provider("spicy_lyrics", 1, result = ProviderResult.NeedsMatch),
+            provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
+            slowRmm,
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("rmm_revival", result.selection.source.id)
+    }
+
+    @Test
+    fun `a relay is not waited for once Spicy Lyrics has answered`() = runBlocking {
+        val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("Spicy Lyrics", originName = "Apple Music"))
+        val source = source(
+            provider("spicy_lyrics", 1, result = ProviderResult.Hit(relayed)),
+            provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
+            hanging("rmm_revival", 3),
+            provider("apple_music", 4, result = ProviderResult.Miss),
+        )
+
+        val result = withTimeout(2_000) { source.resolveLyrics(request) } as RemoteLyricsResolution.Found
+
+        assertEquals("amll_ttml_db", result.selection.source.id)
+    }
+
+    @Test
     fun `explicit source order overrides defaults`() = runBlocking {
         val calls = mutableListOf<String>()
         val source = source(

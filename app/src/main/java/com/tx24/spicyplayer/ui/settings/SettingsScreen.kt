@@ -376,7 +376,7 @@ private fun PageSkeleton(page: SettingsPage) {
 private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: UpdateViewModel, onOpen: (SettingsPage) -> Unit) {
     Spacer(Modifier.height(SpicySpacing.S4))
     Column(Modifier.fillMaxWidth().outlinedCard()) {
-        GroupRow(Icons.Rounded.MusicNote, SettingsPage.ThisSong.title, "${state.title} · ${lyricsSummary(state.lyrics)}") {
+        GroupRow(Icons.Rounded.MusicNote, SettingsPage.ThisSong.title, "${state.title} · ${songSummary(state)}") {
             onOpen(SettingsPage.ThisSong)
         }
     }

@@ -213,7 +213,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         }
 
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        private const val CACHE_VERSION = 13
+        private const val CACHE_VERSION = 14
         /** Outcomes that are no answer at all: a later lookup may get one. */
         private val UNANSWERED = setOf(
             ProviderAttemptOutcome.UNAVAILABLE,
