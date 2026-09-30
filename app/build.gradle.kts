@@ -49,6 +49,15 @@ android {
             // over an earlier local release build. Never on CI: a release must fail unsigned.
             if (System.getenv("CI") == null) signingConfig = signingConfigs.getByName("debug")
         }
+        // The release build as its own app, for measuring performance next to the installed release.
+        create("profile") {
+            initWith(getByName("release"))
+            applicationIdSuffix = ".profile"
+            versionNameSuffix = "-profile"
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += "release"
+            resValue("string", "app_name", "Spicy Player Profile")
+        }
     }
 
     val releaseStore = System.getenv("ANDROID_RELEASE_KEYSTORE")
