@@ -263,10 +263,14 @@ private fun Modifier.coverGestures(
     val pausePainter = rememberVectorPainter(SpicyIcons.Pause)
     this
         .onSizeChanged { widthPx = it.width.toFloat().coerceAtLeast(1f) }
-        // The cut-off: nothing of the cover shows past its place's sides (its shadow still
-        // falls below).
+        // The cut-off: while dragged, nothing of the cover shows past its place's sides (its
+        // shadow still falls below). At rest nothing is cut, so the shadow spreads sideways too.
         .drawWithContent {
-            clipRect(0f, -size.height, size.width, size.height * 2f) { this@drawWithContent.drawContent() }
+            if (swipe.value == 0f) {
+                drawContent()
+            } else {
+                clipRect(0f, -size.height, size.width, size.height * 2f) { this@drawWithContent.drawContent() }
+            }
         }
         .graphicsLayer { translationX = swipe.value }
         .drawWithContent {
