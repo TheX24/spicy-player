@@ -1,5 +1,10 @@
 package com.tx24.spicyplayer.ui.settings
 
+import androidx.compose.material.icons.rounded.PauseCircle
+import androidx.compose.material.icons.rounded.Widgets
+import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.OpenInFull
+import com.tx24.spicyplayer.ui.nowplaying.HeaderSize
 import android.content.ClipboardManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -398,6 +403,16 @@ internal fun AppearanceContent(settings: AppSettings) {
             )
         }
     }
+    if (type == BackgroundType.CoverArt) {
+        ToggleRow(
+            label = "Animated Background",
+            checked = settings.animatedBackground && !settings.lowPerformance,
+            onCheckedChange = { settings.animatedBackground = it },
+            description = "Play the album's animated cover from Apple Music behind the lyrics, where it has one.",
+            icon = Icons.Rounded.Animation,
+            enabled = !settings.lowPerformance,
+        )
+    }
     if (type.moving) {
         ToggleRow(
             label = "Still Background",
@@ -463,26 +478,25 @@ internal fun ScreenContent(settings: AppSettings) {
         icon = Icons.Rounded.StayCurrentPortrait,
     )
     ToggleRow(
-        label = "Hide controls while playing",
-        checked = settings.autoHideControls,
-        onCheckedChange = { settings.autoHideControls = it },
-        description = "Fade the controls out a few seconds after the last touch. A touch brings them back.",
-        icon = Icons.Rounded.TouchApp,
-    )
-    ToggleRow(
         label = "Hide the song header",
         checked = settings.hideHeader,
         onCheckedChange = { settings.hideHeader = it },
         description = "Show only the lyrics, centred on the page (in landscape, without the cover panel). The expand button still opens the big cover.",
         icon = Icons.Rounded.HideImage,
     )
-    ToggleRow(
-        label = "Lyrics Manager Button",
-        checked = settings.lyricsManagerButton,
-        onCheckedChange = { settings.lyricsManagerButton = it },
-        description = "Add a floating button that opens the Lyrics Manager. It's always in This song too.",
-        icon = Icons.Rounded.LibraryMusic,
-    )
+    SettingRow(
+        label = "Song Header Size",
+        description = "How tall the song header is. Small is a slim row, like Apple Music's.",
+        icon = Icons.Rounded.Height,
+        enabled = !settings.hideHeader,
+    ) {
+        SpicySelect(
+            value = settings.headerSize.name,
+            options = HeaderSize.entries.map { it.name },
+            labels = HeaderSize.entries.map { it.label },
+            onChange = { settings.headerSize = HeaderSize.valueOf(it) },
+        )
+    }
     SettingRow(
         label = "Release Year Position",
         description = "Show the release year beside the artists.",
@@ -493,6 +507,73 @@ internal fun ScreenContent(settings: AppSettings) {
             options = ReleaseYearPosition.entries.map { it.name },
             labels = ReleaseYearPosition.entries.map { it.label },
             onChange = { settings.releaseYearPosition = ReleaseYearPosition.valueOf(it) },
+        )
+    }
+    SettingsSection("Controls") {
+        ToggleRow(
+            label = "Hide controls",
+            checked = settings.autoHideControls,
+            onCheckedChange = { settings.autoHideControls = it },
+            description = "Fade the controls out a while after the last touch. A touch brings them back.",
+            icon = Icons.Rounded.TouchApp,
+        )
+        SettingRow(
+            label = "Hide After",
+            description = "How long the controls stay after the last touch.",
+            icon = Icons.Rounded.Timer,
+            enabled = settings.autoHideControls,
+        ) {
+            SpicySelect(
+                value = settings.controlsHideDelay.name,
+                options = ControlsHideDelay.entries.map { it.name },
+                labels = ControlsHideDelay.entries.map { it.label },
+                onChange = { settings.controlsHideDelay = ControlsHideDelay.valueOf(it) },
+            )
+        }
+        ToggleRow(
+            label = "Hide while paused",
+            checked = settings.hideControlsWhilePaused,
+            onCheckedChange = { settings.hideControlsWhilePaused = it },
+            description = "Fade the controls while the song is paused too, not only while it plays.",
+            icon = Icons.Rounded.PauseCircle,
+            enabled = settings.autoHideControls,
+        )
+    }
+    SettingsSection("Floating Buttons") {
+        ToggleRow(
+            label = "Player buttons",
+            checked = settings.playerButtons,
+            onCheckedChange = { settings.playerButtons = it },
+            description = "Show the extra buttons the player offers, like Like or Save. Shuffle and repeat always stay.",
+            icon = Icons.Rounded.Widgets,
+        )
+        ToggleRow(
+            label = "Romanize button",
+            checked = settings.romanizeButton,
+            onCheckedChange = { settings.romanizeButton = it },
+            description = "Show the button that romanizes lyrics, on songs that have them.",
+            icon = Icons.Rounded.Translate,
+        )
+        ToggleRow(
+            label = "Resync button",
+            checked = settings.resyncButton,
+            onCheckedChange = { settings.resyncButton = it },
+            description = "Show the button that snaps the lyrics back in time with the player.",
+            icon = Icons.Rounded.Sync,
+        )
+        ToggleRow(
+            label = "Expand button",
+            checked = settings.expandButton,
+            onCheckedChange = { settings.expandButton = it },
+            description = "Show the button that opens the big cover. It stays while the cover is open, to get back.",
+            icon = Icons.Rounded.OpenInFull,
+        )
+        ToggleRow(
+            label = "Lyrics Manager button",
+            checked = settings.lyricsManagerButton,
+            onCheckedChange = { settings.lyricsManagerButton = it },
+            description = "Show the button that opens the Lyrics Manager. It's always in This song too.",
+            icon = Icons.Rounded.LibraryMusic,
         )
     }
     SettingsSection("Performance") {

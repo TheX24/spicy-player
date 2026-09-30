@@ -9,6 +9,7 @@ import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import com.tx24.spicyplayer.lyrics.spicy.SyllableMerge
 import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
+import com.tx24.spicyplayer.ui.nowplaying.HeaderSize
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KProperty
 
@@ -64,15 +65,21 @@ class AppSettings(private val prefs: SharedPreferences) {
     var expandWithoutLyrics by boolean("expandWithoutLyrics", false)
     /** The record's looping Apple Music cover in place of the still one, where it has one. */
     var animatedCover by boolean("animatedCover", false)
+    /** Cover Art background: the record's looping Apple Music cover in place of the still one. */
+    var animatedBackground by boolean("animatedBackground", false)
 
     var keepScreenOn by boolean("keepScreenOn", true)
     /** No song header: the lyrics fill the page and scroll with the active line near the centre. */
     var hideHeader by boolean("hideHeader", false)
+    var headerSize by enum("headerSize", HeaderSize.Large)
     /** Which side the now-playing panel sits on in landscape; the floating swap button, not a settings row. */
     var panelSide by enum("panelSide", PanelSide.Left)
     /** The screen's full refresh rate (90/120 Hz) instead of 60 Hz, which costs battery. */
     var highRefreshRate by boolean("highRefreshRate", false)
     var autoHideControls by boolean("autoHideControls", true)
+    var controlsHideDelay by enum("controlsHideDelay", ControlsHideDelay.Default)
+    /** The controls fade while paused too, not only while playing. */
+    var hideControlsWhilePaused by boolean("hideControlsWhilePaused", false)
     /** Ticks and clicks on buttons, toggles, sliders and gestures (they also follow the system's touch-feedback setting). */
     var touchHaptics by boolean("touchHaptics", true)
     /** Vibrates along with the song's beats while the lyrics are on screen. */
@@ -82,6 +89,11 @@ class AppSettings(private val prefs: SharedPreferences) {
     var musicHapticsStyle by enum("musicHapticsStyle", MusicHapticsStyle.Drums)
     /** A floating button that opens the Lyrics Manager (it is always in Settings → This song). */
     var lyricsManagerButton by boolean("lyricsManagerButton", true)
+    /** The player's own extra actions (like, shuffle modes, …) as floating buttons. */
+    var playerButtons by boolean("playerButtons", true)
+    var romanizeButton by boolean("romanizeButton", true)
+    var resyncButton by boolean("resyncButton", true)
+    var expandButton by boolean("expandButton", true)
     /** How the Lyrics Manager's last upload was applied; the upload screen reopens on it. */
     var ttmlUploadSaves by boolean("ttmlUploadSaves", true)
 
@@ -142,6 +154,14 @@ enum class BackgroundType(val label: String) {
 
 /** The strongest [AppSettings.backgroundBlur]. */
 const val MAX_BACKGROUND_BLUR = 67
+
+/** How long the controls stay after the last touch before they fade. */
+enum class ControlsHideDelay(val label: String, val millis: Long) {
+    Short("2 seconds", 2_000L),
+    Default("3 seconds", 3_000L),
+    Long("5 seconds", 5_000L),
+    Longer("10 seconds", 10_000L),
+}
 
 /** Where the song's release year shows beside the artists, if at all. */
 enum class PanelSide { Left, Right }

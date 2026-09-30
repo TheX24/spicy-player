@@ -1,6 +1,7 @@
 package com.tx24.spicyplayer.ui.nowplaying
 
 import android.content.Context
+import android.graphics.Paint
 import android.view.TextureView
 import androidx.annotation.OptIn
 import androidx.compose.animation.core.animateFloatAsState
@@ -65,7 +66,14 @@ fun rememberMotionCoverUrl(enabled: Boolean, query: MotionCoverQuery): String? {
  */
 @OptIn(UnstableApi::class)
 @Composable
-fun MotionCoverVideo(url: String, visible: Boolean, onFailed: () -> Unit, modifier: Modifier = Modifier) {
+fun MotionCoverVideo(
+    url: String,
+    visible: Boolean,
+    onFailed: () -> Unit,
+    modifier: Modifier = Modifier,
+    /** Drawn through this paint, e.g. a colour filter. */
+    layerPaint: Paint? = null,
+) {
     val context = LocalContext.current
     val latestOnFailed by rememberUpdatedState(onFailed)
     var firstFrame by remember(url) { mutableStateOf(false) }
@@ -104,7 +112,10 @@ fun MotionCoverVideo(url: String, visible: Boolean, onFailed: () -> Unit, modifi
     )
     AndroidView(
         factory = { TextureView(it) },
-        update = { player.setVideoTextureView(it) },
+        update = {
+            player.setVideoTextureView(it)
+            it.setLayerPaint(layerPaint)
+        },
         modifier = modifier.graphicsLayer { this.alpha = alpha },
     )
 }

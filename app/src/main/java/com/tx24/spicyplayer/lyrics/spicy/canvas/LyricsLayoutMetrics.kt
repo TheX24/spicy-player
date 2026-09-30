@@ -15,7 +15,12 @@ internal data class LyricsLayoutMetrics(
         LyricsType.Static -> (viewportWidthDp * 0.05f).coerceIn(12.8f, 40f)
         else -> (viewportWidthDp * 0.07f).coerceIn(29.6f, 56f)
     } * appFontScale
-    val lineGapPx = viewportWidthPx * 0.01f
+    /**
+     * The space between two lyric lines, on top of the row height. It follows the text size so a
+     * new line always reads as further away than a wrapped row of the same line; a width-based
+     * 1cqw was only ~14% of the text and the two looked the same.
+     */
+    val lineGapPx = baseFontSizeSp * density * 0.4f
     val lineHeightMultiplier = 1.1818182f
 
     fun lineHeightPx(fontSizeSp: Float): Float = fontSizeSp * density * lineHeightMultiplier

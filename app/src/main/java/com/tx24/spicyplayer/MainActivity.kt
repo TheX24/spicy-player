@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer
 
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
 import com.tx24.spicyplayer.lyrics.LyricsNotices
 import com.tx24.spicyplayer.ui.spotifysearch.SpotifySearchModal
 import androidx.compose.foundation.background
@@ -122,8 +124,10 @@ import com.tx24.spicyplayer.ui.background.SpicySessionBackground
 import com.tx24.spicyplayer.ui.components.LocalBackdrop
 import com.tx24.spicyplayer.ui.components.SpicyModalNotes
 import com.tx24.spicyplayer.ui.components.SpicyVersionRow
+import com.tx24.spicyplayer.ui.controls.ActionKind
 import com.tx24.spicyplayer.ui.controls.CoverControls
 import com.tx24.spicyplayer.ui.controls.LyricsControls
+import com.tx24.spicyplayer.ui.controls.kind
 import com.tx24.spicyplayer.ui.nowplaying.LandscapeMetrics
 import com.tx24.spicyplayer.ui.settings.PanelSide
 import androidx.compose.foundation.layout.offset
@@ -133,7 +137,10 @@ import androidx.compose.ui.unit.IntOffset
 import com.tx24.spicyplayer.ui.controls.PlaybackControlsState
 import com.tx24.spicyplayer.ui.nowplaying.CompactHeaderMetrics
 import com.tx24.spicyplayer.ui.nowplaying.CompactNowPlayingHeader
+import com.tx24.spicyplayer.ui.nowplaying.MotionCoverQuery
 import com.tx24.spicyplayer.ui.nowplaying.NowPlayingInfo
+import com.tx24.spicyplayer.ui.nowplaying.forgetMotionCover
+import com.tx24.spicyplayer.ui.nowplaying.rememberMotionCoverUrl
 import com.tx24.spicyplayer.ui.nowplaying.ReleaseYear
 import com.tx24.spicyplayer.ui.settings.BackgroundType
 import com.tx24.spicyplayer.ui.settings.ReleaseYearPosition
@@ -329,14 +336,16 @@ private fun LyricsApp(
     // They stay while paused, and while the portrait big cover is up (it has nothing else to
     // show). On the landscape cover they always go, like the desktop page's once the mouse
     // rests: they'd keep the cover darkened.
-    val hold = (!state.isPlaying && !controlsOnCover) || (headerExpanded && !landscape) || !settings.autoHideControls
-    LaunchedEffect(hold) {
+    val hold = (!state.isPlaying && !controlsOnCover && !settings.hideControlsWhilePaused) ||
+        (headerExpanded && !landscape) || !settings.autoHideControls
+    val idleMs = settings.controlsHideDelay.millis
+    LaunchedEffect(hold, idleMs) {
         if (hold) {
             controlsVisible = true
             return@LaunchedEffect
         }
         touches.collectLatest {
-            delay(CONTROLS_IDLE_MS)
+            delay(idleMs)
             controlsVisible = false
         }
     }
@@ -416,13 +425,14 @@ private fun LyricsApp(
                 val pageWidth = constraints.maxWidth.toFloat()
                 val pageHeight = constraints.maxHeight.toFloat() - bottomInsetPx
                 val density = LocalDensity.current.density
-                val headerMetrics = remember(pageWidth, pageHeight, density, topInsetPx) {
+                val headerMetrics = remember(pageWidth, pageHeight, density, topInsetPx, settings.headerSize) {
                     CompactHeaderMetrics(
                         pageWidthPx = pageWidth,
                         pageHeightPx = pageHeight,
                         density = density,
                         lyricFontSizeSp = LyricsLayoutMetrics(pageWidth, density, LyricsType.Syllable, 1f).baseFontSizeSp,
                         topInsetPx = topInsetPx,
+                        size = settings.headerSize,
                     )
                 }
                 val layoutDirection = androidx.compose.ui.platform.LocalLayoutDirection.current
@@ -503,11 +513,23 @@ private fun LyricsApp(
                     onPrevious = viewModel::skipPrevious,
                     onNext = viewModel::skipNext,
                     onSeek = viewModel::seekTo,
-                    customActions = state.customActions,
+                    // Shuffle and repeat stay in the playback row; only the player's other actions are floating buttons.
+                    customActions = if (settings.playerButtons) state.customActions else state.customActions.filter { it.kind != ActionKind.Other },
                     onCustomAction = viewModel::sendCustomAction,
                     onResync = viewModel::resync,
                 )
                 val onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null
+                val romanizeButton = romanizationAvailable && settings.romanizeButton
+                // Expanded, it's the only way back to the lyrics, so it stays.
+                val expandButton = settings.expandButton || headerExpanded
+                // The Cover Art background's animated cover; a stream that fails is forgotten, like the header's.
+                val backgroundMotionQuery = MotionCoverQuery(state.artist, state.album, state.title)
+                val backgroundMotionUrl = rememberMotionCoverUrl(
+                    backgroundType == BackgroundType.CoverArt && settings.animatedBackground && !lowPerformance,
+                    backgroundMotionQuery,
+                )
+                var failedBackgroundMotionUrl by remember { mutableStateOf<String?>(null) }
+                val motionScope = rememberCoroutineScope()
                 // Everything the glass controls blur.
                 Box(Modifier.fillMaxSize().then(backdrop?.let { Modifier.hazeSource(it) } ?: Modifier)) {
                     SpicySessionBackground(
@@ -521,6 +543,11 @@ private fun LyricsApp(
                         artistHeaderUrl = state.artistHeaderUrl,
                         artistHeaderPending = state.artistHeaderPending,
                         speed = if (beatReactive) viewModel::backgroundSpeed else null,
+                        motionCoverUrl = backgroundMotionUrl?.takeIf { it != failedBackgroundMotionUrl },
+                        onMotionCoverFailed = {
+                            failedBackgroundMotionUrl = backgroundMotionUrl
+                            motionScope.launch { forgetMotionCover(context, backgroundMotionQuery) }
+                        },
                     )
                     Column(
                         Modifier
@@ -599,7 +626,9 @@ private fun LyricsApp(
                             CompositionLocalProvider(LocalBackdrop provides null) {
                                 CoverControls(
                                     controls = playbackControls,
-                                    romanizeAvailable = romanizationAvailable,
+                                    romanizeAvailable = romanizeButton,
+                                    showResync = settings.resyncButton,
+                                    showExpand = expandButton,
                                     romanized = romanize,
                                     onToggleRomanize = { settings.romanize = !settings.romanize },
                                     onOpenSettings = { showSettings = true },
@@ -625,7 +654,9 @@ private fun LyricsApp(
                 if (bottomBar) CompositionLocalProvider(LocalBackdrop provides backdrop?.takeUnless { barGone || lowPerformance }) {
                     LyricsControls(
                         controls = playbackControls,
-                        romanizeAvailable = romanizationAvailable,
+                        romanizeAvailable = romanizeButton,
+                        showResync = settings.resyncButton,
+                        showExpand = expandButton,
                         romanized = romanize,
                         onToggleRomanize = { settings.romanize = !settings.romanize },
                         onOpenSettings = { showSettings = true },
@@ -772,7 +803,6 @@ private class CoverTouchArea {
     var contains: ((Offset) -> Boolean)? = null
 }
 
-private const val CONTROLS_IDLE_MS = 3_000L
 /** Pinned credits' distance above the controls or the screen's edge (20px + 1.25rem). */
 private val PINNED_FOOTER_GAP = 20.dp
 private const val CONTROLS_SHOW_MS = 350

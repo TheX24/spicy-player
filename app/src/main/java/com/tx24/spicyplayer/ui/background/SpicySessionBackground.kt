@@ -2,6 +2,7 @@ package com.tx24.spicyplayer.ui.background
 
 import android.graphics.Bitmap
 import android.os.Build
+import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -34,6 +35,9 @@ fun SpicySessionBackground(
     artistHeaderUrl: String? = null,
     artistHeaderPending: Boolean = false,
     speed: (() -> Float?)? = null,
+    /** Cover Art only: the record's animated cover, played over the still one. */
+    motionCoverUrl: String? = null,
+    onMotionCoverFailed: () -> Unit = {},
 ) {
     when (type) {
         BackgroundType.Default, BackgroundType.Legacy -> {
@@ -62,7 +66,10 @@ fun SpicySessionBackground(
             ColorBackground(rememberSessionArtwork(artwork, artworkUri, maxDimension = 256), modifier)
         }
         BackgroundType.CoverArt -> {
-            StillImageBackground(rememberSessionArtwork(artwork, artworkUri, maxDimension = STILL_COVER_PX), blurDp, modifier)
+            Box(modifier) {
+                StillImageBackground(rememberSessionArtwork(artwork, artworkUri, maxDimension = STILL_COVER_PX), blurDp)
+                if (motionCoverUrl != null) MotionImageBackground(motionCoverUrl, blurDp, onMotionCoverFailed)
+            }
         }
         BackgroundType.Auto, BackgroundType.ArtistHeader -> {
             val cover = rememberSessionArtwork(artwork, artworkUri, maxDimension = STILL_COVER_PX)

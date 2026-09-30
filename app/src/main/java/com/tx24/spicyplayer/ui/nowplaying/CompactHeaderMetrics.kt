@@ -22,6 +22,7 @@ data class CompactHeaderMetrics(
     val lyricFontSizeSp: Float,
     /** The camera cutout's inset at the top of the screen, in px (the system bars are hidden). */
     val topInsetPx: Float = 0f,
+    val size: HeaderSize = HeaderSize.Large,
 ) {
     private val pageWidthDp = pageWidthPx / density.coerceAtLeast(0.01f)
 
@@ -38,8 +39,8 @@ data class CompactHeaderMetrics(
      */
     val barTopPx = maxOf(contentStartPx, topInsetPx)
 
-    /** `--Compact_NowBarHeight: 15cqh` against the page. */
-    val barHeightPx = pageHeightPx * 0.15f
+    /** `--Compact_NowBarHeight: 15cqh` against the page at [HeaderSize.Large]; less for the smaller sizes. */
+    val barHeightPx = pageHeightPx * size.barFraction
 
     /** `.Header { --MediaBoxSize: 100cqh }` against the bar: the artwork is as tall as the bar. */
     val artSizePx = barHeightPx
@@ -63,7 +64,7 @@ data class CompactHeaderMetrics(
      */
     /** Our lyric size over the compact desktop one (`clamp(3rem, 7cqw, 4rem)`): CSS px to dp next to the lyrics. */
     val lyricsScale = lyricFontSizeSp / (pageWidthDp * 0.07f).coerceIn(COMPACT_LYRICS_MIN_PX, COMPACT_LYRICS_MAX_PX)
-    val scale = lyricsScale * TEXT_BOOST
+    val scale = lyricsScale * TEXT_BOOST * size.textScale
 
     /**
      * Where the active line's top sits below the top of the lyrics. Compact mode scrolls "Top",
@@ -158,3 +159,13 @@ data class ExpandedHeader(
     val artistsSizeSp: Float,
     val artistsLineHeightSp: Float,
 )
+
+/**
+ * How tall the compact song header is: [Large] is the desktop's 15cqh bar, [Small] a slim row
+ * like Apple Music's, with the text shrunk less than the cover so it stays readable.
+ */
+enum class HeaderSize(val label: String, val barFraction: Float, val textScale: Float) {
+    Small("Small", 0.08f, 0.8f),
+    Medium("Medium", 0.115f, 0.9f),
+    Large("Large", 0.15f, 1f),
+}

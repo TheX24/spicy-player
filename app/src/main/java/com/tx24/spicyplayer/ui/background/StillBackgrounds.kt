@@ -1,6 +1,9 @@
 package com.tx24.spicyplayer.ui.background
 
 import android.graphics.Bitmap
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
+import android.graphics.Paint
 import android.os.Build
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Animatable
@@ -10,6 +13,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.requiredSize
+import androidx.compose.ui.Alignment
+import com.tx24.spicyplayer.ui.nowplaying.MotionCoverVideo
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -85,6 +92,55 @@ fun StillImageBackground(image: SessionArtwork?, blurDp: Int, modifier: Modifier
         current?.let { StillLayer(it.bitmap, blurPx) { size -> -slide.value * size } }
         incoming?.let { StillLayer(it.bitmap, blurPx) { size -> (1f - slide.value) * size } }
     }
+}
+
+/**
+ * The record's looping animated cover over the page, graded and blurred like
+ * [StillImageBackground] so it reads as the same picture, moving. It fades in once playing,
+ * over the still beneath it.
+ */
+@Composable
+fun MotionImageBackground(url: String, blurDp: Int, onFailed: () -> Unit, modifier: Modifier = Modifier) {
+    val blurPx = with(LocalDensity.current) { blurDp.coerceAtLeast(0) * density }
+    BoxWithConstraints(modifier.fillMaxSize().clipToBounds(), contentAlignment = Alignment.Center) {
+        // The loop is square: cropped to cover the page, then 1.25× like the still.
+        val side = maxOf(maxWidth, maxHeight) * 1.25f
+        MotionCoverVideo(
+            url = url,
+            visible = true,
+            onFailed = onFailed,
+            layerPaint = StillGradePaint,
+            modifier = Modifier
+                .requiredSize(side)
+                .graphicsLayer {
+                    if (blurPx > 0f && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        val radius = cssBlurToRadius(blurPx)
+                        renderEffect = BlurEffect(radius, radius, TileMode.Clamp)
+                    }
+                },
+        )
+    }
+}
+
+/**
+ * [filtered]'s grade as one colour matrix, for video. Brightness first leaves nothing above 1, so
+ * only contrast's slight dip below 0 goes unclamped between the steps, which doesn't show.
+ */
+private val StillGradePaint = Paint().apply {
+    val matrix = ColorMatrix().apply { setScale(0.55f, 0.55f, 0.55f, 1f) }
+    val offset = (0.5f - 0.5f * 1.05f) * 255f
+    matrix.postConcat(
+        ColorMatrix(
+            floatArrayOf(
+                1.05f, 0f, 0f, 0f, offset,
+                0f, 1.05f, 0f, 0f, offset,
+                0f, 0f, 1.05f, 0f, offset,
+                0f, 0f, 0f, 1f, 0f,
+            ),
+        ),
+    )
+    matrix.postConcat(ColorMatrix().apply { setSaturation(1.7f) })
+    colorFilter = ColorMatrixColorFilter(matrix)
 }
 
 private class StillPicture(val fingerprint: Int, val bitmap: ImageBitmap)
