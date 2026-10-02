@@ -18,6 +18,8 @@ import okhttp3.Request
 class LrcMuxLyricsProvider @Inject constructor(
     private val client: OkHttpClient,
     private val gson: Gson,
+    /** Serve line timing only: its word timing comes from Musixmatch. */
+    private val ignoreWordSync: () -> Boolean = { false },
 ) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
         id = "lrcmux", displayName = "LRCMux", defaultPriority = 110,
@@ -45,7 +47,7 @@ class LrcMuxLyricsProvider @Inject constructor(
 
     internal fun parse(root: JsonObject): ProviderResult {
         val lines = root.getAsJsonArray("lines") ?: return ProviderResult.Miss
-        val ttml = wordTtml(lines)
+        val ttml = if (ignoreWordSync()) null else wordTtml(lines)
         if (ttml != null) return ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics = ttml))
         val synced = lines.mapNotNull { element ->
             val line = element.asJsonObject

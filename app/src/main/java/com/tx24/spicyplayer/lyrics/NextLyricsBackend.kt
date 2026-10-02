@@ -29,7 +29,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         .build()
     private val gson = Gson()
     private val providers: Set<RemoteLyricsProvider> =
-        createProviders(client, gson, clientKey, context.cacheDir, SharedSpotify.resolver)
+        createProviders(client, gson, clientKey, context.cacheDir, SharedSpotify.resolver) { ignoreMusixmatchWordSync }
     private val source = RemoteLyricsSource(providers, ProviderCooldownTracker())
 
     val descriptors: List<LyricsSourceDescriptor> = providers.map(RemoteLyricsProvider::descriptor)
@@ -111,8 +111,10 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         diskCache.deleteRecursively()
     }
 
+    /** Also keyed on the Musixmatch word-sync switch, which changes what those sources answer. */
     private fun enabledOrder(): List<String> = policy().let { p ->
-        p.sourceOrder.filter { it !in p.disabledSourceIds } + p.enabledBlendIds.sorted()
+        p.sourceOrder.filter { it !in p.disabledSourceIds } + p.enabledBlendIds.sorted() +
+            listOfNotNull(MUSIXMATCH_LINES_ONLY.takeIf { ignoreMusixmatchWordSync })
     }
 
     private fun cacheFile(request: LyricsLookupRequest): File {
@@ -182,6 +184,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
             clientKey: String,
             cacheDir: File? = null,
             spotifyResolver: SpotifyTrackResolver = SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(client, gson)),
+            ignoreMusixmatchWordSync: () -> Boolean = { false },
         ): Set<RemoteLyricsProvider> {
             val lrclib = Retrofit.Builder()
                 .baseUrl(LyricsService.BASE_URL)
@@ -205,8 +208,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
                 KuwoLyricsProvider(client),
                 NetEaseLyricsProvider(client, gson),
                 LyricsSource(lrclib),
-                MusixmatchLyricsProvider(client, gson, cacheDir?.let { File(it, "musixmatch-token.txt") }),
-                LrcMuxLyricsProvider(client, gson),
+                MusixmatchLyricsProvider(client, gson, cacheDir?.let { File(it, "musixmatch-token.txt") }, ignoreMusixmatchWordSync),
+                LrcMuxLyricsProvider(client, gson, ignoreMusixmatchWordSync),
                 GeniusLyricsProvider(client, gson),
                 YouTubeTranscriptLyricsProvider(client, gson),
             )
@@ -225,6 +228,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         private const val SOURCE_DEFAULTS_VERSION = 1
         private val LRCLIB_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
         private const val CACHE_DAYS = 3
+        private const val MUSIXMATCH_LINES_ONLY = "musixmatch-lines-only"
     }
 
     fun policy(): RemoteLyricsPolicy {
@@ -250,6 +254,11 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     var humanRomanizations: Boolean
         get() = preferences.getBoolean("humanRomanizations", true)
         set(value) = preferences.edit().putBoolean("humanRomanizations", value).apply()
+
+    /** Line timing over word timing from the Musixmatch sources (on by default: their word syncs are poor). */
+    var ignoreMusixmatchWordSync: Boolean
+        get() = preferences.getBoolean("ignoreMusixmatchWordSync", true)
+        set(value) = preferences.edit().putBoolean("ignoreMusixmatchWordSync", value).apply()
 
     private val geniusRomanization = GeniusRomanizationSource(client, gson)
     private val romanCache = File(context.cacheDir, "genius-roman")

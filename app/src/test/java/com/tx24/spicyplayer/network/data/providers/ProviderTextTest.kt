@@ -31,6 +31,18 @@ class ProviderTextTest {
         assertTrue(ttml, ttml.contains("""<span begin="10.000s" end="10.300s">Hel</span><span begin="10.300s" end="10.600s">lo</span> <span begin="11.000s" end="12.000s">there</span>"""))
     }
 
+    @Test fun lrcMuxServesLinesWhenWordSyncIsIgnored() {
+        val json = Gson().fromJson(
+            """{"lines":[{"text":"Hello there","start":1.5,"end":3.0,"words":[{"text":"Hello","start":1.5,"end":2.0},{"text":"there","start":2.0,"end":3.0}]}]}""",
+            JsonObject::class.java,
+        )
+        val words = LrcMuxLyricsProvider(okhttp3.OkHttpClient(), Gson()).parse(json) as ProviderResult.Hit
+        assertTrue(words.payload.ttmlLyrics!!.contains("itunes:timing=\"word\""))
+        val lines = LrcMuxLyricsProvider(okhttp3.OkHttpClient(), Gson()) { true }.parse(json) as ProviderResult.Hit
+        assertEquals(null, lines.payload.ttmlLyrics)
+        assertEquals("[00:01.50]Hello there", lines.payload.syncedLyrics)
+    }
+
     @Test fun rmmSaysWhereItsLyricsComeFrom() {
         fun rmm(json: String) = (rmmPayload(Gson().fromJson(json, JsonObject::class.java)) as ProviderResult.Hit).payload.attribution!!
         val relayed = rmm("""{"ttml":"<tt/>","lyricsSource":"spicylyrics","lyricsProviderSource":"apple_music","uploadAttribution":null,"songWriters":["A","B"]}""")

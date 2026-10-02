@@ -663,6 +663,15 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
             }
         }
     }
+    SettingsSection("Musixmatch") {
+        ToggleRow(
+            label = "Ignore Musixmatch word sync",
+            checked = state.ignoreMusixmatchWordSync,
+            onCheckedChange = viewModel::setIgnoreMusixmatchWordSync,
+            description = "Use Musixmatch's line timing instead of its word timing, which is often off. LRCMux follows it too.",
+            icon = Icons.Rounded.Sync,
+        )
+    }
     SettingsSection("Romanization") {
         ToggleRow(
             label = "Human romanizations",

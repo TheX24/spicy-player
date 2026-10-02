@@ -28,6 +28,8 @@ class MusixmatchLyricsProvider @Inject constructor(
     private val client: OkHttpClient,
     private val gson: Gson,
     private val tokenFile: File? = null,
+    /** Skip the word timing and serve the line timing, which Musixmatch gets right far more often. */
+    private val ignoreWordSync: () -> Boolean = { false },
 ) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
         "musixmatch", "Musixmatch", 100,
@@ -60,7 +62,7 @@ class MusixmatchLyricsProvider @Inject constructor(
         ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, e.message)
     }
 
-    /** Everything Musixmatch has for the track, word timing included, in one request. */
+    /** Everything Musixmatch has for the track, word timing included unless ignored, in one request. */
     private suspend fun ask(r: LyricsLookupRequest, token: String): JsonObject? {
         val url = "$BASE/macro.subtitles.get".toHttpUrl().newBuilder()
             .addQueryParameter("app_id", APP)
@@ -68,8 +70,12 @@ class MusixmatchLyricsProvider @Inject constructor(
             .addQueryParameter("usertoken", token)
             .addQueryParameter("namespace", "lyrics_richsynched")
             .addQueryParameter("subtitle_format", "lrc")
-            .addQueryParameter("optional_calls", "track.richsync")
-            .addQueryParameter("richsync_compact_type", "words")
+            .apply {
+                if (!ignoreWordSync()) {
+                    addQueryParameter("optional_calls", "track.richsync")
+                    addQueryParameter("richsync_compact_type", "words")
+                }
+            }
             .addQueryParameter("q_track", r.title)
             .addQueryParameter("q_artist", r.artist)
             .apply {
@@ -94,7 +100,7 @@ class MusixmatchLyricsProvider @Inject constructor(
                 !SpotifyTrackMatcher.normalize(artist).contains(SpotifyTrackMatcher.normalize(r.artist))
             ) return ProviderResult.Miss
         }
-        val rich = calls.path("track.richsync.get", "message", "body", "richsync")?.get("richsync_body")?.asString
+        val rich = if (ignoreWordSync()) null else calls.path("track.richsync.get", "message", "body", "richsync")?.get("richsync_body")?.asString
         if (!rich.isNullOrBlank() && !poisoned(rich)) {
             RichSyncToTtml.convert(gson.fromJson(rich, JsonArray::class.java))?.let { return ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics = it)) }
         }

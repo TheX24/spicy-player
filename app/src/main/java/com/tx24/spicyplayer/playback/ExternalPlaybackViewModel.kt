@@ -135,6 +135,7 @@ data class PlayerUiState(
     val providerAttempts: List<ProviderAttempt> = emptyList(),
     val lookupStatus: String? = null,
     val humanRomanizations: Boolean = true,
+    val ignoreMusixmatchWordSync: Boolean = true,
     /** A Spotify Free limit to explain, until dismissed. */
     val limitNotice: PlayerLimit? = null,
     /** The song's release year, when asked for ([ExternalPlaybackViewModel.setTrackExtrasWanted]) and found. */
@@ -178,6 +179,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         blendDescriptors = lyricsBackend.blendDescriptors,
         enabledBlendIds = lyricsBackend.policy().enabledBlendIds,
         humanRomanizations = lyricsBackend.humanRomanizations,
+        ignoreMusixmatchWordSync = lyricsBackend.ignoreMusixmatchWordSync,
     ))
     val state: StateFlow<PlayerUiState> = mutableState.asStateFlow()
     private val mutableMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
@@ -623,6 +625,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         loadLyrics()
     }
 
+    fun setIgnoreMusixmatchWordSync(enabled: Boolean) {
+        lyricsBackend.ignoreMusixmatchWordSync = enabled
+        mutableState.value = mutableState.value.copy(ignoreMusixmatchWordSync = enabled)
+        lookupCache.clear()  // the Musixmatch sources answer differently
+        loadLyrics()
+    }
+
     fun setBlendEnabled(id: String, enabled: Boolean) {
         lyricsBackend.setBlendEnabled(id, enabled)
         refreshSourcePolicy()
@@ -647,6 +656,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             lyricDelayMs = outputProfiles.delayMs(outputRoute),
             songDelayMs = songDelays.delayMs(mutableState.value.localLyricsKey),
             humanRomanizations = lyricsBackend.humanRomanizations,
+            ignoreMusixmatchWordSync = lyricsBackend.ignoreMusixmatchWordSync,
         )
         // The playing song's Spotify link may have come or gone: look it up again if so.
         val restoredId = controller?.metadata.overrideKey()?.let { overrideStore.getString(it, null) }
