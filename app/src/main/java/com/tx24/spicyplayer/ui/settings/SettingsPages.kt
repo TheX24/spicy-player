@@ -3,6 +3,12 @@ package com.tx24.spicyplayer.ui.settings
 import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Sync
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import androidx.compose.material.icons.rounded.Save
+import androidx.compose.material.icons.rounded.SettingsBackupRestore
+import com.tx24.spicyplayer.backup.SettingsBackup
+import com.tx24.spicyplayer.backup.SettingsBackupStore
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.OpenInFull
@@ -781,6 +787,9 @@ internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
     ) {
         SpicyButton("Clear State", onClick = viewModel::clearCurrentSongFromMemory)
     }
+    SettingsSection("Backup") {
+        SettingsBackupRows(viewModel, settings)
+    }
     if (updater.enabled) {
         SettingsSection("Updates") {
             ToggleRow(
@@ -956,3 +965,56 @@ private const val DELAY_STEP_MS = 10
 private const val DELAY_BIG_STEP_MS = 100
 
 private val INFO_LABEL_WIDTH = 116.dp
+
+/** Saving the settings to a file and bringing them back from one, through the system's file picker. */
+@Composable
+private fun SettingsBackupRows(viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val store = remember { SettingsBackupStore(context.applicationContext) }
+    val export = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val written = withContext(Dispatchers.IO) {
+                runCatching {
+                    context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(store.export().toByteArray()) } != null
+                }.getOrDefault(false)
+            }
+            viewModel.showMessage(if (written) "Settings saved." else "Couldn't save the settings there.")
+        }
+    }
+    val import = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        scope.launch {
+            val error = withContext(Dispatchers.IO) {
+                runCatching {
+                    val text = context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() }
+                        ?: throw SettingsBackup.InvalidBackup("Couldn't open that file.")
+                    store.restore(text)
+                }.exceptionOrNull()
+            }
+            if (error == null) {
+                settings.reload()
+                viewModel.reloadSavedSettings()
+                viewModel.showMessage("Settings restored.")
+            } else {
+                viewModel.showMessage((error as? SettingsBackup.InvalidBackup)?.message ?: "Couldn't read that backup.")
+            }
+        }
+    }
+    SettingRow(
+        label = "Back up settings",
+        description = "Save your settings, source order, delays and Spotify links to a file. Your custom font and Spicy Lyrics key stay out.",
+        icon = Icons.Rounded.Save,
+    ) {
+        SpicyButton("Save", onClick = { export.launch("spicy-player-settings-${java.time.LocalDate.now()}.json") })
+    }
+    SettingRow(
+        label = "Restore settings",
+        description = "Replace your settings with the ones in a backup file.",
+        icon = Icons.Rounded.SettingsBackupRestore,
+    ) {
+        // Some file managers label .json as plain text or as nothing in particular.
+        SpicyButton("Restore", onClick = { import.launch(arrayOf("application/json", "text/*", "application/octet-stream")) })
+    }
+}

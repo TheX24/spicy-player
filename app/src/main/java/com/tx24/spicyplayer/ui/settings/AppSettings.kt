@@ -20,6 +20,12 @@ import kotlin.reflect.KProperty
  * Lookup, source and sync settings live in the view model instead (see `docs/settings.md`).
  */
 class AppSettings(private val prefs: SharedPreferences) {
+    /** Every setting below, so [reload] can re-read them; first, so it exists when they register. */
+    private val all = mutableListOf<Setting<*>>()
+
+    /** Re-reads every setting from storage, after a restore wrote it behind their backs. */
+    fun reload() = all.forEach { it.reload() }
+
     /** Romanized lyrics where the song has them; the floating button, not a settings row. */
     var romanize by boolean("romanize", false)
 
@@ -106,21 +112,24 @@ class AppSettings(private val prefs: SharedPreferences) {
     val wordMotionBoost get() = if (originalWordMotion) 1f else WORD_MOTION_BOOST
 
     private fun boolean(key: String, default: Boolean) =
-        Setting(prefs.getBoolean(key, default)) { prefs.edit().putBoolean(key, it).apply() }
+        setting({ prefs.getBoolean(key, default) }) { prefs.edit().putBoolean(key, it).apply() }
 
     private fun string(key: String, default: String) =
-        Setting(prefs.getString(key, default) ?: default) { prefs.edit().putString(key, it).apply() }
+        setting({ prefs.getString(key, default) ?: default }) { prefs.edit().putString(key, it).apply() }
 
     private fun int(key: String, default: Int) =
-        Setting(prefs.getInt(key, default)) { prefs.edit().putInt(key, it).apply() }
+        setting({ prefs.getInt(key, default) }) { prefs.edit().putInt(key, it).apply() }
 
     private inline fun <reified E : Enum<E>> enum(key: String, default: E) =
-        Setting(runCatching { enumValueOf<E>(prefs.getString(key, null)!!) }.getOrDefault(default)) {
+        setting({ runCatching { enumValueOf<E>(prefs.getString(key, null)!!) }.getOrDefault(default) }) {
             prefs.edit().putString(key, it.name).apply()
         }
 
-    private class Setting<T>(initial: T, private val save: (T) -> Unit) : ReadWriteProperty<Any?, T> {
-        private var value by mutableStateOf(initial)
+    private fun <T> setting(load: () -> T, save: (T) -> Unit) = Setting(load, save).also(all::add)
+
+    private class Setting<T>(private val load: () -> T, private val save: (T) -> Unit) : ReadWriteProperty<Any?, T> {
+        private var value by mutableStateOf(load())
+        fun reload() { value = load() }
         override fun getValue(thisRef: Any?, property: KProperty<*>): T = value
         override fun setValue(thisRef: Any?, property: KProperty<*>, value: T) {
             this.value = value

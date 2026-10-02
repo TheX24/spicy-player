@@ -640,6 +640,21 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         loadLyrics()
     }
 
+    /** Picks up a settings restore: sources, delays and Spotify links are re-read from storage. */
+    fun reloadSavedSettings() {
+        refreshSourcePolicy()
+        mutableState.value = mutableState.value.copy(
+            lyricDelayMs = outputProfiles.delayMs(outputRoute),
+            songDelayMs = songDelays.delayMs(mutableState.value.localLyricsKey),
+            humanRomanizations = lyricsBackend.humanRomanizations,
+        )
+        // The playing song's Spotify link may have come or gone: look it up again if so.
+        val restoredId = controller?.metadata.overrideKey()?.let { overrideStore.getString(it, null) }
+        if (restoredId != manualSpotifyId) {
+            if (restoredId != null) overrideSpotifyId(restoredId) else clearSpotifyIdOverride()
+        }
+    }
+
     private fun refreshSourcePolicy() {
         val policy = lyricsBackend.policy()
         mutableState.value = mutableState.value.copy(
