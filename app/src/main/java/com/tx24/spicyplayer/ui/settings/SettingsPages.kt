@@ -349,6 +349,7 @@ internal fun ScrollSyncContent(state: PlayerUiState, viewModel: ExternalPlayback
     ) {
         DelayControl(state.lyricDelayMs, viewModel::setLyricDelay)
     }
+    DelayCalibrationRow(state, viewModel)
     ToggleRow(
         label = "Seek Fade-in Compensation",
         checked = settings.seekFadeCompensation,

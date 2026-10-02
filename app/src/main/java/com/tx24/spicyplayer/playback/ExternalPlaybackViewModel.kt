@@ -68,6 +68,9 @@ import kotlinx.coroutines.withContext
  */
 private const val TRACK_SETTLE_MS = 700L
 
+/** Beats Spotify is less sure of than this aren't tapped to. */
+private const val CALIBRATION_BEAT_CONFIDENCE = 0.2f
+
 /** Upcoming queue entries whose lyrics are fetched ahead. */
 private const val FETCH_AHEAD = 3
 
@@ -149,6 +152,8 @@ data class PlayerUiState(
     val localLyrics: List<LocalLyricsStore.Entry> = emptyList(),
     /** The playing song's key in the Lyrics Manager, saved there or not. */
     val localLyricsKey: String? = null,
+    /** The output delay is being found by tapping along ([TapCalibration]); the music haptics rest. */
+    val calibratingDelay: Boolean = false,
 )
 
 /** The lookups beyond the lyrics that the screen currently shows. */
@@ -246,6 +251,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val spotifyExtras = SharedSpotify.extras(application.cacheDir)
     private val itunesYear = ItunesReleaseYear(okhttp3.OkHttpClient())
     private var extrasWanted = TrackExtrasWanted()
+    /** What the screen asks for; [extrasWanted] adds the beats while calibrating. */
+    private var screenExtrasWanted = TrackExtrasWanted()
     private var extrasJob: Job? = null
     /** The playing song's audio analysis, for the beat-reactive background. */
     @Volatile private var audioAnalysis: AudioAnalysis? = null
@@ -1196,12 +1203,34 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
      * up for the song playing; nothing is fetched that isn't asked for.
      */
     fun setTrackExtrasWanted(wanted: TrackExtrasWanted) {
+        screenExtrasWanted = wanted
+        applyExtrasWanted()
+    }
+
+    private fun applyExtrasWanted() {
+        val wanted = screenExtrasWanted.let { if (mutableState.value.calibratingDelay) it.copy(beats = true) else it }
         val added = (wanted.releaseYear && !extrasWanted.releaseYear) ||
             (wanted.artistHeader && !extrasWanted.artistHeader) ||
             (wanted.beats && !extrasWanted.beats)
         extrasWanted = wanted
         if (added) loadExtras()
     }
+
+    /** Starts or ends tapping along to find the output delay: it needs the song's beats. */
+    fun setCalibratingDelay(calibrating: Boolean) {
+        mutableState.value = mutableState.value.copy(calibratingDelay = calibrating)
+        applyExtrasWanted()
+    }
+
+    /** The playing song's beats in ms, for [TapCalibration], or null while there are none. */
+    fun calibrationBeatsMs(): LongArray? = audioAnalysis?.beats
+        ?.filter { it.confidence >= CALIBRATION_BEAT_CONFIDENCE }
+        ?.map { (it.start * 1000f).toLong() }
+        ?.takeIf { it.size >= 2 }
+        ?.toLongArray()
+
+    /** The player's own position at [elapsedRealtimeMs], with no delay taken off. */
+    fun playerPositionAt(elapsedRealtimeMs: Long): Long = clock.positionAt(elapsedRealtimeMs)
 
     /**
      * How fast the background should move right now by the song's beats and loudness, or null when

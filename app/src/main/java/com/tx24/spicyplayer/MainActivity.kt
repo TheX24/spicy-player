@@ -378,8 +378,9 @@ private fun LyricsApp(
     LaunchedEffect(extrasWanted) { viewModel.setTrackExtrasWanted(extrasWanted) }
     // Vibrates with the beats while the song plays and the app is in front with the screen on.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(musicHapticsOn, state.isPlaying) {
-        if (!musicHapticsOn || !state.isPlaying) return@LaunchedEffect
+    // They rest while the delay is tapped out: tapping to them would only find their own timing.
+    LaunchedEffect(musicHapticsOn, state.isPlaying, state.calibratingDelay) {
+        if (!musicHapticsOn || !state.isPlaying || state.calibratingDelay) return@LaunchedEffect
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             playMusicHaptics(
                 hapticPlayer,
