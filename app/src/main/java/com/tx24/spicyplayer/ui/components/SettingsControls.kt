@@ -13,6 +13,13 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.material.icons.rounded.Replay
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.KeyboardArrowDown
 import androidx.compose.ui.graphics.TransformOrigin
@@ -467,9 +474,41 @@ private const val REOPEN_GUARD_MS = 300L
 
 /** A flat tinted pill that shrinks to 0.97 while held. */
 @Composable
-fun SpicyButton(text: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    PressSurface(onClick, modifier, enabled) {
+fun SpicyButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    /** Narrower for a row of small buttons sharing the width. */
+    horizontalPadding: androidx.compose.ui.unit.Dp = 14.dp,
+) {
+    PressSurface(onClick, modifier, enabled, horizontalPadding) {
         Text(text, style = SpicyType.Caption.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.01.em))
+    }
+}
+
+/**
+ * A value in a row of [SpicyButton]s that resets it when tapped. At its default it's plain text;
+ * off it, it becomes a button with a reset mark, so the one way back sits on the value itself.
+ */
+@Composable
+fun SpicyResettableValue(text: String, atDefault: Boolean, onReset: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val style = SpicyType.Caption.copy(fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum")
+    if (atDefault) {
+        Box(modifier.heightIn(min = 36.dp), contentAlignment = Alignment.Center) {
+            Text(text, style = style.copy(color = SpicyColors.TextSecondary))
+        }
+    } else {
+        PressSurface(onReset, modifier.semantics { contentDescription = "$text, tap to reset" }, enabled, horizontalPadding = 0.dp) {
+            Text(text, style = style)
+            Spacer(Modifier.width(SpicySpacing.S1))
+            Image(
+                rememberVectorPainter(Icons.Rounded.Replay),
+                null,
+                Modifier.size(14.dp),
+                colorFilter = ColorFilter.tint(SpicyColors.TextSecondary),
+            )
+        }
     }
 }
 
@@ -640,6 +679,8 @@ fun SpicyBipolarSlider(
     default: Int = 0,
     unit: String? = null,
     enabled: Boolean = true,
+    /** False leaves out the value and Reset under the groove, for a control that shows them itself. */
+    showValue: Boolean = true,
 ) {
     val clamped = value.coerceIn(range)
     val onChangeUpdated by rememberUpdatedState(onValueChange)
@@ -711,7 +752,7 @@ fun SpicyBipolarSlider(
             drawCircle(Color.Black.copy(alpha = 0.3f), r + 2.dp.toPx(), thumb.copy(y = thumb.y + 2.dp.toPx()))
             drawCircle(Color.White, r, thumb)
         }
-        Row(Modifier.fillMaxWidth().heightIn(min = 18.dp), verticalAlignment = Alignment.CenterVertically) {
+        if (showValue) Row(Modifier.fillMaxWidth().heightIn(min = 18.dp), verticalAlignment = Alignment.CenterVertically) {
             val sign = if (range.first < 0 && clamped > 0) "+" else ""
             Text(
                 "$sign$clamped${unit?.let { " $it" }.orEmpty()}",

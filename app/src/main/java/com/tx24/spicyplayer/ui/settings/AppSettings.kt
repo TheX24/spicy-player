@@ -87,6 +87,8 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** How strong the music haptics are, in percent of their own strength (25..400; over 100 layers heavier vibrations on). */
     var musicHapticsStrength by int("musicHapticsStrength", 100)
     var musicHapticsStyle by enum("musicHapticsStyle", MusicHapticsStyle.Drums)
+    /** A floating button that opens the quick settings (the song's and the output's delay). */
+    var quickSettingsButton by boolean("quickSettingsButton", true)
     /** A floating button that opens the Lyrics Manager (it is always in Settings → This song). */
     var lyricsManagerButton by boolean("lyricsManagerButton", true)
     /** The player's own extra actions (like, shuffle modes, …) as floating buttons. */

@@ -114,6 +114,8 @@ data class PlayerUiState(
     val canSeek: Boolean = false,
     val outputLabel: String = "Detecting output",
     val lyricDelayMs: Int = 0,
+    /** This song's own delay, on top of [lyricDelayMs] ([SongDelays]). */
+    val songDelayMs: Int = 0,
     val trackDirection: TrackDirection = TrackDirection.Forward,
     val customActions: List<SessionCustomAction> = emptyList(),
     val clockDriftMs: Long? = null,
@@ -165,6 +167,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private var lyricsBackend = NextLyricsBackend(application, runtimeApiKey.ifBlank { BuildConfig.SPICY_LYRICS_CLIENT_KEY })
     private val overrideStore = application.getSharedPreferences("spotify_id_overrides", 0)
     private val outputProfiles = AudioOutputProfiles(application)
+    private val songDelays = SongDelays(application)
     private var outputRoute = outputProfiles.currentRoute()
     private val mutableState = MutableStateFlow(PlayerUiState(
         outputLabel = outputRoute.label,
@@ -414,7 +417,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     /** Positive delay makes the lyrics appear later; negative delay advances them. */
     fun adjustLyricDelay(deltaMs: Int) {
-        val newDelay = (mutableState.value.lyricDelayMs + deltaMs).coerceIn(-2_000, 2_000)
+        val newDelay = clampDelay(mutableState.value.lyricDelayMs + deltaMs)
         outputProfiles.saveDelayMs(outputRoute, newDelay)
         mutableState.value = mutableState.value.copy(lyricDelayMs = newDelay)
     }
@@ -428,8 +431,19 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         mutableState.value = mutableState.value.copy(lyricDelayMs = 0)
     }
 
-    fun currentLyricPositionMs(): Long =
-        (currentPositionMs() - mutableState.value.lyricDelayMs).coerceAtLeast(0L)
+    /** Sets this song's own delay; does nothing while no song is identified. */
+    fun setSongDelay(delayMs: Int) {
+        val key = mutableState.value.localLyricsKey ?: return
+        val newDelay = clampDelay(delayMs)
+        songDelays.save(key, newDelay)
+        mutableState.value = mutableState.value.copy(songDelayMs = newDelay)
+    }
+
+    fun adjustSongDelay(deltaMs: Int) = setSongDelay(mutableState.value.songDelayMs + deltaMs)
+
+    fun currentLyricPositionMs(): Long = mutableState.value.let {
+        lyricPositionMs(currentPositionMs(), it.lyricDelayMs, it.songDelayMs)
+    }
 
     fun useApiKey(key: String) {
         runtimeApiKey = key.trim()
@@ -1074,6 +1088,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             manualSpotifyId = metadata.overrideKey()?.let { overrideStore.getString(it, null) }
             lyricsJob?.cancel()
         }
+        val localKey = if (lyricsChanged) {
+            metadata?.let { lookupRequest(it, null) }?.let { LocalLyricsStore.keyOf(it.title, it.artist) }
+        } else mutableState.value.localLyricsKey
         mutableState.value = mutableState.value.copy(
             accessGranted = true,
             sourcePackage = active.packageName,
@@ -1099,9 +1116,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 else -> LyricsState.Loading
             },
             providerAttempts = if (lyricsChanged) emptyList() else mutableState.value.providerAttempts,
-            localLyricsKey = if (lyricsChanged) {
-                metadata?.let { lookupRequest(it, null) }?.let { LocalLyricsStore.keyOf(it.title, it.artist) }
-            } else mutableState.value.localLyricsKey,
+            localLyricsKey = localKey,
+            songDelayMs = if (lyricsChanged) songDelays.delayMs(localKey) else mutableState.value.songDelayMs,
             lookupStatus = if (lyricsChanged) null else mutableState.value.lookupStatus,
             lastCommandLatencyMs = latency ?: mutableState.value.lastCommandLatencyMs,
             status = if (waitingForSeek || preserveStatus) mutableState.value.status else null,

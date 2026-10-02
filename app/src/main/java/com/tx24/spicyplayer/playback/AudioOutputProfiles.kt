@@ -45,7 +45,7 @@ internal class AudioOutputProfiles(context: Context) {
     fun delayMs(route: AudioOutputRoute): Int = preferences.getInt("delay:${route.key}", 0)
 
     fun saveDelayMs(route: AudioOutputRoute, delayMs: Int) {
-        preferences.edit().putInt("delay:${route.key}", delayMs.coerceIn(-2_000, 2_000)).apply()
+        preferences.edit().putInt("delay:${route.key}", clampDelay(delayMs)).apply()
     }
 
     @SuppressLint("InlinedApi")

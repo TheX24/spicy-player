@@ -3,6 +3,8 @@ package com.tx24.spicyplayer.ui.settings
 import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material.icons.rounded.MusicNote
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.OpenInFull
 import com.tx24.spicyplayer.ui.nowplaying.HeaderSize
 import android.content.ClipboardManager
@@ -105,6 +107,7 @@ import com.tx24.spicyplayer.ui.components.SettingRow
 import com.tx24.spicyplayer.ui.components.SettingsSection
 import com.tx24.spicyplayer.ui.components.SpicyBipolarSlider
 import com.tx24.spicyplayer.ui.components.SpicyButton
+import com.tx24.spicyplayer.ui.components.SpicyResettableValue
 import com.tx24.spicyplayer.ui.components.SpicyIconButton
 import com.tx24.spicyplayer.ui.components.SpicyTextField
 import com.tx24.spicyplayer.ui.components.SpicyToggle
@@ -175,6 +178,7 @@ internal fun ThisSongContent(
     SettingRow(label = "Look again", description = "Ask the sources again instead of using the saved lyrics.", icon = Icons.Rounded.Refresh) {
         SpicyButton("Retry", onClick = { viewModel.loadLyrics(force = true) })
     }
+    SongDelayRow(state, viewModel)
     SettingRow(
         label = "Lyrics Manager",
         description = "Use your own TTML for this song, once or saved, and manage the songs you've saved.",
@@ -337,19 +341,7 @@ internal fun ScrollSyncContent(state: PlayerUiState, viewModel: ExternalPlayback
         icon = Icons.Rounded.Timer,
         stacked = true,
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-            SpicyBipolarSlider(
-                value = state.lyricDelayMs,
-                range = -DELAY_RANGE_MS..DELAY_RANGE_MS,
-                step = DELAY_STEP_MS,
-                onValueChange = viewModel::setLyricDelay,
-                unit = "ms",
-            )
-            Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-                SpicyButton("−$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(-DELAY_STEP_MS) })
-                SpicyButton("+$DELAY_STEP_MS ms", onClick = { viewModel.adjustLyricDelay(DELAY_STEP_MS) })
-            }
-        }
+        DelayControl(state.lyricDelayMs, viewModel::setLyricDelay)
     }
     ToggleRow(
         label = "Seek Fade-in Compensation",
@@ -593,6 +585,13 @@ internal fun ControlsContent(settings: AppSettings) {
             onCheckedChange = { settings.expandButton = it },
             description = "Show the button that opens the big cover. It stays while the cover is open, to get back.",
             icon = Icons.Rounded.OpenInFull,
+        )
+        ToggleRow(
+            label = "Quick settings button",
+            checked = settings.quickSettingsButton,
+            onCheckedChange = { settings.quickSettingsButton = it },
+            description = "Show the button that opens the song and output delays without leaving the lyrics.",
+            icon = Icons.Rounded.Tune,
         )
         ToggleRow(
             label = "Lyrics Manager button",
@@ -894,15 +893,66 @@ internal fun lyricsSummary(lyrics: LyricsState): String = when (lyrics) {
  * stand-in that may yet be replaced.
  */
 internal fun songSummary(state: PlayerUiState): String {
-    val summary = lyricsSummary(state.lyrics)
+    val summary = lyricsSummary(state.lyrics) +
+        if (state.songDelayMs != 0) " · ${state.songDelayMs.signed()} ms delay" else ""
     if (state.lyrics !is LyricsState.Ready) return summary
     val waiting = state.providerAttempts.firstOrNull { it.outcome == ProviderAttemptOutcome.PENDING } ?: return summary
     val name = state.sourceDescriptors.firstOrNull { it.id == waiting.sourceId }?.displayName ?: waiting.sourceId
     return "$summary · checking $name…"
 }
 
+/**
+ * A delay's slider, with a stepper under it: −100, −10, the delay (tap to reset), +10, +100.
+ * Used for both the output's delay and the song's.
+ */
+@Composable
+internal fun DelayControl(valueMs: Int, onValueChange: (Int) -> Unit, enabled: Boolean = true) {
+    fun nudge(deltaMs: Int) {
+        if (enabled) onValueChange((valueMs + deltaMs).coerceIn(-DELAY_RANGE_MS, DELAY_RANGE_MS))
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+        SpicyBipolarSlider(
+            value = valueMs,
+            range = -DELAY_RANGE_MS..DELAY_RANGE_MS,
+            step = DELAY_STEP_MS,
+            onValueChange = onValueChange,
+            enabled = enabled,
+            showValue = false,
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2), verticalAlignment = Alignment.CenterVertically) {
+            val step = Modifier.weight(1f)
+            SpicyButton("−$DELAY_BIG_STEP_MS", { nudge(-DELAY_BIG_STEP_MS) }, step, enabled, horizontalPadding = 0.dp)
+            SpicyButton("−$DELAY_STEP_MS", { nudge(-DELAY_STEP_MS) }, step, enabled, horizontalPadding = 0.dp)
+            SpicyResettableValue(
+                "${valueMs.signed()} ms",
+                atDefault = valueMs == 0,
+                onReset = { if (enabled) onValueChange(0) },
+                modifier = Modifier.weight(1.6f),
+                enabled = enabled,
+            )
+            SpicyButton("+$DELAY_STEP_MS", { nudge(DELAY_STEP_MS) }, step, enabled, horizontalPadding = 0.dp)
+            SpicyButton("+$DELAY_BIG_STEP_MS", { nudge(DELAY_BIG_STEP_MS) }, step, enabled, horizontalPadding = 0.dp)
+        }
+    }
+}
+
+/** This song's own delay, added to the output's. */
+@Composable
+internal fun SongDelayRow(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
+    SettingRow(
+        label = "Song delay",
+        description = if (state.localLyricsKey == null) "Play a song to give it its own delay."
+            else "Only for this song, added to the delay for ${state.outputLabel}. For lyrics timed a little off.",
+        icon = Icons.Rounded.MusicNote,
+        stacked = true,
+    ) {
+        DelayControl(state.songDelayMs, viewModel::setSongDelay, enabled = state.localLyricsKey != null)
+    }
+}
+
 /** The delay slider's reach and step; the buttons nudge by one step. */
-private const val DELAY_RANGE_MS = 1_000
+private const val DELAY_RANGE_MS = com.tx24.spicyplayer.playback.MAX_DELAY_MS
 private const val DELAY_STEP_MS = 10
+private const val DELAY_BIG_STEP_MS = 100
 
 private val INFO_LABEL_WIDTH = 116.dp

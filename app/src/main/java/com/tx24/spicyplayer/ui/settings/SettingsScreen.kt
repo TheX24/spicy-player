@@ -359,13 +359,13 @@ private fun PageSkeleton(page: SettingsPage) {
     when (page) {
         SettingsPage.ThisSong -> {
             SettingsSkeleton(rows = 1, cards = true)
-            SettingsSkeleton(rows = 4)
+            SettingsSkeleton(rows = 5)
         }
         SettingsPage.Lyrics -> SettingsSkeleton(rows = 11)
         SettingsPage.ScrollSync -> SettingsSkeleton(rows = 6)
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
-        SettingsPage.Controls -> SettingsSkeleton(rows = 8)
+        SettingsPage.Controls -> SettingsSkeleton(rows = 9)
         SettingsPage.Sources -> SettingsSkeleton(rows = 10, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 7)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 8)
@@ -442,7 +442,7 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
             SettingsPage.Controls.title,
             listOf(
                 if (settings.autoHideControls) "Hide after ${settings.controlsHideDelay.label}" else "Always shown",
-                "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.lyricsManagerButton).count { it }} of 5 extra buttons",
+                "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.quickSettingsButton, settings.lyricsManagerButton).count { it }} of 6 extra buttons",
             ).joinToString(),
         ) { onOpen(SettingsPage.Controls) }
     }
