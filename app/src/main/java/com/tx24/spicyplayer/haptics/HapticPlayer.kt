@@ -32,29 +32,38 @@ class HapticPlayer(context: Context) {
             vibrator.areAllPrimitivesSupported(primitive.id)
 
     /**
-     * One music pulse, [strength] 0..1, with [roomMs] before the next:
-     * - kick: a low tick, with a thud's body behind it where there's room (~300 ms);
-     * - snare: a click; a note: a light tick;
-     * - beat: a low tick; downbeat: a click;
+     * One music pulse, [strength] 0..1, with [roomMs] before the next. Each drum has its own shape:
+     * - kick: a hard hit that falls away, with a thud's body behind the big ones where there's room;
+     * - snare: a crisp click with a short rattle after it; a note: a soft low tick;
+     * - beat: a short fall; downbeat: a click;
      * - accent: a click into a thud; drop: a slow swell into a thud.
+     *
+     * Below about a third of their scale the building blocks can't be felt, so strength is mapped
+     * above that: a quiet pulse is light, never missing.
      */
     fun play(pulse: MusicPulse, strength: Float, roomMs: Long = Long.MAX_VALUE) {
         val v = vibrator ?: return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        val s = strength.coerceIn(0f, 1f)
-        if (s <= 0f) return
+        if (strength <= 0f) return
+        val s = FELT + (1f - FELT) * strength.coerceIn(0f, 1f)
         val effect = when (pulse) {
-            MusicPulse.Kick -> (if (roomMs >= KICK_BODY_ROOM_MS) composed(s to Primitive.LowTick, s * 0.6f to Primitive.Thud) else null)
-                ?: composed(s to Primitive.LowTick) ?: composed(s to Primitive.Tick)
-                ?: VibrationEffect.createOneShot(16, amplitude(s * 0.7f))
-            MusicPulse.Snare -> composed(s to Primitive.Click) ?: VibrationEffect.createOneShot(10, amplitude(s))
-            MusicPulse.Note -> composed(s * 0.8f to Primitive.Tick) ?: VibrationEffect.createOneShot(6, amplitude(s * 0.5f))
-            MusicPulse.Beat -> composed(s to Primitive.LowTick) ?: composed(s to Primitive.Tick)
-                ?: VibrationEffect.createOneShot(12, amplitude(s * 0.6f))
-            MusicPulse.Downbeat -> composed(s to Primitive.Click) ?: VibrationEffect.createOneShot(20, amplitude(s * 0.8f))
-            MusicPulse.Accent -> composed(s to Primitive.Click, s to Primitive.Thud) ?: composed(s to Primitive.Click)
+            MusicPulse.Kick -> (if (roomMs >= KICK_BODY_ROOM_MS && strength >= KICK_BODY_STRENGTH) {
+                composed(Part(s, Primitive.QuickFall), Part(s * 0.7f, Primitive.Thud))
+            } else null)
+                ?: composed(Part(s, Primitive.QuickFall)) ?: composed(Part(s, Primitive.LowTick))
+                ?: VibrationEffect.createOneShot(30, amplitude(s * 0.8f))
+            MusicPulse.Snare -> (if (roomMs >= SNARE_RATTLE_ROOM_MS) {
+                composed(Part(s, Primitive.Click), Part(s * 0.5f, Primitive.Tick, RATTLE_GAP_MS), Part(s * 0.3f, Primitive.Tick, RATTLE_GAP_MS))
+            } else null)
+                ?: composed(Part(s, Primitive.Click)) ?: VibrationEffect.createOneShot(12, amplitude(s))
+            MusicPulse.Note -> composed(Part(s * 0.7f, Primitive.LowTick)) ?: composed(Part(s * 0.7f, Primitive.Tick))
+                ?: VibrationEffect.createOneShot(8, amplitude(s * 0.5f))
+            MusicPulse.Beat -> composed(Part(s * 0.8f, Primitive.QuickFall)) ?: composed(Part(s, Primitive.LowTick))
+                ?: VibrationEffect.createOneShot(16, amplitude(s * 0.6f))
+            MusicPulse.Downbeat -> composed(Part(s, Primitive.Click)) ?: VibrationEffect.createOneShot(20, amplitude(s * 0.8f))
+            MusicPulse.Accent -> composed(Part(s, Primitive.Click), Part(s, Primitive.Thud)) ?: composed(Part(s, Primitive.Click))
                 ?: VibrationEffect.createOneShot(40, amplitude(s))
-            MusicPulse.Drop -> composed(s * 0.5f to Primitive.SlowRise, s to Primitive.Thud)
+            MusicPulse.Drop -> composed(Part(s * 0.5f, Primitive.SlowRise), Part(s, Primitive.Thud))
                 ?: VibrationEffect.createWaveform(
                     longArrayOf(0, 100, 100, 100, 100, 100, 60),
                     intArrayOf(0, amplitude(s * 0.1f), amplitude(s * 0.2f), amplitude(s * 0.3f), amplitude(s * 0.4f), amplitude(s * 0.5f), amplitude(s)),
@@ -68,12 +77,15 @@ class HapticPlayer(context: Context) {
         vibrator?.cancel()
     }
 
-    /** [parts] played one after another (scale to building block), or null when the phone lacks any of them. */
-    private fun composed(vararg parts: Pair<Float, Primitive>): VibrationEffect? {
+    /** A building block at [scale], [delayMs] after the one before. */
+    private class Part(val scale: Float, val primitive: Primitive, val delayMs: Int = 0)
+
+    /** [parts] played one after another, or null when the phone lacks any of them. */
+    private fun composed(vararg parts: Part): VibrationEffect? {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
-        if (parts.any { !isSupported(it.second) }) return null
+        if (parts.any { !isSupported(it.primitive) }) return null
         return VibrationEffect.startComposition().apply {
-            parts.forEach { (scale, primitive) -> addPrimitive(primitive.id, scale.coerceIn(0f, 1f)) }
+            parts.forEach { addPrimitive(it.primitive.id, it.scale.coerceIn(0f, 1f), it.delayMs) }
         }.compose()
     }
 
@@ -112,7 +124,13 @@ class HapticPlayer(context: Context) {
     }
 
     private companion object {
-        /** A kick gets a thud's body only with this much quiet after it. */
-        const val KICK_BODY_ROOM_MS = 280L
+        /** The lowest scale a pulse plays at: the building blocks fade out of feel below it. */
+        const val FELT = 0.35f
+        /** A kick gets a thud's body only this strong and with this much quiet after it. */
+        const val KICK_BODY_STRENGTH = 0.6f
+        const val KICK_BODY_ROOM_MS = 350L
+        /** A snare rattles only with this much quiet after it, its ticks this far apart. */
+        const val SNARE_RATTLE_ROOM_MS = 120L
+        const val RATTLE_GAP_MS = 18
     }
 }

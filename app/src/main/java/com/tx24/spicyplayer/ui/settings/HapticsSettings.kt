@@ -4,10 +4,17 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Equalizer
 import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.LinearScale
+import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Vibration
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.dp
+import com.tx24.spicyplayer.ui.components.SpicyButton
+import com.tx24.spicyplayer.ui.theme.SpicySpacing
 import com.tx24.spicyplayer.haptics.HapticPlayer
 import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.haptics.MusicPulse
@@ -76,6 +83,27 @@ internal fun HapticsSection(settings: AppSettings) {
                 unit = "%",
                 enabled = settings.musicHaptics && player.canPlayMusic,
             )
+        }
+        SettingRow(
+            label = "Try the music haptics",
+            description = "Feel each one at the strength set above.",
+            icon = Icons.Rounded.TouchApp,
+            enabled = settings.musicHaptics && player.canPlayMusic,
+            stacked = true,
+        ) {
+            val enabled = settings.musicHaptics && player.canPlayMusic
+            Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+                listOf("Kick" to MusicPulse.Kick, "Snare" to MusicPulse.Snare, "Note" to MusicPulse.Note, "Drop" to MusicPulse.Drop)
+                    .forEach { (label, pulse) ->
+                        SpicyButton(
+                            label,
+                            { player.play(pulse, (0.9f * settings.musicHapticsStrength / 100f).coerceAtMost(1f)) },
+                            Modifier.weight(1f),
+                            enabled,
+                            horizontalPadding = 0.dp,
+                        )
+                    }
+            }
         }
     }
 }

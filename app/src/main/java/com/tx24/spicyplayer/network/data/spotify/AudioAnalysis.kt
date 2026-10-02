@@ -6,8 +6,9 @@ import com.google.gson.JsonObject
 
 /**
  * The parts of Spotify's audio analysis the background and the music haptics follow: the track's
- * tempo and loudness, its sections, beats and bars, and the loudness of its segments (Spotify's
- * short sound events, a note or a hit each). Times are in seconds, loudness in dB.
+ * tempo and loudness, its sections, beats and bars, the loudness of its segments (Spotify's short
+ * sound events, a note or a hit each), and its [Rhythm]: where sounds start, per frequency band.
+ * Times are in seconds, loudness in dB.
  */
 class AudioAnalysis(
     val tempo: Float,
@@ -17,14 +18,16 @@ class AudioAnalysis(
     /** When each bar starts: its first beat, the downbeat. */
     val bars: List<Float> = emptyList(),
     val segments: List<Segment> = emptyList(),
+    val rhythm: Rhythm? = null,
 ) {
     class Section(val start: Float, val duration: Float, val loudness: Float, val tempo: Float)
     class Beat(val start: Float, val duration: Float, val confidence: Float)
 
     /**
      * A segment's loudness as it starts and at its peak, when the peak comes, and three of its
-     * timbre measures (unscaled, only comparable within one track): how bright it sounds (high
-     * against low frequencies), how flat or noisy its spectrum is, and how sharp its attack is.
+     * timbre coefficients (unscaled, only comparable within one track): [brightness] (the second,
+     * high against low frequencies), and the fifth and tenth, which with it tell a snare from a
+     * kick (a snare sits higher on the first two and lower on the last).
      */
     class Segment(
         val start: Float,
@@ -32,8 +35,8 @@ class AudioAnalysis(
         val loudnessMax: Float,
         val peakAt: Float,
         val brightness: Float = 0f,
-        val flatness: Float = 0f,
-        val attack: Float = 0f,
+        val timbre4: Float = 0f,
+        val timbre9: Float = 0f,
     )
 
     /**
@@ -53,9 +56,10 @@ class AudioAnalysis(
         add("bars", numbers(*bars.toFloatArray()))
         add("segments", JsonArray().apply {
             segments.forEach { g ->
-                add(numbers(g.start, g.loudnessStart, g.loudnessMax, g.peakAt, g.brightness, g.flatness, g.attack))
+                add(numbers(g.start, g.loudnessStart, g.loudnessMax, g.peakAt, g.brightness, g.timbre4, g.timbre9))
             }
         })
+        addProperty(RHYTHM_KEY, rhythm?.raw ?: "")
     }
 
     companion object {
@@ -83,14 +87,16 @@ class AudioAnalysis(
                     fun timbre(i: Int) = timbre?.takeIf { it.size() > i }?.get(i)?.asFloat ?: 0f
                     Segment(
                         start, o.float("loudness_start"), o.float("loudness_max"), start + o.float("loudness_max_time"),
-                        brightness = timbre(1), flatness = timbre(2), attack = timbre(3),
+                        brightness = timbre(1), timbre4 = timbre(4), timbre9 = timbre(9),
                     )
                 }.orEmpty(),
+                rhythm = track.get("rhythmstring")?.takeUnless(JsonElement::isJsonNull)?.asString?.let(Rhythm::parse),
             )
         }.getOrNull()
 
-        /** Reads what [toJson] wrote; null for a copy saved before segments kept their timbre, so it's fetched again. */
+        /** Reads what [toJson] wrote; null for a copy saved before it kept the rhythm, so it's fetched again. */
         fun fromJson(root: JsonObject): AudioAnalysis? = runCatching {
+            val rhythm = root.get(RHYTHM_KEY)?.asString ?: return null
             AudioAnalysis(
                 tempo = root.get("tempo").asFloat,
                 loudness = root.get("loudness").asFloat,
@@ -107,8 +113,12 @@ class AudioAnalysis(
                     val a = e.asJsonArray
                     Segment(a[0].asFloat, a[1].asFloat, a[2].asFloat, a[3].asFloat, a[4].asFloat, a[5].asFloat, a[6].asFloat)
                 },
+                rhythm = rhythm.takeIf { it.isNotEmpty() }?.let(Rhythm::parse),
             )
         }.getOrNull()
+
+        /** Older copies lack it (and kept other timbre), so they're read as missing. */
+        private const val RHYTHM_KEY = "rhythm"
 
         private fun JsonObject.float(key: String): Float = get(key)?.takeUnless(JsonElement::isJsonNull)?.asFloat ?: 0f
 

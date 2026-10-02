@@ -3,8 +3,11 @@ package com.tx24.spicyplayer.haptics
 import com.google.gson.JsonParser
 import com.tx24.spicyplayer.network.data.spotify.AudioAnalysis
 import com.tx24.spicyplayer.network.data.spotify.LocalTrackMetadata
+import com.tx24.spicyplayer.network.data.spotify.Rhythm
 import com.tx24.spicyplayer.network.data.spotify.SharedSpotify
 import java.nio.file.Files
+import java.util.Base64
+import java.util.zip.Deflater
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -13,6 +16,24 @@ import org.junit.Assume.assumeTrue
 import org.junit.Test
 
 class MusicHapticScoreTest {
+    /** A `rhythmstring` for [bands] of onset times in seconds, as Spotify packs it. */
+    private fun rhythmString(bands: List<List<Float>>): String {
+        val text = StringBuilder("11025 32 ${bands.size}")
+        bands.forEach { onsets ->
+            text.append(' ').append(onsets.size)
+            var last = 0L
+            onsets.forEach { t ->
+                val step = Math.round(t * 11025.0 / 32)
+                text.append(' ').append(step - last)
+                last = step
+            }
+        }
+        val deflater = Deflater().apply { setInput(text.toString().toByteArray()); finish() }
+        val buffer = ByteArray(64 * 1024)
+        val packed = buffer.copyOf(deflater.deflate(buffer))
+        return Base64.getUrlEncoder().encodeToString(packed)
+    }
+
     private val analysis = AudioAnalysis(
         tempo = 120f,
         loudness = -10f,
@@ -46,7 +67,11 @@ class MusicHapticScoreTest {
         assertTrue(score.getValue(6_000L).strength > score.getValue(6_500L).strength)
     }
 
-    /** Eight bars of a kick on 1 and 3 and a brighter, snappier snare on 2 and 4. */
+    /**
+     * Eight bars of a kick on 1 and 3 and a brighter snare on 2 and 4, every band starting a sound
+     * at each, with a hi-hat (the top band alone) between them. Bar 6 has an extra loud hit on the
+     * "and" of 4, across every band, and bar 4's kick on 3 only reaches the lower half of the bands.
+     */
     private val drumLoop = AudioAnalysis(
         tempo = 120f,
         loudness = -8f,
@@ -57,21 +82,51 @@ class MusicHapticScoreTest {
             val t = it * 0.5f
             val snare = it % 2 == 1
             listOf(
-                AudioAnalysis.Segment(t, -30f, -6f, t + 0.02f, brightness = if (snare) 40f else -20f, attack = if (snare) 60f else 20f),
-                // A quiet pad between the hits.
-                AudioAnalysis.Segment(t + 0.25f, -20f, -18f, t + 0.3f, brightness = 0f, attack = 0f),
+                AudioAnalysis.Segment(t, -30f, -6f, t + 0.02f, brightness = if (snare) 40f else -20f, timbre4 = if (snare) 10f else -10f, timbre9 = if (snare) -10f else 10f),
+                // The hi-hat over a quiet pad between the hits; the fill is loud.
+                if (t + 0.25f == SYNCOPATED) AudioAnalysis.Segment(t + 0.25f, -30f, -6f, t + 0.27f)
+                else AudioAnalysis.Segment(t + 0.25f, -20f, -18f, t + 0.3f),
             )
         },
+        rhythm = Rhythm.parse(
+            rhythmString(
+                List(8) { band ->
+                    val hits = (0 until 32).map { it * 0.5f }.filter { band < 4 || it != WEAK_KICK } + SYNCOPATED
+                    (if (band == 7) hits + (0 until 32).map { it * 0.5f + 0.25f } else hits).sorted()
+                },
+            ),
+        ),
     )
 
+    @Test fun rhythmReadsBackItsOnsets() {
+        val rhythm = Rhythm.parse(rhythmString(listOf(listOf(0.5f, 1f), listOf(1f), listOf(2f))))!!
+        assertEquals(3, rhythm.bands.size)
+        assertEquals(1f, rhythm.bands[0][1], 0.003f)
+        // The two onsets at 1 s are one hit across the two lower bands.
+        assertEquals(listOf(1, 2, 1), rhythm.hits.map { it.bandCount })
+        assertEquals(0b011, rhythm.hits[1].bands)
+    }
+
     @Test fun kicksAndSnaresComeFromTheSound() {
-        val score = MusicHapticScore.build(drumLoop).associateBy { it.atMs }
-        assertEquals(MusicPulse.Kick, score[4_000L]?.pulse)
-        assertEquals(MusicPulse.Snare, score[4_500L]?.pulse)
-        assertEquals(MusicPulse.Kick, score[5_000L]?.pulse)
-        assertEquals(MusicPulse.Snare, score[5_500L]?.pulse)
-        // The pad isn't a hit.
-        assertTrue(score[4_250L] == null)
+        val score = MusicHapticScore.build(drumLoop)
+        // The rhythm's onsets sit on a ~3 ms grid.
+        fun at(ms: Long) = score.firstOrNull { kotlin.math.abs(it.atMs - ms) <= 3 }?.pulse
+        assertEquals(MusicPulse.Kick, at(4_000L))
+        assertEquals(MusicPulse.Snare, at(4_500L))
+        assertEquals(MusicPulse.Kick, at(5_000L))
+        assertEquals(MusicPulse.Snare, at(5_500L))
+        // The hi-hat alone isn't a drum hit; a hit across every band off the beat is.
+        assertEquals(null, at(4_250L))
+        assertEquals(MusicPulse.Kick, at((SYNCOPATED * 1000).toLong()))
+    }
+
+    @Test fun theGroovePlaysInEveryBar() {
+        // Bar 4's kick on 3 is too thin to be a drum on its own, but the groove has a kick there
+        // and the audio a sound: it plays like every other bar's.
+        val score = MusicHapticScore.build(drumLoop)
+        val kick = score.firstOrNull { kotlin.math.abs(it.atMs - (WEAK_KICK * 1000).toLong()) <= 3 }
+        assertEquals(MusicPulse.Kick, kick?.pulse)
+        assertEquals(score.first { kotlin.math.abs(it.atMs - 5_000L) <= 3 }.strength, kick!!.strength, 1e-6f)
     }
 
     @Test fun withoutDrumsTheNotesPlayLightly() {
@@ -111,6 +166,13 @@ class MusicHapticScoreTest {
         }
     }
 
+    private companion object {
+        /** The off-beat hit in [drumLoop]: the "and" of 4 in bar 6. */
+        const val SYNCOPATED = 11.75f
+        /** The kick in [drumLoop] reaching only the lower bands: 3 in bar 4. */
+        const val WEAK_KICK = 7f
+    }
+
     private val songs = listOf(
         LocalTrackMetadata("Blinding Lights", "The Weeknd", "After Hours", 200_000),
         LocalTrackMetadata("bad guy", "Billie Eilish", "WHEN WE ALL FALL ASLEEP, WHERE DO WE GO?", 194_000),
@@ -142,9 +204,14 @@ class MusicHapticScoreTest {
                 val bar = bars.lastOrNull { it <= t + 0.03f } ?: return@mapNotNull null
                 a.beats.count { it.start >= bar - 0.03f && it.start < t - 0.03f }
             }.groupingBy { it }.eachCount().toSortedMap()
+            val kickAt = drums.filter { it.pulse == MusicPulse.Kick }.mapNotNull { k ->
+                val t = k.atMs / 1000f
+                val bar = bars.lastOrNull { it <= t + 0.03f } ?: return@mapNotNull null
+                a.beats.count { it.start >= bar - 0.03f && it.start < t - 0.03f }
+            }.groupingBy { it }.eachCount().toSortedMap()
             println(
                 "${track.title}: drums ${"%.0f".format(drums.size / minutes)}/min (${counts.joinToString()}), " +
-                    "beat ${"%.0f".format(beat.size / minutes)}/min; snares by beat $snareAt",
+                    "beat ${"%.0f".format(beat.size / minutes)}/min; snares by beat $snareAt; kicks by beat $kickAt",
             )
         }
     }

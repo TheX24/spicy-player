@@ -1,6 +1,7 @@
 package com.tx24.spicyplayer.haptics
 
 import com.tx24.spicyplayer.network.data.spotify.AudioAnalysis
+import com.tx24.spicyplayer.network.data.spotify.Rhythm
 import kotlin.math.abs
 import kotlin.math.sqrt
 
@@ -27,11 +28,22 @@ const val DROP_RISE_MS = 500L
 /**
  * Turns a song's audio analysis into the vibrations that play along with it.
  *
- * [MusicHapticsStyle.Drums] feels what is played. The beat grid gives the timing; the sound on
- * each beat says what it is: whether anything is hit there at all (a sharp rise in loudness), and
- * whether it's a kick or a snare, by its timbre against the beats either side (a backbeat's snare
- * or clap sounds brighter and snappier than the kick around it). Strong hits between beats
- * (syncopation) join in. Sections without drums follow the notes instead, lightly.
+ * [MusicHapticsStyle.Drums] feels what is played, from the song's [Rhythm]. A snare, a clap or an
+ * acoustic kick starts a sound in nearly every frequency band at once, where a bass note or a
+ * hi-hat starts one in a band or two, so the hits reaching most bands are drums, on the beat or off
+ * it, and the more bands the harder. Each is a kick or a snare by its timbre against the hits
+ * around it: a snare or clap sounds brighter than the kick. Most produced kicks (an 808, say) only
+ * reach the lowest band, like the bass does; in a section with drums whose downbeats aren't
+ * full-band hits, the kick must be one of those, so the loud, sharp onsets in the lowest band are
+ * taken for it, and they join the hits the full-band ones are compared with (so a clap among 808s
+ * sounds as snary as it is). Sections without full-band drum hits follow
+ * the notes instead, lightly, from the smaller onsets: a piano's low notes are no kick. A song with
+ * no rhythm in its analysis gets the steady beat.
+ *
+ * Judged one by one, a hit near a threshold lands on a different side of it from bar to bar, and
+ * a groove that repeats would flicker. So each drum section is then played as its groove: what is
+ * hit on a sixteenth in most of its bars is played in every bar, as a kick or a snare by what it
+ * is most often, at its usual strength, wherever the audio has a sound there ([grooves]).
  *
  * [MusicHapticsStyle.Beat] is a steady pulse: every beat, firmer on each bar's first.
  *
@@ -48,18 +60,51 @@ object MusicHapticScore {
 
     /** A segment starting this close to a beat is the sound on that beat, in seconds. */
     private const val ON_BEAT = 0.07f
-    /** A rise of this many dB into a segment is a hit. */
-    private const val HIT_JUMP_DB = 6f
-    /** A section with hits on this share of its beats has drums. */
-    private const val DRUM_SECTION_SHARE = 0.3f
-    /** How much brighter and snappier than the beats either side (in track standard deviations) a snare is. */
-    private const val SNARE_CONTRAST = 0.35f
-    /** A hit between beats joins in when it rises this many dB, attacks this sharply, and is this loud. */
-    private const val OFFBEAT_JUMP_DB = 12f
-    private const val OFFBEAT_ATTACK = 0.5f
-    private const val OFFBEAT_LEVEL = 0.4f
+    /** A section with hits reaching this many of the rhythm's bands surely has drums... */
+    private const val FULL_BANDS = 6
+    /** ...and within one with drums, a hit reaching this many is a drum. */
+    private const val DRUM_BANDS = 5
+    /** ...and one reaching this many, where there are no drums, a note. */
+    private const val NOTE_BANDS = 4
+    /** A section with as many full-band hits as this share of its beats has drums (a backbeat alone is half)... */
+    private const val DRUM_SECTION_SHARE = 0.2f
+    /**
+     * ...and so does one with drum hits on this share of its beats, in a song with drums elsewhere,
+     * no more than [DRUM_SECTION_QUIETER_DB] quieter than those: a mix whose drums seldom reach
+     * every band (lo-fi, say) mustn't drop out of its drums halfway.
+     */
+    private const val DRUM_HIT_SHARE = 0.3f
+    private const val DRUM_SECTION_QUIETER_DB = 3f
+    /** A section with full-band hits on fewer than this share of its downbeats has a low kick... */
+    private const val FULL_DOWNBEATS = 0.5f
+    /** ...taken from onsets in the lowest band this loud (0..1)... */
+    private const val LOW_KICK_LEVEL = 0.75f
+    /** ...that rise at least this many dB. */
+    private const val LOW_KICK_JUMP_DB = 8f
+    /** A full-band hit this close to a downbeat is on it, in seconds. */
+    private const val ON_DOWNBEAT = 0.05f
+    /** How much snarier than the hits around it (in track standard deviations) a snare sounds. */
+    private const val SNARE_CONTRAST = 0.3f
+    /** The hits this close either side are what a hit's sound is compared with, in seconds. */
+    private const val SNARE_WINDOW = 4f
+    /** A hit takes the segment starting up to this long after it as its sound, in seconds. */
+    private const val SOUND_LAG = 0.03f
     /** Notes (in sections without drums) at least this far apart, in seconds. */
     private const val NOTE_GAP = 0.15f
+
+    /** A bar's slots: sixteenths. */
+    private const val SLOTS = 16
+    /** A hit this far (in slots) from a sixteenth is on it. */
+    private const val ON_SLOT = 0.3f
+    /** A section needs this many bars to have a groove. */
+    private const val GROOVE_MIN_BARS = 4
+    /** A sixteenth hit in this share of a section's bars is part of its groove. */
+    private const val GROOVE_SHARE = 0.5f
+    /** The groove plays only where a sound reaching this many bands starts within [GROOVE_SOUND_WINDOW] (seconds). */
+    private const val GROOVE_SOUND_BANDS = 3
+    private const val GROOVE_SOUND_WINDOW = 0.04f
+    /** A hit off the groove (a fill, a crash) still plays when this strong. */
+    private const val FILL_STRENGTH = 0.7f
 
     /** A section this many dB louder than the one before comes in with an accent... */
     private const val DROP_DB = 4f
@@ -93,53 +138,147 @@ object MusicHapticScore {
     // Drums
 
     private fun drums(song: Song): MutableList<MusicHaptic> {
+        val rhythm = song.a.rhythm ?: return steadyBeat(song)
         val out = ArrayList<MusicHaptic>()
-        val onBeat = song.beats.map { song.soundAt(it.start) }
-        // Each beat's brightness and snap, to compare with its neighbours.
-        val character = onBeat.map { i -> i?.let { song.brightness[it] + song.attack[it] } }
-        val drumSections = song.a.sections.map { section ->
-            val inSection = song.beats.indices.filter { song.beats[it].start in section.start..<section.start + section.duration }
-            val hits = inSection.count { b -> onBeat[b]?.let { song.jump(it) >= HIT_JUMP_DB && song.level(it) >= 0.2f } == true }
-            inSection.isNotEmpty() && hits >= DRUM_SECTION_SHARE * inSection.size
+        val fullHits = rhythm.hits.filter { it.bandCount >= DRUM_BANDS }
+        fun count(hits: List<Rhythm.Hit>, from: Float, to: Float, bands: Int) = hits.count { it.at >= from && it.at < to && it.bandCount >= bands }
+        val fullTimes = fullHits.map { it.at }.toFloatArray()
+        // Sections whose kick only reaches the lowest band: their downbeats aren't full-band hits.
+        val lowKickSections = song.a.sections.map { section ->
+            val downbeats = song.a.bars.filter { it >= section.start && it < section.start + section.duration }
+            downbeats.isNotEmpty() &&
+                downbeats.count { song.hasNear(fullTimes, it, ON_DOWNBEAT) } < FULL_DOWNBEATS * downbeats.size
         }
-        fun drumsAt(t: Float): Boolean {
+        fun inSection(flags: List<Boolean>, t: Float): Boolean {
             val s = song.sectionIndex(t)
-            // Before the first section (or with none), trust the whole song.
-            return if (s >= 0) drumSections[s] else drumSections.count { it } * 2 >= drumSections.size
+            // Before the first section (or with none), go with the most of the song.
+            return if (s >= 0) flags[s] else flags.count { it } * 2 >= flags.size
+        }
+        val beatsIn = song.a.sections.map { section -> song.beats.count { it.start >= section.start && it.start < section.start + section.duration } }
+        val sureDrums = song.a.sections.mapIndexed { i, section ->
+            beatsIn[i] > 0 && count(fullHits, section.start, section.start + section.duration, FULL_BANDS) >= DRUM_SECTION_SHARE * beatsIn[i]
+        }
+        val drumLoudness = song.a.sections.filterIndexed { i, _ -> sureDrums[i] }.map { it.loudness }.average().toFloat()
+        val drumSections = song.a.sections.mapIndexed { i, section ->
+            sureDrums[i] || (
+                sureDrums.any { it } && beatsIn[i] > 0 && section.loudness >= drumLoudness - DRUM_SECTION_QUIETER_DB &&
+                    count(fullHits, section.start, section.start + section.duration, DRUM_BANDS) >= DRUM_HIT_SHARE * beatsIn[i]
+                )
+        }
+        fun drumsAt(t: Float) = inSection(drumSections, t)
+        fun lowKickAt(t: Float) = drumsAt(t) && inSection(lowKickSections, t)
+        val lowKicks = rhythm.hits.filter { hit ->
+            hit.bands and 1 != 0 && hit.bandCount < DRUM_BANDS && lowKickAt(hit.at) &&
+                song.segmentAt(hit.at + SOUND_LAG)?.let { song.level(it) >= LOW_KICK_LEVEL && song.jump(it) >= LOW_KICK_JUMP_DB } == true
         }
 
-        song.beats.forEachIndexed { b, beat ->
-            if (!drumsAt(beat.start)) return@forEachIndexed
-            val seg = onBeat[b] ?: return@forEachIndexed
-            val hit = ((song.jump(seg) - 3f) / 12f).coerceIn(0f, 1f)
-            var strength = song.level(seg) * (0.35f + 0.65f * hit)
-            val neighbours = listOfNotNull(character.getOrNull(b - 1), character.getOrNull(b + 1))
-            val snare = neighbours.isNotEmpty() && character[b]!! - neighbours.average() >= SNARE_CONTRAST
-            if (!snare && song.isDownbeat(beat.start)) strength *= 1.15f
-            if (strength >= MIN_STRENGTH) {
-                out += MusicHaptic(ms(beat.start), if (snare) MusicPulse.Snare else MusicPulse.Kick, strength.coerceAtMost(1f))
+        val drumHits = (fullHits + lowKicks).sortedBy { it.at }
+        val sounds = drumHits.map { song.segmentAt(it.at + SOUND_LAG) }
+        drumHits.forEachIndexed { h, hit ->
+            if (!drumsAt(hit.at)) return@forEachIndexed
+            val seg = sounds[h] ?: return@forEachIndexed
+            if (hit.bandCount < DRUM_BANDS) {
+                out += drum(song, hit.at, MusicPulse.Kick, song.level(seg) * 0.8f)
+                return@forEachIndexed
             }
+            // The fewest bands a drum reaches is a light hit, every band a full one.
+            val fullness = ((hit.bandCount - DRUM_BANDS + 1f) / (rhythm.bands.size - DRUM_BANDS + 1f)).coerceIn(0f, 1f)
+            val snare = isSnare(song, drumHits, sounds, h)
+            out += drum(song, hit.at, if (snare) MusicPulse.Snare else MusicPulse.Kick, song.level(seg) * (0.45f + 0.55f * fullness))
         }
-
-        // Syncopation: strong hits away from the beats, kick or snare by their sound against the song's.
-        val snareCharacter = character.filterNotNull().let { if (it.isEmpty()) 0f else it.average().toFloat() }
-        song.segments.forEachIndexed { i, seg ->
-            if (song.nearBeat(seg.start) || !drumsAt(seg.start)) return@forEachIndexed
-            if (song.jump(i) < OFFBEAT_JUMP_DB || song.attack[i] < OFFBEAT_ATTACK || song.level(i) < OFFBEAT_LEVEL) return@forEachIndexed
-            val snare = song.brightness[i] + song.attack[i] > snareCharacter + SNARE_CONTRAST
-            out += MusicHaptic(ms(seg.start), if (snare) MusicPulse.Snare else MusicPulse.Kick, 0.8f * song.level(i))
-        }
+        val sounds3 = rhythm.hits.filter { it.bandCount >= GROOVE_SOUND_BANDS }.map { it.at }.toFloatArray()
+        val steady = grooves(out, song, sounds3, drumSections)
+        out.clear()
+        out += steady
+        out.removeAll { it.strength < MIN_STRENGTH }
 
         // No drums: a light touch on each clear note.
         var lastNote = Float.NEGATIVE_INFINITY
-        song.segments.forEachIndexed { i, seg ->
-            if (drumsAt(seg.start) || seg.start - lastNote < NOTE_GAP) return@forEachIndexed
-            val level = song.level(i)
-            if (song.jump(i) < HIT_JUMP_DB || level < 0.25f) return@forEachIndexed
-            out += MusicHaptic(ms(seg.start), MusicPulse.Note, 0.2f + 0.4f * level)
-            lastNote = seg.start
+        for (hit in rhythm.hits) {
+            if (hit.bandCount < NOTE_BANDS || hit.at - lastNote < NOTE_GAP || drumsAt(hit.at)) continue
+            val level = song.segmentAt(hit.at + SOUND_LAG)?.let(song::level) ?: continue
+            if (level < 0.25f) continue
+            out += MusicHaptic(ms(hit.at), MusicPulse.Note, 0.2f + 0.4f * level)
+            lastNote = hit.at
         }
         return out
+    }
+
+    /**
+     * [pulses] with each drum section's played as its groove. Its bars are laid on sixteenths; a
+     * sixteenth hit in [GROOVE_SHARE] of them or more is the groove's, and plays in every bar, as
+     * the pulse it is most often and at its median strength, at the hit if the bar has one there,
+     * else at the sound starting nearest it in [sounds] (none: a break, and nothing plays). Hits off
+     * the groove stay only as strong as a fill. Sections too short for a groove keep their hits.
+     */
+    private fun grooves(pulses: List<MusicHaptic>, song: Song, sounds: FloatArray, drumSections: List<Boolean>): List<MusicHaptic> {
+        val bars = song.a.bars.sorted()
+        val out = ArrayList<MusicHaptic>()
+        val replaced = HashSet<MusicHaptic>()
+        song.a.sections.forEachIndexed { s, section ->
+            if (!drumSections[s]) return@forEachIndexed
+            val end = section.start + section.duration
+            val inSection = bars.indices.filter { it + 1 < bars.size && bars[it] >= section.start - 0.05f && bars[it] < end - 0.05f }
+            if (inSection.size < GROOVE_MIN_BARS) return@forEachIndexed
+            // Each bar's pulse on each sixteenth, the strongest where two land on one.
+            val grid = inSection.map { b ->
+                val start = bars[b]
+                val length = bars[b + 1] - start
+                val slots = arrayOfNulls<MusicHaptic>(SLOTS)
+                for (p in pulses) {
+                    if (p.pulse != MusicPulse.Kick && p.pulse != MusicPulse.Snare) continue
+                    val at = (p.atMs / 1000f - start) / length * SLOTS
+                    if (at < -0.5f || at >= SLOTS - 0.5f) continue
+                    replaced += p
+                    val slot = Math.round(at)
+                    if (abs(at - slot) > ON_SLOT) {
+                        if (p.strength >= FILL_STRENGTH) out += p
+                        continue
+                    }
+                    if (slots[slot] == null || slots[slot]!!.strength < p.strength) slots[slot] = p
+                }
+                slots
+            }
+            for (slot in 0 until SLOTS) {
+                val hits = grid.mapNotNull { it[slot] }
+                if (hits.size < GROOVE_SHARE * grid.size) {
+                    hits.filter { it.strength >= FILL_STRENGTH }.forEach { out += it }
+                    continue
+                }
+                val pulse = if (hits.count { it.pulse == MusicPulse.Snare } * 2 > hits.size) MusicPulse.Snare else MusicPulse.Kick
+                val strength = hits.map { it.strength }.sorted()[hits.size / 2]
+                grid.forEachIndexed { i, slots ->
+                    val at = slots[slot]?.atMs ?: run {
+                        val b = inSection[i]
+                        val t = bars[b] + (bars[b + 1] - bars[b]) * slot / SLOTS
+                        song.nearest(sounds, t, GROOVE_SOUND_WINDOW)?.let(::ms)
+                    } ?: return@forEachIndexed
+                    out += MusicHaptic(at, pulse, strength)
+                }
+            }
+        }
+        return pulses.filterNot { it in replaced } + out
+    }
+
+    /** A drum hit at [at]; a kick on a downbeat lands a little firmer. */
+    private fun drum(song: Song, at: Float, pulse: MusicPulse, strength: Float): MusicHaptic {
+        val firmer = if (pulse == MusicPulse.Kick && song.isDownbeat(at)) strength * 1.15f else strength
+        return MusicHaptic(ms(at), pulse, firmer.coerceAtMost(1f))
+    }
+
+    /** Whether drum hit [h] sounds snarier than the median of the hits around it. */
+    private fun isSnare(song: Song, hits: List<Rhythm.Hit>, sounds: List<Int?>, h: Int): Boolean {
+        val tone = sounds[h]?.let { song.snareTone[it] } ?: return false
+        val around = ArrayList<Float>()
+        var i = h - 1
+        while (i >= 0 && hits[h].at - hits[i].at <= SNARE_WINDOW) { sounds[i]?.let { around += song.snareTone[it] }; i-- }
+        i = h + 1
+        while (i < hits.size && hits[i].at - hits[h].at <= SNARE_WINDOW) { sounds[i]?.let { around += song.snareTone[it] }; i++ }
+        if (around.size < 3) return false
+        around.sort()
+        val mid = around.size / 2
+        val median = if (around.size % 2 == 1) around[mid] else (around[mid - 1] + around[mid]) / 2f
+        return tone - median > SNARE_CONTRAST
     }
 
     // Steady beat
@@ -236,16 +375,40 @@ object MusicHapticScore {
         val segments = a.segments.sortedBy { it.start }
         private val starts = FloatArray(segments.size) { segments[it].start }
         val beats = a.beats.filter { it.confidence >= MIN_BEAT_CONFIDENCE }
-        private val beatStarts = FloatArray(beats.size) { beats[it].start }
         private val bars = a.bars.sorted().toFloatArray()
         private val sectionStarts = a.sections.map { it.start }.toFloatArray()
 
-        // Timbre in track standard deviations: only comparable within one song.
-        val brightness = standardised { it.brightness }
-        val attack = standardised { it.attack }
+        /**
+         * How much each segment sounds like a snare rather than a kick, in track standard
+         * deviations (timbre is only comparable within one song): brighter, higher on the fifth
+         * coefficient, lower on the tenth. On real songs this picks the backbeat out of a
+         * kick-snare pattern better than brightness alone.
+         */
+        val snareTone = standardised { it.brightness }.also { tone ->
+            val fifth = standardised { it.timbre4 }
+            val tenth = standardised { it.timbre9 }
+            for (i in tone.indices) tone[i] += fifth[i] - tenth[i]
+        }
 
-        fun jump(i: Int) = segments[i].loudnessMax - segments[i].loudnessStart
         fun level(i: Int) = level(segments[i].loudnessMax, a.loudness)
+        fun jump(i: Int) = segments[i].loudnessMax - segments[i].loudnessStart
+
+        /** The time in [sorted] nearest [t], if one is within [window]. */
+        fun nearest(sorted: FloatArray, t: Float, window: Float): Float? {
+            val i = lastAtOrBefore(sorted, t)
+            val before = sorted.getOrNull(i)?.takeIf { t - it <= window }
+            val after = sorted.getOrNull(i + 1)?.takeIf { it - t <= window }
+            return listOfNotNull(before, after).minByOrNull { abs(it - t) }
+        }
+
+        /** Whether [sorted] has a time within [window] of [t]. */
+        fun hasNear(sorted: FloatArray, t: Float, window: Float): Boolean {
+            val i = lastAtOrBefore(sorted, t + window)
+            return i >= 0 && sorted[i] >= t - window
+        }
+
+        /** The segment playing at [t], or null before the first. */
+        fun segmentAt(t: Float): Int? = lastAtOrBefore(starts, t).takeIf { it >= 0 }
 
         /** The loudest segment starting within [ON_BEAT] of [t], or null. */
         fun soundAt(t: Float): Int? {
@@ -264,11 +427,6 @@ object MusicHapticScore {
             val i = lastAtOrBefore(starts, t)
             if (i >= 0) return level(i)
             return level(a.sections.getOrNull(sectionIndex(t))?.loudness ?: a.loudness, a.loudness)
-        }
-
-        fun nearBeat(t: Float): Boolean {
-            val i = lastAtOrBefore(beatStarts, t)
-            return (i >= 0 && t - beatStarts[i] < 0.09f) || (i + 1 < beatStarts.size && beatStarts[i + 1] - t < 0.09f)
         }
 
         fun isDownbeat(t: Float): Boolean {
