@@ -850,10 +850,16 @@ private fun AttemptLine(attempt: ProviderAttempt, state: PlayerUiState) {
         ProviderAttemptOutcome.SKIPPED -> "Skipped" to SpicyColors.TextTertiary
         ProviderAttemptOutcome.UNAVAILABLE, ProviderAttemptOutcome.MALFORMED_HIT -> "Failed" to SpicyColors.StatusDanger
     }
+    val context = LocalContext.current
+    val locale = androidx.compose.ui.platform.LocalLocale.current.platformLocale
     val detail = listOfNotNull(
         attempt.quality.takeIf { it != RemoteLyricsQuality.NONE }?.label(),
         attempt.failureCategory?.name?.lowercase()?.replace('_', ' '),
         attempt.message,
+        attempt.retryAt?.let { at ->
+            val pattern = if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm:ss" else "h:mm:ss a"
+            "tries again at " + java.text.SimpleDateFormat(pattern, locale).format(java.util.Date(at.toEpochMilli()))
+        },
     ).joinToString(" · ")
     Row(Modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S3, vertical = SpicySpacing.S1)) {
         Text(name, style = SpicyType.Caption.copy(color = SpicyColors.TextSecondary), modifier = Modifier.width(INFO_LABEL_WIDTH))

@@ -64,6 +64,8 @@ class SpicyLyricsProvider @Inject constructor(
     /** A stalled server would otherwise hold a request open for as long as it trickles bytes. */
     private val deadlineClient = client.newBuilder().callTimeout(15, TimeUnit.SECONDS).build()
     private val backoff = BackoffLadder()
+    /** The last refusal, said while resting from it. */
+    @Volatile private var restReason: String? = null
 
     override suspend fun warmUp() {
         if (apiKey.isNotBlank()) spotifyResolver.warmUp()
@@ -140,35 +142,41 @@ class SpicyLyricsProvider @Inject constructor(
             .get()
             .build()
 
-        backoff.openUntil(System.currentTimeMillis())?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it)) }
+        backoff.openUntil(System.currentTimeMillis())?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it), restReason) }
         return try {
             deadlineClient.newCall(httpRequest).awaitResponse().use { response ->
-                val retryAfter = response.header("Retry-After")?.let(RetryAfterParser::deadline)
+                if (response.code == 200 || response.code == 404) {
+                    backoff.success()
+                    return if (response.code == 404) ProviderResult.Miss else parseHit(response.body?.string().orEmpty())
+                }
+                // The API says what went wrong, e.g. which request window ran out.
+                val reason = "Spicy Lyrics returned HTTP ${response.code}" +
+                    apiErrorMessage(response.body?.string().orEmpty())?.let { ": $it" }.orEmpty()
+                // A spent request window says when it refills (RateLimit-Reset, in seconds), which
+                // beats the ladder's guess.
+                val retryAfter = (response.header("Retry-After") ?: response.header("RateLimit-Reset")?.takeIf { response.code == 429 })
+                    ?.let(RetryAfterParser::deadline)
                 if (response.code in REFUSED_STATUSES) {
+                    restReason = reason
                     backoff.failure(System.currentTimeMillis(), retryAfter?.toEpochMilli())
-                        ?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it)) }
+                        ?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it), reason) }
                 } else backoff.success()
                 when (response.code) {
-                    200 -> parseHit(response.body?.string().orEmpty())
-                    404 -> ProviderResult.Miss
-                    429 -> retryAfter?.let(ProviderResult::CoolingDown) ?: ProviderResult.Unavailable(
-                        ProviderFailureCategory.SERVER, "Spicy Lyrics returned HTTP 429", retryable = true,
-                    )
+                    429 -> retryAfter?.let { ProviderResult.CoolingDown(it, reason) }
+                        ?: ProviderResult.Unavailable(ProviderFailureCategory.SERVER, reason, retryable = true)
                     503 -> ProviderResult.Queued(retryAfter)
-                    401, 403 -> ProviderResult.Unavailable(ProviderFailureCategory.AUTHENTICATION, "Spicy Lyrics returned HTTP ${response.code}")
-                    in 400..499 -> ProviderResult.Unavailable(ProviderFailureCategory.CLIENT_REQUEST, "Spicy Lyrics returned HTTP ${response.code}")
-                    else -> ProviderResult.Unavailable(
-                        ProviderFailureCategory.SERVER,
-                        "Spicy Lyrics returned HTTP ${response.code}",
-                        retryable = response.code >= 500,
-                    )
+                    401, 403 -> ProviderResult.Unavailable(ProviderFailureCategory.AUTHENTICATION, reason)
+                    in 400..499 -> ProviderResult.Unavailable(ProviderFailureCategory.CLIENT_REQUEST, reason)
+                    else -> ProviderResult.Unavailable(ProviderFailureCategory.SERVER, reason, retryable = response.code >= 500)
                 }
             }
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (error: IOException) {
             // Timeouts included: an overloaded server usually stalls rather than refuses.
-            backoff.failure(System.currentTimeMillis())?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it)) }
+            val reason = error.message ?: error::class.simpleName
+            restReason = reason
+            backoff.failure(System.currentTimeMillis())?.let { return ProviderResult.CoolingDown(Instant.ofEpochMilli(it), reason) }
             ProviderResult.Unavailable(ProviderFailureCategory.NETWORK, error.message, retryable = true)
         } catch (error: Exception) {
             ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, error.message)
@@ -226,6 +234,14 @@ internal fun JsonObject.contributor(name: String): LyricsContributor? {
     val avatar = item.get("avatar")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.startsWith("https://") }
     return LyricsContributor(username, url, avatar)
 }
+
+/** The message in a Spicy Lyrics API error (`{"Body":{"error","message"}}`), if the body is one. */
+internal fun apiErrorMessage(body: String): String? = runCatching {
+    val error = com.google.gson.JsonParser.parseString(body).asJsonObject.getAsJsonObject("Body")
+    sequenceOf("message", "error")
+        .mapNotNull { error.get(it)?.takeIf { value -> value.isJsonPrimitive }?.asString?.trim() }
+        .firstOrNull(String::isNotEmpty)
+}.getOrNull()
 
 /** Where Spicy Lyrics' API says a song's lyrics come from, by the names the ranking knows. */
 internal fun spicyOriginName(raw: String?): String = when (raw?.trim()?.lowercase()?.replace('-', '_')?.replace(' ', '_')) {

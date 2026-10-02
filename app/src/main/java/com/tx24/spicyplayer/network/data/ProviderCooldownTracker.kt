@@ -13,20 +13,26 @@ import javax.inject.Singleton
 /** In-memory cooldown gate. A Room-backed implementation can replace it without provider changes. */
 @Singleton
 class ProviderCooldownTracker @Inject constructor() {
-    private val deadlines = ConcurrentHashMap<String, Instant>()
+    private data class Rest(val until: Instant, val reason: String?)
+    private val deadlines = ConcurrentHashMap<String, Rest>()
 
-    fun record(sourceId: String, retryAt: Instant) {
-        deadlines.merge(sourceId, retryAt) { current, proposed -> maxOf(current, proposed) }
+    fun record(sourceId: String, retryAt: Instant, reason: String? = null) {
+        deadlines.merge(sourceId, Rest(retryAt, reason)) { current, proposed ->
+            if (proposed.until > current.until) proposed else current
+        }
     }
 
     fun retryAt(sourceId: String, now: Instant = Instant.now()): Instant? {
-        val deadline = deadlines[sourceId] ?: return null
-        if (!deadline.isAfter(now)) {
-            deadlines.remove(sourceId, deadline)
+        val rest = deadlines[sourceId] ?: return null
+        if (!rest.until.isAfter(now)) {
+            deadlines.remove(sourceId, rest)
             return null
         }
-        return deadline
+        return rest.until
     }
+
+    /** Why [sourceId] is resting, when its refusal said. */
+    fun reason(sourceId: String): String? = deadlines[sourceId]?.reason
 
     fun clear(sourceId: String) {
         deadlines.remove(sourceId)
@@ -37,7 +43,7 @@ class ProviderCooldownTracker @Inject constructor() {
     }
 
     fun activeDeadlines(now: Instant = Instant.now()): Map<String, Instant> =
-        deadlines.filterValues { it.isAfter(now) }
+        deadlines.mapValues { it.value.until }.filterValues { it.isAfter(now) }
 }
 
 object RetryAfterParser {

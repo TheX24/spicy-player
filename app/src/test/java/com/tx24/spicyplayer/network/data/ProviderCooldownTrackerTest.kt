@@ -52,6 +52,15 @@ class ProviderCooldownTrackerTest {
     }
 
     @Test
+    fun `tracker keeps the reason of the deadline it keeps`() {
+        val tracker = ProviderCooldownTracker()
+        tracker.record("source", now.plusSeconds(120), "HTTP 429")
+        tracker.record("source", now.plusSeconds(30), "timeout")
+
+        assertEquals("HTTP 429", tracker.reason("source"))
+    }
+
+    @Test
     fun `tracker removes expired deadline`() {
         val tracker = ProviderCooldownTracker()
         tracker.record("source", now.plusSeconds(10))

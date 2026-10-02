@@ -95,7 +95,8 @@ sealed interface ProviderResult {
     data class Hit(val payload: RemoteLyricsPayload) : ProviderResult
     data object Miss : ProviderResult
     data object NeedsMatch : ProviderResult
-    data class CoolingDown(val retryAt: Instant) : ProviderResult
+    /** Resting until [retryAt]; [reason] is the refusal that started it, when known. */
+    data class CoolingDown(val retryAt: Instant, val reason: String? = null) : ProviderResult
     data class Queued(val retryAt: Instant? = null) : ProviderResult
     data class Unavailable(
         val category: ProviderFailureCategory,

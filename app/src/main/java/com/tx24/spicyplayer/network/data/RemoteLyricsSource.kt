@@ -202,7 +202,7 @@ class RemoteLyricsSource @Inject constructor(
             if (blends.any { it.id == id }) {
                 blendResults[id] = result
             } else {
-                if (result is ProviderResult.CoolingDown) cooldowns.record(id, result.retryAt)
+                if (result is ProviderResult.CoolingDown) cooldowns.record(id, result.retryAt, result.reason)
                 known[id] = result
             }
             startBlends()
@@ -253,7 +253,7 @@ class RemoteLyricsSource @Inject constructor(
                     retryAt != null -> {
                         hadUnavailableProvider = true
                         earliestRetryAt = earliest(earliestRetryAt, retryAt)
-                        ProviderAttempt(source.id, ProviderAttemptOutcome.COOLING_DOWN, retryAt = retryAt)
+                        ProviderAttempt(source.id, ProviderAttemptOutcome.COOLING_DOWN, retryAt = retryAt, message = cooldowns.reason(source.id))
                     }
                     else -> ProviderAttempt(source.id, ProviderAttemptOutcome.SKIPPED)
                 }
@@ -289,6 +289,7 @@ class RemoteLyricsSource @Inject constructor(
                         source.id,
                         ProviderAttemptOutcome.COOLING_DOWN,
                         retryAt = result.retryAt,
+                        message = result.reason,
                     )
                     earliestRetryAt = earliest(earliestRetryAt, result.retryAt)
                     hadUnavailableProvider = true

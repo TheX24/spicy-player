@@ -48,6 +48,13 @@ class ProviderTextTest {
         assertEquals(null, rmm("""{"ttml":"<tt/>"}""").originName)
     }
 
+    @Test fun spicyLyricsApiErrorsSayWhy() {
+        assertEquals("Rate limit exceeded", apiErrorMessage("""{"Body":{"error":"rate_limited","message":"Rate limit exceeded"},"Status":429,"Type":"object"}"""))
+        assertEquals("rate_limited", apiErrorMessage("""{"Body":{"error":"rate_limited"},"Status":429}"""))
+        assertEquals(null, apiErrorMessage("<html>Bad gateway</html>"))
+        assertEquals(null, apiErrorMessage(""))
+    }
+
     @Test fun geniusSkipsNestedPageFurniture() {
         val html = """<div data-lyrics-container="true" class="x"><div data-exclude-from-selection="true"><div><span>Translations</span></div></div>""" +
             """[Verse 1]<br/>We're no <a href="#"><span>strangers</span></a> to love<br>You know the rules</div><div>footer</div>"""

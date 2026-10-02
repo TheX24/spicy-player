@@ -312,7 +312,7 @@ class RemoteLyricsSourceTest {
             "limited",
             10,
             calls,
-            ProviderResult.CoolingDown(retryAt),
+            ProviderResult.CoolingDown(retryAt, "HTTP 429: window exhausted"),
         )
         val source = source(cooling)
 
@@ -326,6 +326,9 @@ class RemoteLyricsSourceTest {
             ProviderAttemptOutcome.COOLING_DOWN,
             second.attempts.single().outcome,
         )
+        // Why it rests is said both when refused and while it rests, not asked.
+        assertEquals("HTTP 429: window exhausted", first.attempts.single().message)
+        assertEquals("HTTP 429: window exhausted", second.attempts.single().message)
     }
 
     @Test
