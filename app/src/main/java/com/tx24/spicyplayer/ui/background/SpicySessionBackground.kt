@@ -38,10 +38,12 @@ fun SpicySessionBackground(
     /** Cover Art only: the record's animated cover, played over the still one. */
     motionCoverUrl: String? = null,
     onMotionCoverFailed: () -> Unit = {},
+    /** False when no player is around: the logo then stands in at once. */
+    hasSession: Boolean = true,
 ) {
     when (type) {
         BackgroundType.Default, BackgroundType.Legacy -> {
-            val softwareArtwork = rememberSessionArtwork(artwork, artworkUri, maxDimension = 256)?.bitmap
+            val softwareArtwork = rememberSessionArtwork(artwork, artworkUri, maxDimension = 256, hasSession = hasSession)?.bitmap
             if (type == BackgroundType.Legacy) {
                 LegacyBackground(coverArtBitmap = softwareArtwork, modifier = modifier, animate = animate)
             } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -63,16 +65,16 @@ fun SpicySessionBackground(
             }
         }
         BackgroundType.Color -> {
-            ColorBackground(rememberSessionArtwork(artwork, artworkUri, maxDimension = 256), modifier)
+            ColorBackground(rememberSessionArtwork(artwork, artworkUri, maxDimension = 256, hasSession = hasSession), modifier)
         }
         BackgroundType.CoverArt -> {
             Box(modifier) {
-                StillImageBackground(rememberSessionArtwork(artwork, artworkUri, maxDimension = STILL_COVER_PX), blurDp)
+                StillImageBackground(rememberSessionArtwork(artwork, artworkUri, maxDimension = STILL_COVER_PX, hasSession = hasSession), blurDp)
                 if (motionCoverUrl != null) MotionImageBackground(motionCoverUrl, blurDp, onMotionCoverFailed)
             }
         }
         BackgroundType.Auto, BackgroundType.ArtistHeader -> {
-            val cover = rememberSessionArtwork(artwork, artworkUri, maxDimension = STILL_COVER_PX)
+            val cover = rememberSessionArtwork(artwork, artworkUri, maxDimension = STILL_COVER_PX, hasSession = hasSession)
             val context = LocalContext.current
             // Which header URL has loaded, and what it gave (null: it failed, so the cover shows).
             val header by produceState<Pair<String, SessionArtwork?>?>(null, artistHeaderUrl) {

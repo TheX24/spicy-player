@@ -9,6 +9,7 @@ import android.graphics.Bitmap
  * @param artists the session's artist string as published; several are joined with ", ".
  * @param album the session's album name, empty when it has none.
  * @param direction which way the player moved to reach this track, for the cover change.
+ * @param hasSession false when no player is around, so the logo shows without waiting for a cover.
  */
 data class NowPlayingInfo(
     val title: String,
@@ -17,6 +18,7 @@ data class NowPlayingInfo(
     val artwork: Bitmap? = null,
     val artworkUri: String? = null,
     val direction: TrackDirection = TrackDirection.Forward,
+    val hasSession: Boolean = true,
 )
 
 /** Whether a track change went on through the queue or back to an earlier track. */

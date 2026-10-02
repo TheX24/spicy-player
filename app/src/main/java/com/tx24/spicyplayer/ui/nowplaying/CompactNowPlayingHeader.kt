@@ -146,7 +146,7 @@ fun CompactNowPlayingHeader(
         }
     }
     val density = LocalDensity.current
-    val artwork = rememberSessionArtwork(info.artwork, info.artworkUri, maxDimension = ARTWORK_MAX_PX)
+    val artwork = rememberSessionArtwork(info.artwork, info.artworkUri, maxDimension = ARTWORK_MAX_PX, hasSession = info.hasSession)
     val motionQuery = MotionCoverQuery(info.artists, info.album, info.title)
     val motionUrl = rememberMotionCoverUrl(animatedCover, motionQuery)
     // Everything moves in the layout and draw phases, so the transition doesn't recompose the header.

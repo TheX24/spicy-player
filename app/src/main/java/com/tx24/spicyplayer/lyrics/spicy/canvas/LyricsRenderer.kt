@@ -324,8 +324,16 @@ private fun cssPx(layout: TextLayoutResult, isBackground: Boolean): Float =
 private fun lyricSizePx(layout: TextLayoutResult, isBackground: Boolean): Float =
     with(layout.layoutInput) { with(density) { style.fontSize.toPx() } } / (if (isBackground) 0.75f else 1f)
 
-/** [scale] with its distance from 1 multiplied by [boost] (RenderConfig.wordMotionBoost). */
-private fun boosted(scale: Float, boost: Float): Float = 1f + (scale - 1f) * boost
+/**
+ * [scale] with its growth past 1 multiplied by [boost] (RenderConfig.wordMotionBoost). Below 1 it
+ * passes through: boosting the resting 0.95 too would shrink unsung and settling words further.
+ */
+internal fun boostedScale(scale: Float, boost: Float): Float =
+    if (scale > 1f) 1f + (scale - 1f) * boost else scale
+
+/** [yOffset] with its lift (negative, upward) multiplied by [boost]; the resting dip passes through. */
+internal fun boostedLift(yOffset: Float, boost: Float): Float =
+    if (yOffset < 0f) yOffset * boost else yOffset
 
 /** Word/syllable-synced karaoke line. */
 internal fun DrawScope.drawStandardLine(
@@ -388,10 +396,10 @@ private fun DrawScope.drawSyllabicLetterFragment(
     // Offsets are in lyric font sizes (--DefaultLyricsSize); a letter's is applied ×2.
     val lyricSize = lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground)
     val boost = config.wordMotionBoost
-    val lYShift = lState.yOffset * lyricSize * 2f * boost
-    val containerYShift = wordAnim.yOffset * lyricSize * boost
-    val wordScale = boosted(wordAnim.scale, boost)
-    val letterScale = boosted(lState.scale, boost)
+    val lYShift = boostedLift(lState.yOffset, boost) * lyricSize * 2f
+    val containerYShift = boostedLift(wordAnim.yOffset, boost) * lyricSize
+    val wordScale = boostedScale(wordAnim.scale, boost)
+    val letterScale = boostedScale(lState.scale, boost)
 
     // Glow shadow tracks the spring in every state (not gated to Active): the animator keeps
     // stepping scale/glow/yOffset toward their Sung targets after EndTime (checkNextLine), so a
@@ -467,8 +475,8 @@ private fun DrawScope.drawStandardWord(
         else -> null
     }
 
-    val wordScale = boosted(wordAnim.scale, config.wordMotionBoost)
-    val wordYShift = wordAnim.yOffset * lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground) * config.wordMotionBoost
+    val wordScale = boostedScale(wordAnim.scale, config.wordMotionBoost)
+    val wordYShift = boostedLift(wordAnim.yOffset, config.wordMotionBoost) * lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground)
     val pivotX = xPos + textWidth * anchor
     val pivotY = yPos + textHeight / 2f
 

@@ -546,6 +546,7 @@ private fun LyricsApp(
                         artwork = state.artwork,
                         artworkUri = state.artworkUri,
                         isPlaying = state.isPlaying,
+                        hasSession = state.sourcePackage != null,
                         modifier = Modifier.fillMaxSize(),
                         type = backgroundType,
                         animate = !lowPerformance && !settings.staticBackground,
@@ -616,7 +617,7 @@ private fun LyricsApp(
                     if (landscape) landscapeMetrics.centred else headerMetrics.expanded(pageHeight - controlsHeightPx)
                 }
                 CompactNowPlayingHeader(
-                    info = NowPlayingInfo(state.title, state.artist, state.album, state.artwork, state.artworkUri, state.trackDirection),
+                    info = NowPlayingInfo(state.title, state.artist, state.album, state.artwork, state.artworkUri, state.trackDirection, hasSession = state.sourcePackage != null),
                     releaseYear = ReleaseYear(state.releaseYear, state.releaseYearPending, settings.releaseYearPosition),
                     metrics = headerMetrics,
                     modifier = Modifier.padding(belowTop),

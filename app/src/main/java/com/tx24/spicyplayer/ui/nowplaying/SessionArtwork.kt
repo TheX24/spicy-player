@@ -33,19 +33,24 @@ class SessionArtwork(val bitmap: Bitmap, val fingerprint: Int)
  * Loads the session's cover: its bitmap when it sent one, else its artwork URI through Coil.
  * When there is none, the app logo stands in, but only after [FALLBACK_GRACE_MS]: players often
  * publish a new song's metadata a moment before its cover, and the logo flashing up in between
- * would be noise.
+ * would be noise. Without a session ([hasSession] false) no cover is coming, so it shows at once.
  */
 @Composable
-fun rememberSessionArtwork(artwork: Bitmap?, artworkUri: String?, maxDimension: Int): SessionArtwork? {
+fun rememberSessionArtwork(
+    artwork: Bitmap?,
+    artworkUri: String?,
+    maxDimension: Int,
+    hasSession: Boolean = true,
+): SessionArtwork? {
     val context = LocalContext.current
     var loaded by remember { mutableStateOf<SessionArtwork?>(null) }
-    LaunchedEffect(artwork, artworkUri, maxDimension) {
+    LaunchedEffect(artwork, artworkUri, maxDimension, hasSession) {
         val cover = loadSessionArtwork(context, artwork, artworkUri, maxDimension)
         if (cover != null) {
             loaded = cover
             return@LaunchedEffect
         }
-        delay(FALLBACK_GRACE_MS)
+        if (hasSession) delay(FALLBACK_GRACE_MS)
         loaded = fallbackArtwork(context)
     }
     return loaded
