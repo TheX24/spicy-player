@@ -98,7 +98,7 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** A floating button that opens the Lyrics Manager (it is always in Settings → This song). */
     var lyricsManagerButton by boolean("lyricsManagerButton", true)
     /** The player's own extra actions (like, shuffle modes, …) as floating buttons. */
-    var playerButtons by boolean("playerButtons", true)
+    var playerButtons by boolean("playerButtons", false)
     var romanizeButton by boolean("romanizeButton", true)
     var resyncButton by boolean("resyncButton", true)
     var expandButton by boolean("expandButton", true)
