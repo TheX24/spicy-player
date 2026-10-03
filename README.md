@@ -11,12 +11,18 @@ An Android lyrics screen for music playing in another app. It follows the active
 
 ## Try it
 
-1. Install an APK from [Releases](https://github.com/TheX24/spicy-player/releases), or build one below. Later versions can be installed from inside the app (Settings → Advanced → Updates).
+1. Install an APK from [Releases](https://github.com/TheX24/spicy-player/releases), or build one below. After that, the app offers new versions itself when you open it; "Check for updates" at the bottom of Settings looks right away.
 2. Open the app and grant notification access when prompted. Android uses this permission to let the app discover active media sessions. You can revoke it in system settings.
 3. Start music in another app, then return to the lyrics app. It should follow the active player and look up lyrics.
-4. Use Settings to adjust lyric sources, timing, or an optional Spicy Lyrics client key. Debug shows the result of recent source lookups.
+4. Use Settings to adjust lyric sources, timing, or an optional Spicy Lyrics client key. Settings → Advanced → Last lookup shows what each source returned for the current song.
 
 Playback controls depend on what the music app exposes through Android MediaSession. Some apps or account tiers limit seek and skip; the app explains when Spotify Free refuses one. Lyrics depend on the source having a usable match; a missing or uncertain Spotify match is not silently replaced with a different recording.
+
+## Bugs, ideas, and contributions
+
+Found a bug or have an idea? [Report a bug or suggest a feature](https://github.com/TheX24/Spicy-Player/issues/new/choose), or post in the [Spicy Player thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j) (join first, then the thread link works). Both are linked from the version card in Settings. Include your app version, phone/Android version, music app, and steps to reproduce a bug; screenshots and song links help.
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for reports and pull requests, and [SECURITY.md](SECURITY.md) for private vulnerability reporting. Remove keys and private information before sharing diagnostics.
 
 ## Battery and performance
 
