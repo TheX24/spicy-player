@@ -814,6 +814,22 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         }
     }
 
+    /**
+     * How a song without a Spotify ID from the player was matched, once its lookup ends: the
+     * sources that need an ID search Spotify for one, and the match is remembered there.
+     */
+    private fun searchedMatchInfo(request: LyricsLookupRequest, attempts: List<ProviderAttempt>): String {
+        val track = LocalTrackMetadata(request.title, request.artist, request.album, request.durationSeconds * 1_000L)
+        SharedSpotify.resolver.remembered(track)?.track?.candidate?.let { match ->
+            return "Spotify search: ${match.title} · ${match.artists.joinToString()} (${match.id})"
+        }
+        return if (attempts.any { it.outcome == ProviderAttemptOutcome.NEEDS_MATCH }) {
+            "Spotify search found no confident match"
+        } else {
+            "No Spotify search needed this time (cached, or found by title and artist)"
+        }
+    }
+
     /** What the sources are asked for [metadata]: its names cleaned up for lookup. */
     private fun lookupRequest(metadata: MediaMetadata, spotifyTrackId: String?): LyricsLookupRequest {
         val names = TrackNameCleaner.clean(
@@ -906,6 +922,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         if (final) Log.d("LyricsProviders", resolution.attempts.joinToString { "${it.sourceId}:${it.outcome}:${it.failureCategory ?: ""}:${it.message ?: ""}" })
         mutableState.value = mutableState.value.copy(
             providerAttempts = resolution.attempts,
+            matchInfo = if (final && request.spotifyTrackId == null) searchedMatchInfo(request, resolution.attempts) else mutableState.value.matchInfo,
             lyrics = lyrics,
             lookupStatus = when {
                 selection != null && pending.isNotEmpty() -> "Showing ${selection.source.displayName} · still checking $names…"

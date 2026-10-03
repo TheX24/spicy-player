@@ -42,7 +42,8 @@ class SpotifyTrackResolver(private val catalogSearch: SpotifyCatalogSearch) {
     /** Spotify's results for a query the user typed. */
     suspend fun search(query: String): List<SpotifyTrackCandidate> = catalogSearch.search(query)
 
-    private fun remembered(track: LocalTrackMetadata) = synchronized(recent) { recent[track] }
+    /** The match already made for [track], without searching; null if none was made lately. */
+    fun remembered(track: LocalTrackMetadata): SpotifyTrackResolution.Matched? = synchronized(recent) { recent[track] }
 
     private suspend fun search(track: LocalTrackMetadata): SpotifyTrackResolution {
         val startedAt = android.os.SystemClock.elapsedRealtime()
