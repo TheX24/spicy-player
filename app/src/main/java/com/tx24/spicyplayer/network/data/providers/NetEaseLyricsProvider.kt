@@ -99,20 +99,36 @@ class NetEaseLyricsProvider @Inject constructor(private val client: OkHttpClient
     }
 }
 
+/**
+ * NetEase's word-timed lyrics: `[lineStart,lineLength](wordStart,wordLength,0)word…`, in ms.
+ * Word starts are absolute (the first word of a line starting at 28480 says 28480).
+ */
 internal object YrcToTtml {
+    /** Rights notices ("词版权管理方：…", "录音作品及MV版权：…"), which the shared credit check lets through. */
+    private val rights = Regex("^[^:：]{0,20}版权[^:：]{0,8}[:：]")
+    private const val RELATIVE_SLACK_MS = 1_000L
     private val line = Regex("^\\[(\\d+),(\\d+)](.*)$")
     private val word = Regex("\\((\\d+),(\\d+),[^)]*\\)([^()]*)")
     fun convert(yrc: String): String? {
         val paragraphs = yrc.lineSequence().mapNotNull { raw ->
             val match = line.matchEntire(raw.trim()) ?: return@mapNotNull null
             val start = match.groupValues[1].toLong(); val duration = match.groupValues[2].toLong()
-            val spans = word.findAll(match.groupValues[3]).mapNotNull { token ->
-                val offset = token.groupValues[1].toLongOrNull() ?: return@mapNotNull null
+            val words = word.findAll(match.groupValues[3]).mapNotNull { token ->
+                val at = token.groupValues[1].toLongOrNull() ?: return@mapNotNull null
                 val length = token.groupValues[2].toLongOrNull() ?: return@mapNotNull null
                 val text = token.groupValues[3]; if (text.isEmpty()) return@mapNotNull null
-                "<span begin=\"${sec(start + offset)}\" end=\"${sec(start + offset + length)}\">${xml(text)}</span>"
+                Triple(at, length, text)
             }.toList()
-            if (spans.isEmpty()) null else "<p begin=\"${sec(start)}\" end=\"${sec(start + duration)}\">${spans.joinToString("")}</p>"
+            if (words.isEmpty()) return@mapNotNull null
+            val body = words.joinToString("") { it.third }.trim()
+            if (BlendDonors.isCredit(body) || rights.containsMatchIn(body)) return@mapNotNull null
+            // Should a line ever come with its words timed from the line's start, they'd sit
+            // well before it: add the start back then.
+            val base = if (words.first().first + RELATIVE_SLACK_MS < start) start else 0L
+            val spans = words.joinToString("") { (at, length, text) ->
+                "<span begin=\"${sec(base + at)}\" end=\"${sec(base + at + length)}\">${xml(text)}</span>"
+            }
+            "<p begin=\"${sec(start)}\" end=\"${sec(start + duration)}\">$spans</p>"
         }.toList()
         if (paragraphs.isEmpty()) return null
         return """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="word"><body><div>${paragraphs.joinToString("")}</div></body></tt>"""
