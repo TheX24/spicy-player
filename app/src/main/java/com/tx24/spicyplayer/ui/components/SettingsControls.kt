@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.material.icons.rounded.ArrowOutward
 import androidx.compose.material.icons.rounded.Replay
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.contentDescription
@@ -481,9 +482,23 @@ fun SpicyButton(
     enabled: Boolean = true,
     /** Narrower for a row of small buttons sharing the width. */
     horizontalPadding: androidx.compose.ui.unit.Dp = 14.dp,
+    /** A platform's colour, which takes over the tint, the ring and the label. */
+    brand: Color? = null,
+    /** Marks a link that leaves the app with a small arrow. */
+    external: Boolean = false,
 ) {
-    PressSurface(onClick, modifier, enabled, horizontalPadding) {
-        Text(text, style = SpicyType.Caption.copy(fontWeight = FontWeight.SemiBold, letterSpacing = 0.01.em))
+    val color = brand ?: SpicyColors.TextPrimary
+    PressSurface(onClick, modifier, enabled, horizontalPadding, brand) {
+        Text(text, style = SpicyType.Caption.copy(color = color, fontWeight = FontWeight.SemiBold, letterSpacing = 0.01.em))
+        if (external) {
+            Spacer(Modifier.width(6.dp))
+            Image(
+                rememberVectorPainter(Icons.Rounded.ArrowOutward),
+                null,
+                Modifier.size(12.dp).alpha(0.7f),
+                colorFilter = ColorFilter.tint(color),
+            )
+        }
     }
 }
 
@@ -524,6 +539,7 @@ private fun PressSurface(
     modifier: Modifier,
     enabled: Boolean,
     horizontalPadding: androidx.compose.ui.unit.Dp = 14.dp,
+    brand: Color? = null,
     content: @Composable RowScope.() -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
@@ -537,8 +553,22 @@ private fun PressSurface(
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .alpha(if (enabled) 1f else DISABLED_ALPHA)
             .clip(shape)
-            .background(if (pressed) SpicyColors.TintBgPressed else SpicyColors.TintBg)
-            .border(1.dp, if (pressed) SpicyColors.HairlineStrong else SpicyColors.Hairline, shape)
+            .background(
+                when {
+                    brand != null -> brand.copy(alpha = if (pressed) 0.24f else 0.14f)
+                    pressed -> SpicyColors.TintBgPressed
+                    else -> SpicyColors.TintBg
+                },
+            )
+            .border(
+                1.dp,
+                when {
+                    brand != null -> brand.copy(alpha = if (pressed) 0.55f else 0.35f)
+                    pressed -> SpicyColors.HairlineStrong
+                    else -> SpicyColors.Hairline
+                },
+                shape,
+            )
             .clickable(interaction, indication = null, enabled = enabled, role = Role.Button) {
                 haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
                 onClick()

@@ -763,6 +763,7 @@ private fun SourceCard(
 private val RankFill = androidx.compose.ui.graphics.Color.White.copy(alpha = 0.09f)
 
 private fun LyricsSourceDescriptor.summary(): String = buildList {
+    if (rankOnly) return "Word and line synced"
     add(
         when {
             LyricsCapability.WORD_SYNC in capabilities -> "Word synced"
@@ -811,26 +812,9 @@ internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
             )
         }
     }
-    val session = listOfNotNull(
-        "Player" to (state.sourcePackage ?: "None"),
-        "Output" to state.outputLabel,
-        state.matchInfo?.let { "Match" to it },
-        state.detectedSpotifyId?.let { "Spotify ID" to it },
-        if (state.canSeek) null else "Seeking" to "This player doesn't allow it",
-        state.lastCommandLatencyMs?.let { "Command answered" to "in $it ms" },
-        state.clockDriftMs?.let { "Clock drift" to "${it.signed()} ms" },
-    )
-    SettingsSection("Session") { InfoLines(session) }
-    (state.lyrics as? LyricsState.Ready)?.let { lyrics ->
-        val details = listOfNotNull(
-            "Source" to lyrics.provider,
-            lyrics.source?.let { "Origin" to it },
-            lyrics.maker?.let { "Made by" to it.username },
-            lyrics.uploader?.let { "Uploaded by" to it.username },
-            lyrics.songwriters.takeIf { it.isNotEmpty() }?.let { "Writers" to it.joinToString() },
-        )
-        SettingsSection("These lyrics") { InfoLines(details) }
-    }
+    SettingsSection("Debug info") { CopyDebugInfoRow(state) }
+    SettingsSection("Session") { InfoLines(sessionLines(state)) }
+    lyricsLines(state)?.let { details -> SettingsSection("These lyrics") { InfoLines(details) } }
     SettingsSection("Last lookup") {
         Searchable("Last lookup", "Attempts", "Diagnostics") {
             if (state.providerAttempts.isEmpty()) {
@@ -840,6 +824,51 @@ internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
         }
     }
 }
+
+internal fun sessionLines(state: PlayerUiState): List<Pair<String, String>> = listOfNotNull(
+    "Player" to (state.sourcePackage ?: "None"),
+    "Output" to state.outputLabel,
+    state.matchInfo?.let { "Match" to it },
+    state.detectedSpotifyId?.let { "Spotify ID" to it },
+    if (state.canSeek) null else "Seeking" to "This player doesn't allow it",
+    state.lastCommandLatencyMs?.let { "Command answered" to "in $it ms" },
+    state.clockDriftMs?.let { "Clock drift" to "${it.signed()} ms" },
+)
+
+/** Where the shown lyrics came from, or null while none are shown. */
+internal fun lyricsLines(state: PlayerUiState): List<Pair<String, String>>? {
+    val lyrics = state.lyrics as? LyricsState.Ready ?: return null
+    return listOfNotNull(
+        "Source" to lyrics.provider,
+        lyrics.source?.let { "Origin" to it },
+        lyrics.maker?.let { "Made by" to it.username },
+        lyrics.uploader?.let { "Uploaded by" to it.username },
+        lyrics.songwriters.takeIf { it.isNotEmpty() }?.let { "Writers" to it.joinToString() },
+    )
+}
+
+internal fun attemptSourceName(attempt: ProviderAttempt, state: PlayerUiState): String =
+    (state.sourceDescriptors + LOCAL_SOURCE + UPLOADED_SOURCE)
+        .firstOrNull { it.id == attempt.sourceId }?.displayName ?: attempt.sourceId
+
+internal fun ProviderAttemptOutcome.label(): String = when (this) {
+    ProviderAttemptOutcome.HIT -> "Found"
+    ProviderAttemptOutcome.MISS -> "Not found"
+    ProviderAttemptOutcome.NEEDS_MATCH -> "Needs a Spotify link"
+    ProviderAttemptOutcome.DISABLED -> "Switched off"
+    ProviderAttemptOutcome.COOLING_DOWN -> "Resting after errors"
+    ProviderAttemptOutcome.QUEUED, ProviderAttemptOutcome.PENDING -> "Asking…"
+    ProviderAttemptOutcome.SKIPPED -> "Skipped"
+    ProviderAttemptOutcome.UNAVAILABLE, ProviderAttemptOutcome.MALFORMED_HIT -> "Failed"
+}
+
+/** The attempt's quality, failure and retry time, joined; [time] formats the retry time. */
+internal fun attemptDetail(attempt: ProviderAttempt, time: (java.util.Date) -> String): String = listOfNotNull(
+    attempt.quality.takeIf { it != RemoteLyricsQuality.NONE }?.label(),
+    attempt.failureCategory?.name?.lowercase()?.replace('_', ' '),
+    attempt.message,
+    attempt.retryAt?.let { "tries again at " + time(java.util.Date(it.toEpochMilli())) },
+).joinToString(" · ")
 
 /** Label and value pairs, searchable by their labels. */
 @Composable
@@ -856,29 +885,21 @@ private fun InfoLines(lines: List<Pair<String, String>>) {
 
 @Composable
 private fun AttemptLine(attempt: ProviderAttempt, state: PlayerUiState) {
-    val name = (state.sourceDescriptors + LOCAL_SOURCE + UPLOADED_SOURCE)
-        .firstOrNull { it.id == attempt.sourceId }?.displayName ?: attempt.sourceId
-    val (outcome, color) = when (attempt.outcome) {
-        ProviderAttemptOutcome.HIT -> "Found" to SpicyColors.StatusSuccess
-        ProviderAttemptOutcome.MISS -> "Not found" to SpicyColors.TextTertiary
-        ProviderAttemptOutcome.NEEDS_MATCH -> "Needs a Spotify link" to SpicyColors.StatusWarning
-        ProviderAttemptOutcome.DISABLED -> "Switched off" to SpicyColors.TextTertiary
-        ProviderAttemptOutcome.COOLING_DOWN -> "Resting after errors" to SpicyColors.StatusWarning
-        ProviderAttemptOutcome.QUEUED, ProviderAttemptOutcome.PENDING -> "Asking…" to SpicyColors.StatusInfo
-        ProviderAttemptOutcome.SKIPPED -> "Skipped" to SpicyColors.TextTertiary
-        ProviderAttemptOutcome.UNAVAILABLE, ProviderAttemptOutcome.MALFORMED_HIT -> "Failed" to SpicyColors.StatusDanger
+    val name = attemptSourceName(attempt, state)
+    val outcome = attempt.outcome.label()
+    val color = when (attempt.outcome) {
+        ProviderAttemptOutcome.HIT -> SpicyColors.StatusSuccess
+        ProviderAttemptOutcome.NEEDS_MATCH, ProviderAttemptOutcome.COOLING_DOWN -> SpicyColors.StatusWarning
+        ProviderAttemptOutcome.QUEUED, ProviderAttemptOutcome.PENDING -> SpicyColors.StatusInfo
+        ProviderAttemptOutcome.UNAVAILABLE, ProviderAttemptOutcome.MALFORMED_HIT -> SpicyColors.StatusDanger
+        ProviderAttemptOutcome.MISS, ProviderAttemptOutcome.DISABLED, ProviderAttemptOutcome.SKIPPED -> SpicyColors.TextTertiary
     }
     val context = LocalContext.current
     val locale = androidx.compose.ui.platform.LocalLocale.current.platformLocale
-    val detail = listOfNotNull(
-        attempt.quality.takeIf { it != RemoteLyricsQuality.NONE }?.label(),
-        attempt.failureCategory?.name?.lowercase()?.replace('_', ' '),
-        attempt.message,
-        attempt.retryAt?.let { at ->
-            val pattern = if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm:ss" else "h:mm:ss a"
-            "tries again at " + java.text.SimpleDateFormat(pattern, locale).format(java.util.Date(at.toEpochMilli()))
-        },
-    ).joinToString(" · ")
+    val detail = attemptDetail(attempt) { date ->
+        val pattern = if (android.text.format.DateFormat.is24HourFormat(context)) "HH:mm:ss" else "h:mm:ss a"
+        java.text.SimpleDateFormat(pattern, locale).format(date)
+    }
     Row(Modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S3, vertical = SpicySpacing.S1)) {
         Text(name, style = SpicyType.Caption.copy(color = SpicyColors.TextSecondary), modifier = Modifier.width(INFO_LABEL_WIDTH))
         Column(Modifier.weight(1f)) {
@@ -895,9 +916,15 @@ private fun RemoteLyricsQuality.label() = when (this) {
     RemoteLyricsQuality.NONE -> "nothing"
 }
 
+/** The source, and for a source passing on another's lyrics, where they came from: "Spicy Lyrics (Apple Music)". */
+private fun lyricsFrom(lyrics: LyricsState.Ready): String {
+    val origin = lyrics.source?.takeIf { it.isNotBlank() && it != lyrics.provider } ?: return lyrics.provider
+    return "${lyrics.provider} (${if (origin == "Spicy Lyrics Community") "community" else origin})"
+}
+
 /** One line on where the current lyrics stand. */
 internal fun lyricsSummary(lyrics: LyricsState): String = when (lyrics) {
-    is LyricsState.Ready -> "${lyrics.provider}, " + when (lyrics.lyricsType) {
+    is LyricsState.Ready -> lyricsFrom(lyrics) + ", " + when (lyrics.lyricsType) {
         LyricsType.Syllable -> "word synced"
         LyricsType.Line -> "line synced"
         LyricsType.Static -> "unsynced"

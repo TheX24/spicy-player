@@ -72,7 +72,12 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
         check(includePrereleases, manual = false)
     }
 
-    fun check(includePrereleases: Boolean, manual: Boolean = true) {
+    /** For the settings footer's status: once per run, failing silently and never popping up. */
+    fun checkQuietly(includePrereleases: Boolean) {
+        if (mutableState.value.status == UpdateStatus.Idle) check(includePrereleases, manual = false, prompt = false)
+    }
+
+    fun check(includePrereleases: Boolean, manual: Boolean = true, prompt: Boolean = true) {
         if (!enabled || job?.isActive == true) return
         mutableState.value = mutableState.value.copy(status = UpdateStatus.Checking)
         job = viewModelScope.launch {
@@ -91,7 +96,7 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
             mutableState.value = when {
                 newest == null -> UpdateUiState(UpdateStatus.UpToDate)
                 // A skipped version only stays quiet on its own: asking from settings still shows it.
-                !manual && prefs.getString(KEY_SKIPPED, null) == newest.tag -> UpdateUiState(UpdateStatus.Available(newest))
+                !prompt || !manual && prefs.getString(KEY_SKIPPED, null) == newest.tag -> UpdateUiState(UpdateStatus.Available(newest))
                 else -> UpdateUiState(UpdateStatus.Available(newest), prompt = true)
             }
         }

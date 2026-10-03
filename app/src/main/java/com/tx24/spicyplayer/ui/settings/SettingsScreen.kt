@@ -2,6 +2,7 @@ package com.tx24.spicyplayer.ui.settings
 
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Album
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.BackEventCompat
@@ -25,6 +26,10 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
@@ -37,7 +42,6 @@ import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.Palette
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Smartphone
-import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
@@ -76,7 +80,6 @@ import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.components.GlassButton
 import com.tx24.spicyplayer.ui.components.LocalSettingsQuery
 import com.tx24.spicyplayer.ui.components.Searchable
-import com.tx24.spicyplayer.ui.components.SettingRow
 import com.tx24.spicyplayer.ui.components.SettingsSkeleton
 import com.tx24.spicyplayer.ui.components.SettingsSection
 import com.tx24.spicyplayer.ui.components.SpicyButton
@@ -468,7 +471,7 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
         GroupRow(Icons.Rounded.Tune, SettingsPage.Advanced.title, "Updates, cache and diagnostics") { onOpen(SettingsPage.Advanced) }
     }
     Spacer(Modifier.height(SpicySpacing.S6))
-    AboutCard(updater, settings)
+    AboutCard(state, updater, settings)
 }
 
 @Composable
@@ -509,61 +512,89 @@ private fun GroupDivider() {
     Box(Modifier.fillMaxWidth().height(1.dp).background(SpicyColors.Hairline))
 }
 
-/** The footer card: the build's identity and a way out to the project. */
+/**
+ * The footer card, kept short: the name, version, channel and update status with a manual check,
+ * then the links out two by two. The status checks quietly on its own and claims nothing until it knows.
+ */
 @Composable
-private fun AboutCard(updater: UpdateViewModel, settings: AppSettings) {
+private fun AboutCard(state: PlayerUiState, updater: UpdateViewModel, settings: AppSettings) {
     val context = LocalContext.current
     val update by updater.state.collectAsState()
-    // Found or hidden as one card; inside it, every row shows.
-    Searchable("About", "Version", "GitHub", "Spicy Player", "Updates", "Check for updates") {
+    LaunchedEffect(Unit) { updater.checkQuietly(settings.includePrereleases) }
+    // Found or hidden as one card; inside it, everything shows.
+    Searchable("About", "Version", "GitHub", "Spicy Player", "Updates", "Check for updates", "Feedback", "Bug", "Report", "Feature", "Suggest", "Discord") {
         CompositionLocalProvider(LocalSettingsQuery provides "") {
-            Column(Modifier.fillMaxWidth().outlinedCard()) {
-                Row(
-                    // The rows' 14dp inset, so the buttons line up with the one below.
-                    Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = SpicySpacing.S4),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            Column(
+                Modifier.fillMaxWidth().outlinedCard().padding(SpicySpacing.S4),
+                verticalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text("Spicy Player", style = SpicyType.Headline)
-                        Text("Version ${BuildConfig.VERSION_NAME}", style = SpicyType.Footnote.copy(color = SpicyColors.TextSecondary))
+                        Text(versionLine(update.status, updater.enabled), style = SpicyType.Footnote.copy(color = SpicyColors.TextSecondary))
                     }
-                    SpicyButton("GitHub", onClick = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(PROJECT_URL))) }
-                    })
+                    if (updater.enabled) UpdateButton(update.status, onUpdate = updater::show) { updater.check(settings.includePrereleases) }
                 }
-                if (updater.enabled) {
-                    GroupDivider()
-                    // A found update reopens its pop-up; otherwise the button checks again.
-                    val available = update.status as? UpdateStatus.Available
-                    SettingRow(
-                        label = "Check for updates",
-                        description = updateLine(update.status),
-                        icon = Icons.Rounded.SystemUpdate,
-                        // The group rows' 14dp inset.
-                        modifier = Modifier.padding(horizontal = 2.dp),
-                    ) {
-                        SpicyButton(
-                            if (available != null) "Update" else "Check",
-                            onClick = { if (available != null) updater.show() else updater.check(settings.includePrereleases) },
-                            enabled = update.status != UpdateStatus.Checking,
-                        )
+                Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+                    FooterLink("GitHub", Modifier.weight(1f)) { openUrl(context, PROJECT_URL) }
+                    FooterLink("Discord", Modifier.weight(1f), DISCORD_BLURPLE) { openUrl(context, DISCORD_URL) }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+                    // Fills in the form's version and debug info; the reporter sees both before sending.
+                    FooterLink("Report a bug", Modifier.weight(1f), BUG_PINK) {
+                        val debug = Uri.encode(debugReport(context, state).take(MAX_PREFILLED_DEBUG))
+                        openUrl(context, "$PROJECT_URL/issues/new?template=bug_report.yml&version=${Uri.encode(BuildConfig.VERSION_NAME)}&debug=$debug")
                     }
+                    FooterLink("Suggest a feature", Modifier.weight(1f)) { openUrl(context, "$PROJECT_URL/issues/new?template=feature_request.yml") }
                 }
             }
         }
     }
 }
 
-/** How the last update check went, under the Updates card's title. */
-private fun updateLine(status: UpdateStatus): String = when (status) {
-    UpdateStatus.Idle -> "Look for a newer version on GitHub."
-    UpdateStatus.Checking -> "Checking…"
-    UpdateStatus.UpToDate -> "You're on the newest version."
-    is UpdateStatus.Available -> "Version ${status.release.version} is ready to install."
-    is UpdateStatus.Downloading -> "Downloading… ${(status.progress * 100).toInt()}%"
-    is UpdateStatus.Installing -> "Waiting for Android's installer."
-    is UpdateStatus.Failed -> status.message
+@Composable
+private fun FooterLink(label: String, modifier: Modifier, brand: Color? = null, onClick: () -> Unit) {
+    SpicyButton(label, onClick, modifier, horizontalPadding = 8.dp, brand = brand, external = true)
 }
+
+/** "v0.6.0 · pre-release · Latest": the status only once a check has said something. */
+private fun versionLine(status: UpdateStatus, enabled: Boolean): AnnotatedString = buildAnnotatedString {
+    append("v${BuildConfig.VERSION_NAME} · ${buildChannel()}")
+    if (!enabled) return@buildAnnotatedString
+    val (text, color) = when (status) {
+        UpdateStatus.UpToDate -> "Latest" to SpicyColors.StatusSuccess
+        is UpdateStatus.Available -> "Update available" to SpicyColors.StatusWarning
+        is UpdateStatus.Failed -> "Couldn't check" to SpicyColors.TextTertiary
+        else -> return@buildAnnotatedString
+    }
+    append(" · ")
+    withStyle(SpanStyle(color = color, fontWeight = FontWeight.SemiBold)) { append(text) }
+}
+
+/** Checks on demand; once an update is found, opens it instead. */
+@Composable
+private fun UpdateButton(status: UpdateStatus, onUpdate: () -> Unit, onCheck: () -> Unit) {
+    when (status) {
+        is UpdateStatus.Available -> SpicyButton("Update", onUpdate, brand = SpicyColors.StatusWarning)
+        UpdateStatus.Checking -> SpicyButton("Checking…", {}, enabled = false)
+        is UpdateStatus.Downloading -> SpicyButton("${(status.progress * 100).toInt()}%", {}, enabled = false)
+        is UpdateStatus.Installing -> SpicyButton("Installing", {}, enabled = false)
+        UpdateStatus.Idle, UpdateStatus.UpToDate, is UpdateStatus.Failed -> SpicyButton("Check for updates", onCheck)
+    }
+}
+
+/**
+ * Which channel this build is from: every 0.x release, and any version with a suffix ("1.0.0-beta"),
+ * is published as a pre-release, the same rule the update check uses to offer pre-releases.
+ */
+private fun buildChannel(): String = when {
+    BuildConfig.DEBUG -> "debug"
+    BuildConfig.VERSION_NAME.startsWith("0.") || '-' in BuildConfig.VERSION_NAME -> "pre-release"
+    else -> "stable"
+}
+
+private val DISCORD_BLURPLE = Color(88, 101, 242)
+private val BUG_PINK = Color(255, 94, 138)
 
 /** Every page's rows at once, each hiding unless it matches the search. */
 @Composable
@@ -575,7 +606,7 @@ private fun SearchResults(query: String, state: PlayerUiState, viewModel: Extern
                     SettingsPage.entries.forEach { page ->
                         SettingsSection(page.title) { PageContent(page, state, viewModel, updater, settings, onOpenLyricsManager, onOpenSpotifySearch) }
                     }
-                    AboutCardSpacer(updater, settings)
+                    AboutCardSpacer(state, updater, settings)
                 }
             },
             empty = {
@@ -590,9 +621,9 @@ private fun SearchResults(query: String, state: PlayerUiState, viewModel: Extern
 }
 
 @Composable
-private fun AboutCardSpacer(updater: UpdateViewModel, settings: AppSettings) {
-    Searchable("About", "Version", "GitHub", "Spicy Player", "Updates", "Check for updates") { Spacer(Modifier.height(SpicySpacing.S4)) }
-    AboutCard(updater, settings)
+private fun AboutCardSpacer(state: PlayerUiState, updater: UpdateViewModel, settings: AppSettings) {
+    Searchable("About", "Version", "GitHub", "Spicy Player", "Updates", "Check for updates", "Feedback", "Bug", "Report", "Feature", "Suggest", "Discord") { Spacer(Modifier.height(SpicySpacing.S4)) }
+    AboutCard(state, updater, settings)
 }
 
 /** [content], or [empty] in its place when [content] lays out with no height. */
@@ -641,3 +672,12 @@ private const val HOME_PARALLAX = 0.15f
 private const val PAGE_PEEK = 0.5f
 
 private const val PROJECT_URL = "https://github.com/TheX24/spicy-player"
+// Keeps the prefilled form link well under the length GitHub accepts.
+private const val MAX_PREFILLED_DEBUG = 3000
+
+// The server invite, not the thread link: a thread link only opens for people already in the server.
+private const val DISCORD_URL = "https://discord.com/invite/uqgXU5wh8j"
+
+private fun openUrl(context: Context, url: String) {
+    runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+}
