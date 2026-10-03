@@ -244,6 +244,7 @@ private fun lookupSnapshot(state: PlayerUiState): Map<String, Any> = buildMap {
     put("blends_on", state.enabledBlendIds.size)
     put("human_romanizations", state.humanRomanizations)
     put("ignore_mxm_word_sync", state.ignoreMusixmatchWordSync)
+    put("own_key", state.ownKeyHint != null)
 }
 
 /** Counts, for the usage report, what each song's lookup ended with and which pop-ups get opened. */

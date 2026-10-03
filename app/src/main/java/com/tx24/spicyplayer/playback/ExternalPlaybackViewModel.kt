@@ -36,6 +36,8 @@ import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsResolution
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
 import com.tx24.spicyplayer.network.data.TrackNameCleaner
+import com.tx24.spicyplayer.network.data.SpicyLyricsKey
+import com.tx24.spicyplayer.network.data.RemoteLyricsSource
 import com.tx24.spicyplayer.network.data.LyricsCapability
 import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
 import com.tx24.spicyplayer.network.data.measuredQuality
@@ -141,6 +143,8 @@ data class PlayerUiState(
     val lookupStatus: String? = null,
     val humanRomanizations: Boolean = true,
     val ignoreMusixmatchWordSync: Boolean = true,
+    /** The person's own Spicy Lyrics key, shortened ([SpicyLyricsKey.hint]); null while on the built-in one. */
+    val ownKeyHint: String? = null,
     /** A Spotify Free limit to explain, until dismissed. */
     val limitNotice: PlayerLimit? = null,
     /** The song's release year, when asked for ([ExternalPlaybackViewModel.setTrackExtrasWanted]) and found. */
@@ -187,7 +191,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         enabledBlendIds = lyricsBackend.policy().enabledBlendIds,
         humanRomanizations = lyricsBackend.humanRomanizations,
         ignoreMusixmatchWordSync = lyricsBackend.ignoreMusixmatchWordSync,
+        ownKeyHint = runtimeApiKey.takeIf { it.isNotBlank() }?.let(SpicyLyricsKey::hint),
     ))
+    /** The "get your own key" hint is shown once per run, the first time the shared key is rate-limited. */
+    private var ownKeyNudged = false
     val state: StateFlow<PlayerUiState> = mutableState.asStateFlow()
     private val mutableMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** Short notes on what an action did ("Removed from Local DB."), shown as toasts. */
@@ -457,9 +464,26 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         lyricPositionMs(currentPositionMs(), it.lyricDelayMs, it.songDelayMs)
     }
 
-    fun useApiKey(key: String) {
-        runtimeApiKey = key.trim()
+    /** Checks [input] and uses it as the person's own key; blank goes back to the built-in one. */
+    fun useApiKey(input: String) {
+        when (val check = SpicyLyricsKey.check(input)) {
+            SpicyLyricsKey.Check.Secret -> showMessage("That's a secret key. Spicy Player needs the client key (sl_pk_…).")
+            SpicyLyricsKey.Check.Invalid -> showMessage("That isn't a Spicy Lyrics client key. It starts with sl_pk_.")
+            SpicyLyricsKey.Check.Empty -> {
+                applyApiKey("")
+                showMessage("Back to the built-in key.")
+            }
+            is SpicyLyricsKey.Check.Ok -> {
+                applyApiKey(check.key)
+                showMessage("Your key is in use.")
+            }
+        }
+    }
+
+    private fun applyApiKey(key: String) {
+        runtimeApiKey = key
         keyStore.edit().putString("key", runtimeApiKey).apply()
+        mutableState.value = mutableState.value.copy(ownKeyHint = key.takeIf { it.isNotBlank() }?.let(SpicyLyricsKey::hint))
         lyricsBackend = NextLyricsBackend(getApplication(), runtimeApiKey.ifBlank { BuildConfig.SPICY_LYRICS_CLIENT_KEY })
         lyricsBackend.let { backend -> viewModelScope.launch(Dispatchers.IO) { backend.warmUp() } }
         lookupCache.clear()  // Spicy Lyrics answers depend on the key
@@ -491,6 +515,18 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         forgetShown(request)
         loadLyrics()
         mutableMessages.tryEmit("Lyrics for the current song have been removed from memory.")
+    }
+
+    /** On the shared key, a Spicy Lyrics rate limit is most likely everyone's window running out; your own key has its own. */
+    private fun nudgeOwnKey(attempts: List<ProviderAttempt>) {
+        if (ownKeyNudged || runtimeApiKey.isNotBlank()) return
+        val limited = attempts.any {
+            it.sourceId == RemoteLyricsSource.SPICY_ID && it.outcome == ProviderAttemptOutcome.COOLING_DOWN &&
+                it.message.orEmpty().contains("HTTP 429")
+        }
+        if (!limited) return
+        ownKeyNudged = true
+        showMessage("Spicy Lyrics is busy on the shared key. Get your own free key in Settings → Sources.")
     }
 
     /** Shows [message] as a toast. */
@@ -922,6 +958,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val names = pending.joinToString { attempt ->
             lyricsBackend.descriptors.firstOrNull { it.id == attempt.sourceId }?.displayName ?: attempt.sourceId
         }
+        nudgeOwnKey(resolution.attempts)
         if (final) Log.d("LyricsProviders", resolution.attempts.joinToString { "${it.sourceId}:${it.outcome}:${it.failureCategory ?: ""}:${it.message ?: ""}" })
         mutableState.value = mutableState.value.copy(
             providerAttempts = resolution.attempts,

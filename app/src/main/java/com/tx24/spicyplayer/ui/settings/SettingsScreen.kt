@@ -372,7 +372,7 @@ private fun PageSkeleton(page: SettingsPage) {
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
         SettingsPage.Controls -> SettingsSkeleton(rows = 9)
-        SettingsPage.Sources -> SettingsSkeleton(rows = 11, cards = true)
+        SettingsPage.Sources -> SettingsSkeleton(rows = 12, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 7)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 11)
     }
@@ -681,6 +681,6 @@ private const val MAX_PREFILLED_DEBUG = 3000
 // The server invite, not the thread link: a thread link only opens for people already in the server.
 private const val DISCORD_URL = "https://discord.com/invite/uqgXU5wh8j"
 
-private fun openUrl(context: Context, url: String) {
+internal fun openUrl(context: Context, url: String) {
     runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
 }

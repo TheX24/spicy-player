@@ -15,6 +15,7 @@ An Android lyrics screen for music playing in another app. It follows the active
 2. Open the app and grant notification access when prompted. Android uses this permission to let the app discover active media sessions. You can revoke it in system settings.
 3. Start music in another app, then return to the lyrics app. It should follow the active player and look up lyrics.
 4. Use Settings to adjust lyric sources, timing, or an optional Spicy Lyrics client key. Settings → Advanced → Last lookup shows what each source returned for the current song.
+5. Optional, but worth it: get your own free Spicy Lyrics key. The built-in key is shared by everyone and runs out when many people use the app at once. Open [Spicy Player in the Spicy Lyrics catalog](https://developers.spicylyrics.org/catalog/spicy-player), sign in, tap **Add**, and paste the client key into Settings → Sources → Spicy Lyrics key. Your key has its own rate limit and doesn't use one of your application slots.
 
 Playback controls depend on what the music app exposes through Android MediaSession. Some apps or account tiers limit seek and skip; the app explains when Spotify Free refuses one. Lyrics depend on the source having a usable match; a missing or uncertain Spotify match is not silently replaced with a different recording.
 
@@ -44,7 +45,7 @@ Release builds send anonymous usage stats to the project's own [Umami](https://u
 
 - **With every report:** a random ID made when the app is installed, used only to count installs; the app version; Android version; phone model; language; screen size in dp; phone or tablet. Umami works out your country from your IP address and does not store the address.
 - **When the app opens** (at most every 6 hours): whether you get pre-release updates.
-- **Once a day, the settings you use:** each appearance, scroll, background, header, controls and haptics setting, as its option name or on/off. For a custom font, only "Custom" is sent, never the font's name. From the lookup settings: which source comes first, how many sources are off, how many blends are on, and the romanization and Musixmatch word-sync switches.
+- **Once a day, the settings you use:** each appearance, scroll, background, header, controls and haptics setting, as its option name or on/off. For a custom font, only "Custom" is sent, never the font's name. From the lookup settings: which source comes first, how many sources are off, how many blends are on, the romanization and Musixmatch word-sync switches, and whether you use your own Spicy Lyrics key (yes or no, never the key).
 - **Counts since the last report** (sent with app opens, at most every 6 hours): how many songs were looked up and how many got word-synced, line-synced, plain or no lyrics; which lyrics source and which music app (by package name, e.g. `com.spotify.music`) were used most, with counts for the top sources; how often settings, each settings page, quick settings, the Lyrics Manager and Spotify search were opened; how often romanization was toggled, lyrics were resynced, delay calibration was started, and settings were backed up or restored.
 
 The counts are kept on your phone until the next report. Turning the setting off deletes the install ID and any counts not yet sent; turning it back on starts with a new ID. The answer stays on the device: it is not part of a settings backup.

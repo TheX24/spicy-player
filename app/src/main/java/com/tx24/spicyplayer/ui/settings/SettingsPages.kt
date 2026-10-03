@@ -68,6 +68,7 @@ import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.DeleteSweep
 import androidx.compose.material.icons.rounded.Insights
+import androidx.compose.material.icons.rounded.KeyOff
 import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -125,6 +126,7 @@ import com.tx24.spicyplayer.ui.theme.SpicySpacing
 import com.tx24.spicyplayer.ui.theme.SpicyType
 import com.tx24.spicyplayer.update.UpdateViewModel
 import com.tx24.spicyplayer.analytics.UsageCounter
+import com.tx24.spicyplayer.network.data.SpicyLyricsKey
 import com.tx24.spicyplayer.analytics.UsageStats
 
 /*
@@ -704,15 +706,41 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
         }
     }
     SettingsSection("Spicy Lyrics key") {
+        val context = LocalContext.current
+        val ownKey = state.ownKeyHint
+        SettingRow(
+            label = "Get your own key",
+            description = if (ownKey == null) {
+                "The built-in key is shared by everyone, so it runs out when many people use the app. Your own key is free " +
+                    "and has its own limit: sign in, tap Add, and paste the client key below."
+            } else {
+                "You're using your own key, $ownKey, with its own limit. Its page on the developer site can pause or replace it."
+            },
+            icon = Icons.Rounded.Key,
+        ) {
+            SpicyButton(if (ownKey == null) "Get key" else "Open", onClick = { openUrl(context, SpicyLyricsKey.CATALOG_URL) })
+        }
         SettingRow(
             label = "Your Spicy Lyrics key",
-            description = "Leave it empty to use the built-in key.",
+            description = if (ownKey == null) "Paste the client key (sl_pk_…). Empty uses the built-in key." else "Paste a new key to replace yours.",
             icon = Icons.Rounded.Key,
             stacked = true,
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
                 SpicyTextField(clientKey, { clientKey = it }, placeholder = "sl_pk_…", password = true, modifier = Modifier.weight(1f))
-                SpicyButton("Use", onClick = { viewModel.useApiKey(clientKey) })
+                SpicyButton("Use", onClick = {
+                    viewModel.useApiKey(clientKey)
+                    if (SpicyLyricsKey.check(clientKey) is SpicyLyricsKey.Check.Ok) clientKey = ""
+                })
+            }
+        }
+        if (ownKey != null) {
+            SettingRow(
+                label = "Use the built-in key",
+                description = "Forget your key on this phone. It keeps working on the developer site until you delete it there.",
+                icon = Icons.Rounded.KeyOff,
+            ) {
+                SpicyButton("Remove", onClick = { viewModel.useApiKey("") })
             }
         }
     }
