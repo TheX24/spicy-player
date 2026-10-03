@@ -20,7 +20,7 @@ import okhttp3.Request
 @Singleton
 class NetEaseLyricsProvider @Inject constructor(private val client: OkHttpClient, private val gson: Gson) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
-        "netease", "NetEase", 60,
+        "netease", "NetEase", 90,
         setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.TRANSLITERATION),
         releaseChannel = SourceReleaseChannel.EXTENDED,
     )

@@ -22,7 +22,7 @@ class LrcMuxLyricsProvider @Inject constructor(
     private val ignoreWordSync: () -> Boolean = { false },
 ) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
-        id = "lrcmux", displayName = "LRCMux", defaultPriority = 110,
+        id = "lrcmux", displayName = "LRCMux", defaultPriority = 120,
         capabilities = setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
         upstreamFamily = "musixmatch", releaseChannel = SourceReleaseChannel.EXTENDED,
     )

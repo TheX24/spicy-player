@@ -94,7 +94,7 @@ class RemoteLyricsSource @Inject constructor(
         onUpdate: suspend (RemoteLyricsResolution) -> Unit = {},
     ): RemoteLyricsResolution = coroutineScope {
         val ordered = orderedProviders(policy)
-        val enabled = ordered.filter { isEnabled(it.descriptor, policy) }
+        val enabled = ordered.filter { isEnabled(it.descriptor, policy) && !it.descriptor.rankOnly }
         val cooling = enabled.mapNotNull { provider ->
             val id = provider.descriptor.id
             if (id in known) null else cooldowns.retryAt(id, now)?.let { id to it }
@@ -133,7 +133,7 @@ class RemoteLyricsSource @Inject constructor(
         fun answered(id: String) = id in known || id in cooling
         // Relayed lyrics rank where they came from: Spicy Lyrics' Apple Music copy with Apple
         // Music, RMM Revival's copy of a Spicy Lyrics sync with Spicy Lyrics.
-        fun byOrigin() = rankByOrigin(ranked, known)
+        fun byOrigin() = rankByOrigin(ranked, known, policy.disabledSourceIds)
         fun startBlends() {
             for (blend in blends) {
                 if (blend.id !in waiting) continue
@@ -179,7 +179,7 @@ class RemoteLyricsSource @Inject constructor(
         // Spicy Lyrics itself has no real answer (e.g. no Spotify match; RMM Revival asks by Apple ID).
         fun bestCase(): List<LyricsSourceDescriptor> {
             if (known[SPICY_ID].let { it is ProviderResult.Hit || it == ProviderResult.Miss }) return byOrigin()
-            return rankByOrigin(ranked, known + (outstanding() intersect RELAY_IDS).associateWith { SPICY_SYNC })
+            return rankByOrigin(ranked, known + (outstanding() intersect RELAY_IDS).associateWith { SPICY_SYNC }, policy.disabledSourceIds)
         }
         while (!settled(resolution, bestCase(), outstanding())) {
             if (!fannedOut && pending.isEmpty()) {
@@ -240,6 +240,7 @@ class RemoteLyricsSource @Inject constructor(
         var earliestRetryAt: Instant? = null
 
         for (source in ranked) {
+            if (source.rankOnly) continue
             // A blend is in the ranking only while it is live.
             if (source.upstreamFamily != BLEND_FAMILY && !isEnabled(source, policy)) {
                 attempts += ProviderAttempt(source.id, ProviderAttemptOutcome.DISABLED)
@@ -400,18 +401,26 @@ class RemoteLyricsSource @Inject constructor(
     internal companion object {
         /**
          * [ranked] with the relays' answers ([RELAY_IDS]) moved to where their lyrics came from:
-         * Spicy Lyrics syncs rank in Spicy Lyrics' place, Apple Music lyrics in Apple Music's, and
-         * any other relayed catalogue after every source. Answers from one place keep the user's
-         * order between them. A relay with no answer yet, or no origin, keeps its own place.
+         * Spicy Lyrics syncs rank in Spicy Lyrics' place, Apple Music lyrics in the Apple Music
+         * slot's, Spotify's (which are Musixmatch's) in Musixmatch's; after every source while that
+         * place is in [disabled]. Any other relayed
+         * catalogue after every source. Answers from one place keep the user's order between
+         * them. A relay with no answer yet, or no origin, keeps its own place.
          */
-        fun rankByOrigin(ranked: List<LyricsSourceDescriptor>, known: Map<String, ProviderResult>): List<LyricsSourceDescriptor> {
+        fun rankByOrigin(
+            ranked: List<LyricsSourceDescriptor>,
+            known: Map<String, ProviderResult>,
+            disabled: Set<String> = emptySet(),
+        ): List<LyricsSourceDescriptor> {
             val own = ranked.withIndex().associate { (index, source) -> source.id to index }
+            fun slot(id: String) = own[id]?.takeIf { id !in disabled } ?: Int.MAX_VALUE
             fun place(id: String): Int {
                 val at = own.getValue(id)
                 if (id !in RELAY_IDS) return at
                 return when ((known[id] as? ProviderResult.Hit)?.payload?.attribution?.originName ?: return at) {
                     in SPICY_OWN_ORIGINS -> own[SPICY_ID] ?: at
-                    "Apple Music" -> own[APPLE_MUSIC_ID] ?: Int.MAX_VALUE
+                    "Apple Music" -> slot(APPLE_MUSIC_ID)
+                    "Spotify" -> slot(MUSIXMATCH_ID)
                     else -> Int.MAX_VALUE
                 }
             }
@@ -420,6 +429,7 @@ class RemoteLyricsSource @Inject constructor(
 
         const val SPICY_ID = "spicy_lyrics"
         const val APPLE_MUSIC_ID = "apple_music"
+        const val MUSIXMATCH_ID = "musixmatch"
         /** Sources that pass on lyrics from elsewhere and say where from (RMM Revival relays Spicy Lyrics' API). */
         val RELAY_IDS = setOf(SPICY_ID, "rmm_revival")
         /** Stands in for a relay's answer that isn't in yet, at the highest place it could take. */

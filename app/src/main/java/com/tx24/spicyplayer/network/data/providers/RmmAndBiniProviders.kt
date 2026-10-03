@@ -15,7 +15,7 @@ import okhttp3.Request
 @Singleton
 class RmmRevivalLyricsProvider @Inject constructor(private val client: OkHttpClient, private val gson: Gson) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
-        "rmm_revival", "RMM Revival", 45,
+        "rmm_revival", "RMM Revival", 30,
         setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
         upstreamFamily = "apple_music", releaseChannel = SourceReleaseChannel.EXTENDED, defaultEnabled = false,
     )
@@ -57,7 +57,7 @@ internal fun rmmPayload(data: JsonObject): ProviderResult? {
 @Singleton
 class BiniLyricsProvider @Inject constructor(private val client: OkHttpClient, private val gson: Gson) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
-        "bini_lyrics", "BiniLyrics", 40,
+        "bini_lyrics", "BiniLyrics", 50,
         setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
         upstreamFamily = "apple_music", releaseChannel = SourceReleaseChannel.EXTENDED,
     )

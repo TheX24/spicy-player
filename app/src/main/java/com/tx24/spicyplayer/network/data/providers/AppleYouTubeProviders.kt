@@ -16,61 +16,22 @@ import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 
-/** Apple Music TTML exposed through AMLL's unauthenticated Apple lookup bridge. */
-@Singleton
-class AppleMusicLyricsProvider @Inject constructor(
-    private val client: OkHttpClient,
-    private val gson: Gson,
-) : RemoteLyricsProvider {
-    override val descriptor = LyricsSourceDescriptor(
-        "apple_music", "Apple Music", 30,
-        setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC),
-        upstreamFamily = "apple_music",
-        releaseChannel = SourceReleaseChannel.EXTENDED,
-    )
+/**
+ * A place in the order for lyrics another source relays: Spicy Lyrics (and RMM Revival, which
+ * relays its API) pass on Apple Music's own lyrics, which nothing else offers, so this is never
+ * asked; [RemoteLyricsSource.rankByOrigin] puts relayed answers here.
+ */
+class RelayedOriginSlot(override val descriptor: LyricsSourceDescriptor) : RemoteLyricsProvider {
+    override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = ProviderResult.Miss
 
-    override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
-        return try {
-            val search = "$BASE/v1/lyrics/search".toHttpUrl().newBuilder()
-                .addQueryParameter("trackName", request.title)
-                .addQueryParameter("artistName", request.artist).build()
-            val root = json(search.toString())
-            val items = when {
-                root.has("data") && root.get("data").isJsonObject -> root.getAsJsonObject("data").getAsJsonArray("items")
-                else -> root.getAsJsonArray("items")
-            } ?: return ProviderResult.Miss
-            val item = items.mapNotNull { it.takeIf { value -> value.isJsonObject }?.asJsonObject }
-                .firstOrNull { candidate -> matches(candidate, request) } ?: return ProviderResult.Miss
-            val id = item.get("id")?.asString ?: return ProviderResult.Miss
-            val response = json("$BASE/v1/lyrics/get".toHttpUrl().newBuilder().addQueryParameter("id", id).build().toString())
-            val data = response.getAsJsonObject("data") ?: response
-            val ttml = listOf("lyrics", "ttml", "content").firstNotNullOfOrNull { key ->
-                data.get(key)?.takeIf { it.isJsonPrimitive }?.asString?.takeIf { it.contains("<tt", true) }
-            } ?: return ProviderResult.Miss
-            ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics = ttml))
-        } catch (cancelled: CancellationException) { throw cancelled }
-          catch (error: IOException) { ProviderResult.Unavailable(ProviderFailureCategory.NETWORK, error.message, true) }
-          catch (error: Exception) { ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, error.message) }
+    companion object {
+        val APPLE_MUSIC = RelayedOriginSlot(LyricsSourceDescriptor(
+            RemoteLyricsSource.APPLE_MUSIC_ID, "Apple Music", 40,
+            setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC),
+            releaseChannel = SourceReleaseChannel.EXTENDED,
+            rankOnly = true,
+        ))
     }
-
-    private fun matches(item: JsonObject, request: LyricsLookupRequest): Boolean {
-        val titles = item.getAsJsonArray("musicNames")?.map { it.asString }
-            ?: listOfNotNull(item.get("trackName")?.asString)
-        val artists = item.getAsJsonArray("artistNames")?.map { it.asString }
-            ?: listOfNotNull(item.get("artistName")?.asString)
-        val title = SpotifyTrackMatcher.normalize(request.title)
-        val artist = SpotifyTrackMatcher.normalize(request.artist)
-        return titles.any { SpotifyTrackMatcher.normalize(it) == title } && artists.any {
-            val value = SpotifyTrackMatcher.normalize(it); value == artist || value in artist || artist in value
-        }
-    }
-
-    private suspend fun json(url: String): JsonObject = client.newCall(Request.Builder().url(url).get().build()).awaitResponse().use {
-        if (!it.isSuccessful) throw IOException("Apple bridge HTTP ${it.code}")
-        gson.fromJson(it.body?.string(), JsonObject::class.java)
-    }
-
-    private companion object { const val BASE = "https://api.amll.dev" }
 }
 
 @Singleton
@@ -79,7 +40,7 @@ class YouTubeTranscriptLyricsProvider @Inject constructor(
     private val gson: Gson,
 ) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
-        "youtube_transcript", "YouTube transcripts", 140,
+        "youtube_transcript", "YouTube transcripts", 150,
         setOf(LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
         releaseChannel = SourceReleaseChannel.EXPERIMENTAL, defaultEnabled = false,
     )

@@ -41,7 +41,7 @@ data class LyricsCredit(val name: String, val profileUrl: String? = null, val av
     )
 
     private companion object {
-        val TRUSTED_HOSTS = setOf("spicylyrics.org", "www.spicylyrics.org", "github.com")
+        val TRUSTED_HOSTS = setOf("spicylyrics.org", "www.spicylyrics.org", "github.com", "unison.boidu.dev")
 
         /** Only https profiles on hosts we know are opened from a tap. */
         fun isTrustedProfile(url: String): Boolean =

@@ -200,7 +200,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
                 SpicyLyricsProvider(client, gson, spotifyResolver, clientKey),
                 AmllLyricsProvider(client, gson),
                 UnisonLyricsProvider(client, gson),
-                AppleMusicLyricsProvider(client, gson),
+                RelayedOriginSlot.APPLE_MUSIC,
                 RmmRevivalLyricsProvider(client, gson),
                 BiniLyricsProvider(client, gson),
                 KugouLyricsProvider(client, gson),
@@ -216,7 +216,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         }
 
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        private const val CACHE_VERSION = 14
+        private const val CACHE_VERSION = 15
         /** Outcomes that are no answer at all: a later lookup may get one. */
         private val UNANSWERED = setOf(
             ProviderAttemptOutcome.UNAVAILABLE,

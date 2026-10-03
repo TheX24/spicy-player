@@ -30,7 +30,7 @@ class UnisonLyricsProvider @Inject constructor(
     override val descriptor = LyricsSourceDescriptor(
         id = "unison",
         displayName = "Unison",
-        defaultPriority = 50,
+        defaultPriority = 60,
         capabilities = setOf(
             LyricsCapability.WORD_SYNC,
             LyricsCapability.LINE_SYNC,
@@ -102,13 +102,21 @@ class UnisonLyricsProvider @Inject constructor(
                 RemoteLyricsPayload(plainLyrics = lyrics)
             else -> return null // YAML needs a dedicated lossless converter.
         }
-        // Unison credits whoever submitted the sync; its API gives no profile link or avatar.
-        val submitter = data.getAsJsonObject("submitter")?.get("displayName")
-            ?.takeIf { it.isJsonPrimitive }?.asString?.takeIf(String::isNotBlank)
         return ProviderResult.Hit(payload.copy(attribution = LyricsAttribution(
             providerName = descriptor.displayName,
-            uploader = submitter?.let(::LyricsContributor),
+            uploader = data.getAsJsonObject("submitter")?.submitter(),
         )))
+    }
+
+    /** Whoever submitted the sync, with their curator page on Unison and their avatar. */
+    private fun JsonObject.submitter(): LyricsContributor? {
+        fun string(key: String) = get(key)?.takeIf { it.isJsonPrimitive }?.asString?.takeIf(String::isNotBlank)
+        val name = string("displayName") ?: return null
+        return LyricsContributor(
+            username = name,
+            profileUrl = string("keyId")?.takeIf { it.matches(KEY_ID) }?.let { "$BASE/curator/$it" },
+            avatarUrl = string("avatarUrl")?.takeIf { it.startsWith("https://") },
+        )
     }
 
     private fun JsonObject.matches(request: LyricsLookupRequest): Boolean {
@@ -129,6 +137,7 @@ class UnisonLyricsProvider @Inject constructor(
 
     private companion object {
         const val BASE = "https://unison.boidu.dev"
+        val KEY_ID = Regex("[0-9a-f]{16,128}")
         val LRC_TIME = Regex("\\[\\d{1,3}:\\d{2}(?:[.:]\\d{1,3})?]")
     }
 }

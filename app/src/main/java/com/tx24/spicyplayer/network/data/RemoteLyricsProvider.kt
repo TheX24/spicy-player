@@ -46,6 +46,11 @@ data class LyricsSourceDescriptor(
     val transportRequirement: TransportRequirement = TransportRequirement.DIRECT_OK,
     val releaseChannel: SourceReleaseChannel = SourceReleaseChannel.RECOMMENDED,
     val defaultEnabled: Boolean = true,
+    /**
+     * Never asked: only a place in the order, where lyrics relayed from this origin rank
+     * ([RemoteLyricsSource.rankByOrigin]). Switched off, they rank after every source.
+     */
+    val rankOnly: Boolean = false,
 )
 
 /**

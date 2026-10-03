@@ -46,6 +46,50 @@ class RemoteLyricsSourceTest {
     }
 
     @Test
+    fun `Spicy Lyrics relaying Spotify ranks in Musixmatch's place`() = runBlocking {
+        val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("Spicy Lyrics", originName = "Spotify"))
+        val source = source(
+            provider("spicy_lyrics", 1, result = ProviderResult.Hit(relayed)),
+            provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
+            provider("musixmatch", 3, result = ProviderResult.Miss),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("amll_ttml_db", result.selection.source.id)
+    }
+
+    @Test
+    fun `a slot is never asked and stays out of the attempts`() = runBlocking {
+        val source = source(
+            slot("apple_music", 1),
+            provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("amll_ttml_db", result.selection.source.id)
+        assertEquals(listOf("amll_ttml_db"), result.attempts.map { it.sourceId })
+    }
+
+    @Test
+    fun `a switched off slot sends its relayed lyrics after every source`() = runBlocking {
+        val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("Spicy Lyrics", originName = "Apple Music"))
+        val source = source(
+            slot("apple_music", 1),
+            provider("spicy_lyrics", 2, result = ProviderResult.Hit(relayed)),
+            provider("lrclib", 3, result = ProviderResult.Hit(wordTtml("lrclib"))),
+        )
+
+        val result = source.resolveLyrics(
+            request,
+            RemoteLyricsPolicy(disabledSourceIds = setOf("apple_music")),
+        ) as RemoteLyricsResolution.Found
+
+        assertEquals("lrclib", result.selection.source.id)
+    }
+
+    @Test
     fun `Spicy Lyrics community syncs keep its place`() = runBlocking {
         val community = wordTtml("community").copy(attribution = LyricsAttribution("Spicy Lyrics", originName = "Spicy Lyrics Community"))
         val source = source(
@@ -497,6 +541,9 @@ class RemoteLyricsSourceTest {
             return result
         }
     }
+
+    private fun slot(id: String, priority: Int) =
+        com.tx24.spicyplayer.network.data.providers.RelayedOriginSlot(descriptor(id, priority).copy(rankOnly = true))
 
     private fun hanging(id: String, priority: Int) = object : RemoteLyricsProvider {
         override val descriptor = descriptor(id, priority)

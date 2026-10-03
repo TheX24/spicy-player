@@ -32,7 +32,7 @@ class MusixmatchLyricsProvider @Inject constructor(
     private val ignoreWordSync: () -> Boolean = { false },
 ) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
-        "musixmatch", "Musixmatch", 100,
+        "musixmatch", "Musixmatch", 110,
         setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
         upstreamFamily = "musixmatch",
         releaseChannel = SourceReleaseChannel.EXTENDED,
@@ -216,7 +216,7 @@ internal object RichSyncToTtml {
 }
 
 @Singleton class GeniusLyricsProvider @Inject constructor(private val client:OkHttpClient,private val gson:Gson):RemoteLyricsProvider{
- override val descriptor=LyricsSourceDescriptor("genius","Genius",130,setOf(LyricsCapability.PLAIN_TEXT, LyricsCapability.CONTRIBUTOR_CREDITS),releaseChannel=SourceReleaseChannel.EXPERIMENTAL)
+ override val descriptor=LyricsSourceDescriptor("genius","Genius",140,setOf(LyricsCapability.PLAIN_TEXT, LyricsCapability.CONTRIBUTOR_CREDITS),releaseChannel=SourceReleaseChannel.EXPERIMENTAL)
  override suspend fun fetch(r:LyricsLookupRequest):ProviderResult { return try{val url="https://genius.com/api/search/multi".toHttpUrl().newBuilder().addQueryParameter("q","${r.artist} ${r.title}").build();val root=get(url);val sections=root.getAsJsonObject("response")?.getAsJsonArray("sections")?:return ProviderResult.Miss;var page:String?=null
   sections.flatMap{it.asJsonObject.getAsJsonArray("hits")?.toList().orEmpty()}.map{it.asJsonObject.getAsJsonObject("result")}.firstOrNull{res->SpotifyTrackMatcher.normalize(res.get("title")?.asString.orEmpty())==SpotifyTrackMatcher.normalize(r.title)&&SpotifyTrackMatcher.normalize(res.getAsJsonObject("primary_artist")?.get("name")?.asString.orEmpty()).contains(SpotifyTrackMatcher.normalize(r.artist))}?.let{page=it.get("url")?.asString}
   val target=page?:return ProviderResult.Miss;val html=client.newCall(Request.Builder().url(target).header("User-Agent",BROWSER_UA).get().build()).awaitResponse().use{if(!it.isSuccessful)throw ProviderHttpException("Genius",it.code);it.body?.string().orEmpty()};val text=geniusLyricsText(html);if(text.isBlank())ProviderResult.Miss else ProviderResult.Hit(RemoteLyricsPayload(plainLyrics=text))

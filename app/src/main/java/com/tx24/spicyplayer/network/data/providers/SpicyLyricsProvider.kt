@@ -245,9 +245,9 @@ internal fun apiErrorMessage(body: String): String? = runCatching {
 
 /** Where Spicy Lyrics' API says a song's lyrics come from, by the names the ranking knows. */
 internal fun spicyOriginName(raw: String?): String = when (raw?.trim()?.lowercase()?.replace('-', '_')?.replace(' ', '_')) {
-    "apple", "apple_music", "am" -> "Apple Music"
-    "spotify", "spotify_lyrics" -> "Spotify"
-    "spicy", "spicy_lyrics", "community" -> "Spicy Lyrics Community"
+    "apple", "apple_music", "am", "aml" -> "Apple Music"
+    "spotify", "spotify_lyrics", "spt" -> "Spotify"
+    "spicy", "spicy_lyrics", "community", "spl" -> "Spicy Lyrics Community"
     null, "" -> "Spicy Lyrics"
     else -> raw.trim()
 }

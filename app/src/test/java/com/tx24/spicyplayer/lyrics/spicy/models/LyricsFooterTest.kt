@@ -45,6 +45,7 @@ class LyricsFooterTest {
 
         assertEquals("https://spicylyrics.org/uid/1", url("https://spicylyrics.org/uid/1"))
         assertEquals("https://github.com/someone", url("https://github.com/someone"))
+        assertEquals("https://unison.boidu.dev/curator/ab12", url("https://unison.boidu.dev/curator/ab12"))
         assertNull(url("http://spicylyrics.org/uid/1"))
         assertNull(url("https://evil.example/spicylyrics.org"))
     }
