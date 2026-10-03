@@ -13,7 +13,7 @@ Create and securely back up a dedicated Android release keystore. Keep the keyst
 | `ANDROID_RELEASE_KEY_ALIAS` | Signing key alias |
 | `ANDROID_RELEASE_KEY_PASSWORD` | Signing key password |
 
-Also set the GitHub Actions repository **variable** `SPICY_LYRICS_CLIENT_KEY` to a publishable `sl_pk_` key. The value is embedded in the release APK. Never use an `sl_sk_` secret key. The workflow fails before building if signing secrets or the publishable key are missing. Keep the original keystore backed up: losing it prevents compatible updates to users who installed an APK signed with it. Do not put signing values in `.env`; that file is for the publishable lyrics client key only.
+Also set the GitHub Actions repository **variable** `SPICY_LYRICS_CLIENT_KEY` to a publishable `sl_pk_` key. Set the repository variable `UMAMI_WEBSITE_ID` too (the Umami site for usage stats); the workflow refuses to release without it. The value is embedded in the release APK. Never use an `sl_sk_` secret key. The workflow fails before building if signing secrets or the publishable key are missing. Keep the original keystore backed up: losing it prevents compatible updates to users who installed an APK signed with it. Do not put signing values in `.env`; that file is for the publishable lyrics client key only.
 
 ## Each release
 

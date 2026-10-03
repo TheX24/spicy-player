@@ -3,6 +3,7 @@ package com.tx24.spicyplayer.backup
 import android.content.Context
 import android.content.SharedPreferences
 import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.analytics.UsageStats
 
 /** Reads [SettingsBackup.STORES] out of the app's SharedPreferences, and writes a backup back in. */
 class SettingsBackupStore(private val context: Context) {
@@ -36,9 +37,12 @@ class SettingsBackupStore(private val context: Context) {
 
     private fun prefs(name: String): SharedPreferences = context.getSharedPreferences(name, Context.MODE_PRIVATE)
 
-    /** Keys left out of a backup and left alone by a restore: they point at files on this device. */
+    /**
+     * Keys left out of a backup and left alone by a restore: the custom font's file is on this
+     * device, and the usage-stats answer was given on this device.
+     */
     private fun kept(store: String): Set<String> =
-        if (store == "ui") setOf("customFontFile", "customFontName") else emptySet()
+        if (store == "ui") setOf("customFontFile", "customFontName", UsageStats.KEY_ENABLED, UsageStats.KEY_ASKED) else emptySet()
 
     @Suppress("UNCHECKED_CAST")
     private fun SharedPreferences.Editor.put(key: String, value: Any) {

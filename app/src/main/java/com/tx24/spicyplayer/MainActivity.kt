@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Info
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -173,6 +174,9 @@ import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalUriHandler
 import com.tx24.spicyplayer.lyrics.spicy.models.FooterLine
+import com.tx24.spicyplayer.analytics.UsageCounter
+import com.tx24.spicyplayer.analytics.UsageStats
+import com.tx24.spicyplayer.analytics.lyricsOutcome
 import com.tx24.spicyplayer.ui.controls.ControlsRevealGuard
 import com.tx24.spicyplayer.ui.controls.LocalControlsRevealGuard
 
@@ -182,6 +186,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        UsageStats.init(this)
         enableEdgeToEdge()
         hideSystemBars()
         setContent {
@@ -204,6 +209,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         playbackViewModel.setUiStarted(true)
+        UsageStats.appOpened(this) { lookupSnapshot(playbackViewModel.state.value) }
     }
 
     override fun onResume() {
@@ -228,6 +234,36 @@ class MainActivity : ComponentActivity() {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
             hide(WindowInsetsCompat.Type.systemBars())
         }
+    }
+}
+
+/** The lookup settings for the daily settings snapshot: which sources are on and first, never a key. */
+private fun lookupSnapshot(state: PlayerUiState): Map<String, Any> = buildMap {
+    state.sourceOrder.firstOrNull { it !in state.disabledSourceIds }?.let { put("first_source", it) }
+    put("sources_off", state.disabledSourceIds.size)
+    put("blends_on", state.enabledBlendIds.size)
+    put("human_romanizations", state.humanRomanizations)
+    put("ignore_mxm_word_sync", state.ignoreMusixmatchWordSync)
+}
+
+/** Counts, for the usage report, what each song's lookup ended with and which pop-ups get opened. */
+@Composable
+private fun CountUsage(state: PlayerUiState, vararg opened: Pair<Boolean, String>) {
+    val outcome = when (val lyrics = state.lyrics) {
+        is LyricsState.Ready -> lyricsOutcome(lyrics.lyricsType) to lyrics.provider
+        is LyricsState.Error -> lyricsOutcome(null) to null
+        else -> null
+    }
+    val song = state.title to state.artist
+    var counted by remember { mutableStateOf<Pair<String, String>?>(null) }
+    LaunchedEffect(song, outcome) {
+        if (outcome != null && counted != song) {
+            counted = song
+            UsageStats.countSong(outcome.first, outcome.second, state.sourcePackage)
+        }
+    }
+    opened.forEach { (shown, counter) ->
+        LaunchedEffect(shown) { if (shown) UsageStats.count(counter) }
     }
 }
 
@@ -336,6 +372,13 @@ private fun LyricsApp(
     var showLyricsManager by remember { mutableStateOf(false) }
     var showQuickSettings by remember { mutableStateOf(false) }
     var showSpotifySearch by remember { mutableStateOf(false) }
+    CountUsage(
+        state,
+        showSettings to UsageCounter.SETTINGS,
+        showLyricsManager to UsageCounter.LYRICS_MANAGER,
+        showQuickSettings to UsageCounter.QUICK_SETTINGS,
+        showSpotifySearch to UsageCounter.SPOTIFY_SEARCH,
+    )
     // Android before 12 can't blur, so nothing blurs the page there: the glass and pop-ups fall
     // back to their solid fills instead of showing the page through.
     val backdrop = remember { HazeState().takeIf { Build.VERSION.SDK_INT >= Build.VERSION_CODES.S } }
@@ -645,7 +688,10 @@ private fun LyricsApp(
                                     showResync = settings.resyncButton,
                                     showExpand = expandButton,
                                     romanized = romanize,
-                                    onToggleRomanize = { settings.romanize = !settings.romanize },
+                                    onToggleRomanize = {
+                                        settings.romanize = !settings.romanize
+                                        UsageStats.count(UsageCounter.ROMANIZE)
+                                    },
                                     onOpenSettings = { showSettings = true },
                                     onOpenLyricsManager = onOpenLyricsManager,
                                     onOpenQuickSettings = onOpenQuickSettings,
@@ -674,7 +720,10 @@ private fun LyricsApp(
                         showResync = settings.resyncButton,
                         showExpand = expandButton,
                         romanized = romanize,
-                        onToggleRomanize = { settings.romanize = !settings.romanize },
+                        onToggleRomanize = {
+                            settings.romanize = !settings.romanize
+                            UsageStats.count(UsageCounter.ROMANIZE)
+                        },
                         onOpenSettings = { showSettings = true },
                         onOpenLyricsManager = onOpenLyricsManager,
                         onOpenQuickSettings = onOpenQuickSettings,
@@ -734,6 +783,20 @@ private fun LyricsApp(
             backdrop = backdrop,
         ) {
             NotificationAccessMessage(openNotificationAccess)
+        }
+
+        // Once, after access is sorted, for new installs and updates alike; nothing is sent before it's answered.
+        SpicyModal(
+            visible = state.accessGranted && UsageStats.available && !settings.usageStatsAsked,
+            onDismissRequest = null,
+            backdrop = backdrop,
+        ) {
+            UsageStatsMessage { keep ->
+                settings.usageStats = keep
+                settings.usageStatsAsked = true
+                UsageStats.onSettingChanged(context, keep)
+                UsageStats.appOpened(context) { lookupSnapshot(viewModel.state.value) }
+            }
         }
 
         QuickSettingsModal(showQuickSettings, state, viewModel, backdrop) { showQuickSettings = false }
@@ -942,6 +1005,22 @@ private fun NotificationAccessMessage(openNotificationAccess: () -> Unit) {
     )
     SpicyModalGap()
     SpicyModalButton("Open notification access", openNotificationAccess, style = SpicyButtonStyle.Primary, fill = true)
+}
+
+/** The one-time notice for the anonymous usage stats, which are on unless turned off here. */
+@Composable
+private fun UsageStatsMessage(onAnswer: (keepOn: Boolean) -> Unit) {
+    SpicyModalMessage(
+        title = "Anonymous usage stats",
+        description = "Spicy Player sends a small anonymous report a few times a day: the app and Android version, " +
+            "your phone model and country, and which features you use. Never what you listen to. It shows what's " +
+            "worth working on. You can change this in Settings → Advanced.",
+        icon = { Icon(Icons.Rounded.Insights, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary) },
+    )
+    SpicyModalActions {
+        SpicyModalButton("Turn off", { onAnswer(false) })
+        SpicyModalButton("Keep on", { onAnswer(true) }, style = SpicyButtonStyle.Primary)
+    }
 }
 
 @Composable

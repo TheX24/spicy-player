@@ -67,6 +67,7 @@ import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.DeleteSweep
+import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.DeleteForever
 import androidx.compose.material.icons.rounded.Memory
 import androidx.compose.material.icons.rounded.LibraryMusic
@@ -123,6 +124,8 @@ import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
 import com.tx24.spicyplayer.ui.theme.SpicyType
 import com.tx24.spicyplayer.update.UpdateViewModel
+import com.tx24.spicyplayer.analytics.UsageCounter
+import com.tx24.spicyplayer.analytics.UsageStats
 
 /*
  * What each group's page holds. Every page also shows up, row by row, in the search results, so a
@@ -812,6 +815,19 @@ internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
             )
         }
     }
+    SettingsSection("Privacy") {
+        val context = LocalContext.current
+        ToggleRow(
+            label = "Share anonymous usage stats",
+            checked = settings.usageStats,
+            onCheckedChange = {
+                settings.usageStats = it
+                UsageStats.onSettingChanged(context, it)
+            },
+            description = "How many people use the app, on which versions and devices, and which features they use. Never what you listen to.",
+            icon = Icons.Rounded.Insights,
+        )
+    }
     SettingsSection("Debug info") { CopyDebugInfoRow(state) }
     SettingsSection("Session") { InfoLines(sessionLines(state)) }
     lyricsLines(state)?.let { details -> SettingsSection("These lyrics") { InfoLines(details) } }
@@ -1017,6 +1033,7 @@ private fun SettingsBackupRows(viewModel: ExternalPlaybackViewModel, settings: A
                     context.contentResolver.openOutputStream(uri, "wt")?.use { it.write(store.export().toByteArray()) } != null
                 }.getOrDefault(false)
             }
+            if (written) UsageStats.count(UsageCounter.BACKUP_EXPORT)
             viewModel.showMessage(if (written) "Settings saved." else "Couldn't save the settings there.")
         }
     }
@@ -1031,6 +1048,7 @@ private fun SettingsBackupRows(viewModel: ExternalPlaybackViewModel, settings: A
                 }.exceptionOrNull()
             }
             if (error == null) {
+                UsageStats.count(UsageCounter.BACKUP_RESTORE)
                 settings.reload()
                 viewModel.reloadSavedSettings()
                 viewModel.showMessage("Settings restored.")

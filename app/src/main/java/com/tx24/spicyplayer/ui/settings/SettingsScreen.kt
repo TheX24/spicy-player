@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.ui.settings
 
+import com.tx24.spicyplayer.analytics.UsageCounter
+import com.tx24.spicyplayer.analytics.UsageStats
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Album
 import android.content.Context
@@ -165,6 +167,7 @@ fun SettingsScreen(
         }
     }
     fun show(target: SettingsPage) {
+        UsageStats.count(UsageCounter.page(target.name))
         page = target
         pageReady = false
         scope.launch {
@@ -371,7 +374,7 @@ private fun PageSkeleton(page: SettingsPage) {
         SettingsPage.Controls -> SettingsSkeleton(rows = 9)
         SettingsPage.Sources -> SettingsSkeleton(rows = 11, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 7)
-        SettingsPage.Advanced -> SettingsSkeleton(rows = 10)
+        SettingsPage.Advanced -> SettingsSkeleton(rows = 11)
     }
 }
 

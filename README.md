@@ -34,6 +34,21 @@ The app is fully native (Kotlin and Jetpack Compose, no WebView), and it only wo
 
 Your numbers will differ with your phone, the brightness and the background you choose. Settings → Device → Low performance mode turns off the most expensive effects.
 
+## Privacy
+
+Release builds send anonymous usage stats to the project's own [Umami](https://umami.is) server, so we can see how many people use the app and which features are worth working on. The app asks once when it first opens (new installs and updates alike). Nothing is sent before you answer, and you can turn it off any time in Settings → Advanced → Privacy. Debug builds, and builds made without the project's `UMAMI_WEBSITE_ID`, never send anything.
+
+**Never sent:** what you listen to (song titles, artists, albums, lyrics), anything else from the music app's notification, text you type, keys, account details, Android ID or advertising ID.
+
+**What is sent:**
+
+- **With every report:** a random ID made when the app is installed, used only to count installs; the app version; Android version; phone model; language; screen size in dp; phone or tablet. Umami works out your country from your IP address and does not store the address.
+- **When the app opens** (at most every 6 hours): whether you get pre-release updates.
+- **Once a day, the settings you use:** each appearance, scroll, background, header, controls and haptics setting, as its option name or on/off. For a custom font, only "Custom" is sent, never the font's name. From the lookup settings: which source comes first, how many sources are off, how many blends are on, and the romanization and Musixmatch word-sync switches.
+- **Counts since the last report** (sent with app opens, at most every 6 hours): how many songs were looked up and how many got word-synced, line-synced, plain or no lyrics; which lyrics source and which music app (by package name, e.g. `com.spotify.music`) were used most, with counts for the top sources; how often settings, each settings page, quick settings, the Lyrics Manager and Spotify search were opened; how often romanization was toggled, lyrics were resynced, delay calibration was started, and settings were backed up or restored.
+
+The counts are kept on your phone until the next report. Turning the setting off deletes the install ID and any counts not yet sent; turning it back on starts with a new ID. The answer stays on the device: it is not part of a settings backup.
+
 ## Build from source
 
 You need JDK 17 or newer and the Android SDK for API 37. Android Studio can install both. `local.properties` may point to your SDK; it is ignored by Git.
@@ -47,6 +62,8 @@ On Windows, from the repository root:
 On macOS or Linux, run `./gradlew assembleDebug testDebugUnitTest lintDebug`. The APK is `app/build/outputs/apk/debug/app-debug.apk`; install it with `adb install -r` or Android Studio. The application ID is `com.tx24.spicyplayer.next`; debug builds install next to it as `com.tx24.spicyplayer.next.debug` ("Spicy Player Debug").
 
 The Spicy Lyrics provider needs a publishable `sl_pk_` client key. To include one in your own build, copy `.env.example` to `.env` and set `SPICY_LYRICS_CLIENT_KEY`. You may also enter your own key in the app’s Settings. The file is ignored by Git, but **the value is embedded in the APK**. Never use an `sl_sk_` secret key. Other sources can still be used when this key is blank.
+
+`UMAMI_WEBSITE_ID` in the same file turns on the usage stats described under [Privacy](#privacy) in release builds. Leave it blank in your own builds unless you run your own Umami site.
 
 ## Releases and CI
 

@@ -7,14 +7,15 @@ android {
     namespace = "com.tx24.spicyplayer"
     compileSdk = 37
 
-    fun localClientKey(): String {
+    /** A value from the git-ignored root `.env`, else the environment (CI). */
+    fun localEnv(name: String): String {
         val dotEnv = rootProject.file(".env")
-        if (!dotEnv.isFile) return System.getenv("SPICY_LYRICS_CLIENT_KEY").orEmpty()
-        return dotEnv.useLines { lines ->
+        val fromFile = if (!dotEnv.isFile) null else dotEnv.useLines { lines ->
             lines.map(String::trim)
-                .firstOrNull { it.startsWith("SPICY_LYRICS_CLIENT_KEY=") }
-                ?.substringAfter('=')?.trim()?.trim('"', '\'').orEmpty()
+                .firstOrNull { it.startsWith("$name=") }
+                ?.substringAfter('=')?.trim()?.trim('"', '\'')
         }
+        return fromFile ?: System.getenv(name).orEmpty()
     }
 
     defaultConfig {
@@ -24,12 +25,19 @@ android {
         versionCode = 8
         versionName = "0.7.0"
         // A publishable (sl_pk_) key, made to ship in clients: SL rate-limits it per viewer IP.
-        val clientKey = localClientKey()
-        require(clientKey.isBlank() || clientKey.startsWith("sl_pk_")) {
-            "SPICY_LYRICS_CLIENT_KEY must be a publishable sl_pk_ key"
+        val clientKey = localEnv("SPICY_LYRICS_CLIENT_KEY")
+        require(clientKey.isBlank() || Regex("sl_pk_[A-Za-z0-9_-]+").matches(clientKey)) {
+            "SPICY_LYRICS_CLIENT_KEY must be a publishable sl_pk_ key (and nothing else on its line in .env)"
         }
         val key = clientKey.replace("\\", "\\\\").replace("\"", "\\\"")
         buildConfigField("String", "SPICY_LYRICS_CLIENT_KEY", "\"$key\"")
+        // The project's own Umami site for anonymous usage stats. Blank (forks, local builds
+        // without it) sends nothing.
+        val umamiSite = localEnv("UMAMI_WEBSITE_ID")
+        require(umamiSite.isBlank() || Regex("[0-9a-f-]{36}").matches(umamiSite)) { "UMAMI_WEBSITE_ID must be a UUID" }
+        buildConfigField("String", "UMAMI_WEBSITE_ID", "\"$umamiSite\"")
+        // Only release builds send; see the build types.
+        buildConfigField("boolean", "USAGE_STATS", "false")
     }
 
     buildTypes {
@@ -48,12 +56,14 @@ android {
             // Without the release keystore (a local build), sign with the debug key so it installs
             // over an earlier local release build. Never on CI: a release must fail unsigned.
             if (System.getenv("CI") == null) signingConfig = signingConfigs.getByName("debug")
+            buildConfigField("boolean", "USAGE_STATS", "true")
         }
         // The release build as its own app, for measuring performance next to the installed release.
         create("profile") {
             initWith(getByName("release"))
             applicationIdSuffix = ".profile"
             versionNameSuffix = "-profile"
+            buildConfigField("boolean", "USAGE_STATS", "false")
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
             resValue("string", "app_name", "Spicy Player Profile")

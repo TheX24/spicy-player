@@ -36,6 +36,7 @@ jobs:
       - name: Build signed release APK
         env:
           SPICY_LYRICS_CLIENT_KEY: ${{ vars.SPICY_LYRICS_CLIENT_KEY }}
+          UMAMI_WEBSITE_ID: ${{ vars.UMAMI_WEBSITE_ID }}
           ANDROID_RELEASE_KEYSTORE: ${{ runner.temp }}/release.jks
           ANDROID_RELEASE_STORE_PASSWORD: ${{ secrets.ANDROID_RELEASE_STORE_PASSWORD }}
           ANDROID_RELEASE_KEY_ALIAS: ${{ secrets.ANDROID_RELEASE_KEY_ALIAS }}
@@ -45,6 +46,10 @@ jobs:
             sl_pk_*) ;;
             *) echo 'Set the publishable SPICY_LYRICS_CLIENT_KEY repository variable before releasing' >&2; exit 1 ;;
           esac
+          if [ -z "$UMAMI_WEBSITE_ID" ]; then
+            echo 'Set the UMAMI_WEBSITE_ID repository variable before releasing' >&2
+            exit 1
+          fi
           ./gradlew --no-daemon assembleRelease testDebugUnitTest lintRelease
       - name: Verify and name APK
         run: |

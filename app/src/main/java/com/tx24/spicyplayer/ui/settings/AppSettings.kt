@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.tx24.spicyplayer.BuildConfig
+import com.tx24.spicyplayer.analytics.UsageStats
 import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import com.tx24.spicyplayer.lyrics.spicy.SyllableMerge
@@ -104,6 +105,10 @@ class AppSettings(private val prefs: SharedPreferences) {
     var expandButton by boolean("expandButton", true)
     /** How the Lyrics Manager's last upload was applied; the upload screen reopens on it. */
     var ttmlUploadSaves by boolean("ttmlUploadSaves", true)
+
+    /** Anonymous usage stats (`UsageStats`); nothing is sent until the notice has been answered. */
+    var usageStats by boolean(UsageStats.KEY_ENABLED, true)
+    var usageStatsAsked by boolean(UsageStats.KEY_ASKED, false)
 
     /** Pre-releases offered as updates. On by default while the app itself is one (0.x). */
     var includePrereleases by boolean("includePrereleases", BuildConfig.VERSION_NAME.startsWith("0."))

@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.playback
 
+import com.tx24.spicyplayer.analytics.UsageCounter
+import com.tx24.spicyplayer.analytics.UsageStats
 import android.app.Application
 import android.content.ComponentName
 import android.graphics.Bitmap
@@ -403,6 +405,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
      * on the first try), snaps to its last report now and to its next one outright.
      */
     fun resync() {
+        UsageStats.count(UsageCounter.RESYNC)
         pendingCommand = null
         refresh()
         val active = controller
@@ -1235,6 +1238,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     /** Starts or ends tapping along to find the output delay: it needs the song's beats. */
     fun setCalibratingDelay(calibrating: Boolean) {
+        if (calibrating) UsageStats.count(UsageCounter.CALIBRATION)
         mutableState.value = mutableState.value.copy(calibratingDelay = calibrating)
         applyExtrasWanted()
     }
