@@ -165,6 +165,8 @@ fun RemoteLyricsPayload.isNoWordsNote(): Boolean {
         !syncedLyrics.isNullOrBlank() -> syncedLyrics.lines().map { it.replace(LRC_STAMP, "") }
         else -> plainLyrics.orEmpty().lines()
     }
+    // Nothing but stamps and "♪" (or an empty record) says as much as the note does.
+    if (lines.none { line -> line.any(Char::isLetterOrDigit) }) return true
     return BlendDonors.isNoWordsNote(lines)
 }
 

@@ -21,6 +21,15 @@ class LrclibFallbackSelectionTest {
         assertEquals(matchingAlbum, source.chooseSearchResult(request, listOf(otherAlbum, wrongVersion, matchingAlbum)))
     }
 
+    @Test fun instrumentalRecordIsAMissNotAnError() = kotlinx.coroutines.runBlocking {
+        val instrumental = LyricsSource(object : LyricsService {
+            override suspend fun getSongLyrics(artistName: String, trackName: String, albumName: String?, durationSeconds: Int?) =
+                SongLyricsNetwork(239076, null, null)
+            override suspend fun searchSongLyrics(artistName: String, trackName: String): List<LrclibSearchEntry> = error("unused")
+        })
+        assertEquals(ProviderResult.Miss, instrumental.fetch(LyricsLookupRequest("Daft Punk", "Aerodynamic", "Discovery", 213)))
+    }
+
     private fun entry(title: String, artist: String, album: String, duration: Double) =
         LrclibSearchEntry(title, artist, album, duration, "lyrics", null)
 }

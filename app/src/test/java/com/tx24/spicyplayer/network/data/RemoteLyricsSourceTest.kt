@@ -248,7 +248,7 @@ class RemoteLyricsSourceTest {
     }
 
     @Test
-    fun `empty hit is rejected and fallback continues`() = runBlocking {
+    fun `empty hit is a miss and fallback continues`() = runBlocking {
         val source = source(
             provider("broken", 10, result = ProviderResult.Hit(RemoteLyricsPayload())),
             provider("found", 20, result = ProviderResult.Hit(plain("lyrics"))),
@@ -257,7 +257,7 @@ class RemoteLyricsSourceTest {
         val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
 
         assertEquals("found", result.selection.source.id)
-        assertEquals(ProviderAttemptOutcome.MALFORMED_HIT, result.attempts.first().outcome)
+        assertEquals(ProviderAttemptOutcome.MISS, result.attempts.first().outcome)
     }
 
     @Test
@@ -321,6 +321,17 @@ class RemoteLyricsSourceTest {
         val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
 
         assertEquals("found", result.selection.source.id)
+    }
+
+    @Test
+    fun `instrumental notes and empty records resolve not found, not unavailable`() = runBlocking {
+        val result = source(
+            provider("note", 10, result = ProviderResult.Hit(RemoteLyricsPayload(syncedLyrics = "[00:00.00] ♪ Instrumental ♪"))),
+            provider("bracket", 20, result = ProviderResult.Hit(RemoteLyricsPayload(syncedLyrics = "[00:01.00][Instrumental]\n[01:00.00]♪"))),
+            provider("empty", 30, result = ProviderResult.Hit(RemoteLyricsPayload())),
+        ).resolveLyrics(request)
+
+        assertTrue(result is RemoteLyricsResolution.NotFound)
     }
 
     @Test

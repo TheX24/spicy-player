@@ -40,7 +40,10 @@ class LyricsSource @Inject constructor(
                 request.album.takeIf { it.isNotBlank() },
                 request.durationSeconds.takeIf { it > 0 },
             )
-            ProviderResult.Hit(
+            // An instrumental is a record with neither field filled in: no lyrics, not a broken answer.
+            if (response.plainLyrics.isNullOrBlank() && response.syncedLyrics.isNullOrBlank()) {
+                ProviderResult.Miss
+            } else ProviderResult.Hit(
                 RemoteLyricsPayload(
                     plainLyrics = response.plainLyrics,
                     syncedLyrics = response.syncedLyrics,
