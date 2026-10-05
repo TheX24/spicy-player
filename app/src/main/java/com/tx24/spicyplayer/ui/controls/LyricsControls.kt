@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.ui.controls
 
+import com.tx24.spicyplayer.ui.theme.SpicyPalette
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 
 import com.tx24.spicyplayer.ui.components.LocalUiAnimations
@@ -696,7 +697,7 @@ private val TimeStyle = TextStyle(
     fontWeight = FontWeight.Medium,
     fontSize = 13.sp,
     fontFeatureSettings = "tnum",
-    color = SpicyColors.TextSecondary,
+    color = SpicyPalette.Neutral.TextSecondary,
 )
 
 /**
@@ -869,7 +870,7 @@ internal object SpicyIcons {
                 paths.forEach { path ->
                     addPath(
                         PathParser().parsePathString(path).toNodes(),
-                        stroke = SolidColor(SpicyColors.TextPrimary),
+                        stroke = SolidColor(SpicyPalette.Neutral.TextPrimary),
                         strokeLineWidth = 2f,
                         strokeLineCap = StrokeCap.Round,
                         strokeLineJoin = StrokeJoin.Round,

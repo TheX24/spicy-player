@@ -486,6 +486,7 @@ private fun DropZone(busy: Boolean, subtitle: String, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val radius = SpicyRadii.Lg
+    val edge = if (pressed) SpicyColors.TextTertiary else SpicyColors.HairlineStrong
     Column(
         Modifier
             .fillMaxWidth()
@@ -495,7 +496,7 @@ private fun DropZone(busy: Boolean, subtitle: String, onClick: () -> Unit) {
             .drawBehind {
                 val stroke = 1.5.dp.toPx()
                 drawRoundRect(
-                    color = if (pressed) SpicyColors.TextTertiary else SpicyColors.HairlineStrong,
+                    color = edge,
                     topLeft = androidx.compose.ui.geometry.Offset(stroke / 2, stroke / 2),
                     size = androidx.compose.ui.geometry.Size(size.width - stroke, size.height - stroke),
                     cornerRadius = CornerRadius(radius.toPx()),

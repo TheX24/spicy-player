@@ -64,6 +64,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.ReadOnlyComposable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -94,7 +95,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
 import com.tx24.spicyplayer.haptics.withHaptic
+import com.tx24.spicyplayer.ui.theme.LocalSpicyPalette
 import com.tx24.spicyplayer.ui.theme.SpicyColors
+import com.tx24.spicyplayer.ui.theme.SpicyPalette
+import androidx.compose.runtime.CompositionLocalProvider
+import kotlinx.coroutines.launch
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
 import com.tx24.spicyplayer.ui.theme.SpicyRadii
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
@@ -138,9 +143,14 @@ fun SpicyModal(
     skeleton: (@Composable ColumnScope.() -> Unit)? = null,
     /** A screen inside the pop-up: a back arrow by the title, and Back, step out to the one before. */
     onBack: (() -> Unit)? = null,
+    /** Its colours; a branded one makes the plate the brand's ramp, with the mark in its corner. */
+    palette: SpicyPalette = LocalPopupPalette.current,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val open = remember { Animatable(0f) }
+    val brand = palette.brand
+    // The mark turns from -24° to -14° as the pop-up opens, slower than the plate.
+    val markTurn = remember { Animatable(0f) }
     // Interface animations off: it opens and closes at once.
     val animate = LocalUiAnimations.current
     val openSpec: AnimationSpec<Float> = if (animate) tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal) else snap()
@@ -148,9 +158,11 @@ fun SpicyModal(
     LaunchedEffect(visible) {
         if (visible) {
             composed = true
+            launch { markTurn.animateTo(1f, if (animate) tween(MARK_TURN_MS, easing = SpicyMotion.Modal) else snap()) }
             open.animateTo(1f, openSpec)
         } else {
             open.animateTo(0f, openSpec)
+            markTurn.snapTo(0f)
             composed = false
         }
     }
@@ -177,8 +189,8 @@ fun SpicyModal(
     BoxWithConstraints(
         modifier
             .fillMaxSize()
-            // The dim: rgba(0,0,0,.45), fading with the modal.
-            .drawBehind { drawRect(Color.Black.copy(alpha = OVERLAY_ALPHA * open.value)) }
+            // The dim: rgba(0,0,0,.45) (.55 behind a branded plate), fading with the modal.
+            .drawBehind { drawRect(Color.Black.copy(alpha = (if (brand != null) BRAND_OVERLAY_ALPHA else OVERLAY_ALPHA) * open.value)) }
             // Takes every touch, so nothing reaches the page; a tap outside the plate dismisses.
             // The plate sees its touches first and marks them, which is how this tells them apart.
             .pointerInput(onDismissRequest) {
@@ -200,6 +212,7 @@ fun SpicyModal(
         contentAlignment = Alignment.Center,
     ) {
         val shape = RoundedCornerShape(SpicyRadii.Lg)
+        val glyph = rememberBrandGlyph()
         Column(
             Modifier
                 // 420px wide at most and 90% of the screen high, inside the screen's margins.
@@ -219,14 +232,29 @@ fun SpicyModal(
                 .modalShadow()
                 .clip(shape)
                 .then(
-                    backdrop?.let { Modifier.hazeEffect(it, PlateMaterial) }
-                        ?: Modifier.background(SpicyColors.BgElevated),
+                    if (brand != null) {
+                        // Opaque: the ramp, and the logo cropped big off the top-right corner.
+                        Modifier.drawBehind {
+                            drawBrandRamp(brand)
+                            drawBrandMark(
+                                glyph, brand.tint, alpha = 0.55f,
+                                width = size.width * 0.72f, right = -size.width * 0.2f, top = -size.height * 0.26f,
+                                degrees = -24f + 10f * markTurn.value,
+                            )
+                        }
+                    } else {
+                        (backdrop?.let { Modifier.hazeEffect(it, PlateMaterial) } ?: Modifier.background(palette.BgElevated))
+                            .background(PLATE_FILL)
+                    },
                 )
-                .background(PLATE_FILL)
-                .plateEdges()
+                .plateEdges(
+                    top = brand?.ink?.copy(alpha = 0.22f) ?: Color.White.copy(alpha = 0.08f),
+                    ring = brand?.ink?.copy(alpha = 0.16f) ?: palette.HairlineStrong,
+                )
                 // Touches on the plate stay on the plate.
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(); touchOnPlate[0] = true } } },
         ) {
+          CompositionLocalProvider(LocalSpicyPalette provides palette) {
             if (title != null) ModalHeader(title, onDismissRequest, onBack, animate)
             if (fillBody) {
                 Column(Modifier.weight(1f).graphicsLayer { alpha = bodyFade.value }, content = body)
@@ -242,6 +270,7 @@ fun SpicyModal(
                     content = body,
                 )
             }
+          }
         }
     }
 }
@@ -257,16 +286,18 @@ private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?, onBack: 
         if (animate) tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal) else snap(),
         label = "headerStart",
     )
+    val hairline = SpicyColors.Hairline
+    val branded = SpicyColors.brand != null
     Row(
         Modifier
             .fillMaxWidth()
             .drawBehind {
                 val px = 1.dp.toPx()
-                drawRect(SpicyColors.Hairline, Offset(0f, size.height - px), Size(size.width, px))
+                drawRect(hairline, Offset(0f, size.height - px), Size(size.width, px))
             }
             .padding(start = backStart, end = SpicySpacing.S4, top = SpicySpacing.S5, bottom = SpicySpacing.S4)
             .heightIn(min = 32.dp),
-        verticalAlignment = Alignment.CenterVertically,
+        verticalAlignment = if (branded) Alignment.Top else Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
     ) {
         AnimatedVisibility(
@@ -276,7 +307,12 @@ private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?, onBack: 
         ) {
             BackButton { lastBack?.invoke() }
         }
-        Text(
+        if (branded) {
+            Column(Modifier.weight(1f).padding(top = SpicySpacing.S1), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SpicyBrandLine()
+                Text(title, style = SpicyType.Title.copy(fontSize = BrandTitleSize, lineHeight = 1.1.em, letterSpacing = (-0.025f).em))
+            }
+        } else Text(
             title,
             modifier = Modifier.weight(1f),
             style = SpicyType.Title.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.01f).em),
@@ -291,6 +327,8 @@ private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?, onBack: 
 private fun BackButton(onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    val primary = SpicyColors.TextPrimary
+    val secondary = SpicyColors.TextSecondary
     val scale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(120), label = "backScale")
     Box(
         Modifier
@@ -303,7 +341,7 @@ private fun BackButton(onClick: () -> Unit) {
             .drawBehind {
                 val half = 9.dp.toPx() * 0.9f
                 val c = center
-                val color = if (pressed) SpicyColors.TextPrimary else SpicyColors.TextSecondary
+                val color = if (pressed) primary else secondary
                 val width = 1.6.dp.toPx()
                 val tip = Offset(c.x - half * 0.5f, c.y)
                 drawLine(color, Offset(c.x + half * 0.5f, c.y - half), tip, width, cap = StrokeCap.Round)
@@ -316,6 +354,8 @@ private fun BackButton(onClick: () -> Unit) {
 private fun CloseButton(onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
+    val primary = SpicyColors.TextPrimary
+    val secondary = SpicyColors.TextSecondary
     val scale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(120), label = "closeScale")
     Box(
         Modifier
@@ -329,7 +369,7 @@ private fun CloseButton(onClick: () -> Unit) {
                 // The close glyph: two strokes corner to corner, 18px across.
                 val half = 9.dp.toPx() * 0.9f
                 val c = center
-                val color = if (pressed) SpicyColors.TextPrimary else SpicyColors.TextSecondary
+                val color = if (pressed) primary else secondary
                 val width = 1.6.dp.toPx()
                 drawLine(color, Offset(c.x - half, c.y - half), Offset(c.x + half, c.y + half), width)
                 drawLine(color, Offset(c.x + half, c.y - half), Offset(c.x - half, c.y + half), width)
@@ -378,7 +418,10 @@ fun SpicyModalMessage(
 @Composable
 fun SpicyModalHeading(title: String, subtitle: String? = null) {
     Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S1)) {
-        Text(title, style = SpicyModalTitleStyle)
+        if (SpicyColors.brand != null) {
+            SpicyBrandLine(Modifier.padding(bottom = 6.dp))
+            Text(title, style = SpicyModalTitleStyle.copy(fontSize = BrandTitleSize, fontWeight = FontWeight.Bold, lineHeight = 1.1.em, letterSpacing = (-0.025f).em))
+        } else Text(title, style = SpicyModalTitleStyle)
         if (subtitle != null) {
             Text(subtitle, style = SpicyType.Body.copy(color = SpicyColors.TextSecondary, lineHeight = 1.45.em))
         }
@@ -386,7 +429,7 @@ fun SpicyModalHeading(title: String, subtitle: String? = null) {
 }
 
 /** `.uc-title`: 1.2rem semibold. */
-val SpicyModalTitleStyle = SpicyType.Title.copy(fontSize = 19.2.sp, fontWeight = FontWeight.SemiBold, lineHeight = 1.3.em, letterSpacing = (-0.015f).em)
+val SpicyModalTitleStyle @Composable @ReadOnlyComposable get() = SpicyType.Title.copy(fontSize = 19.2.sp, fontWeight = FontWeight.SemiBold, lineHeight = 1.3.em, letterSpacing = (-0.015f).em)
 
 /** `.uc-divider`. */
 @Composable
@@ -461,7 +504,7 @@ fun SpicyModalButton(
     val scale by animateFloatAsState(if (pressed) 0.97f else 1f, tween(120), label = "modalButtonScale")
     val shape = RoundedCornerShape(SpicyRadii.Sm)
     val (background, color) = when (style) {
-        SpicyButtonStyle.Primary -> (if (pressed) Color.White.copy(alpha = 0.8f) else SpicyColors.Accent) to SpicyColors.TextOnFill
+        SpicyButtonStyle.Primary -> (if (pressed) SpicyColors.AccentPressed else SpicyColors.Accent) to SpicyColors.TextOnFill
         SpicyButtonStyle.Secondary -> (if (pressed) SpicyColors.TintBgPressed else SpicyColors.TintBg) to SpicyColors.TextPrimary
         SpicyButtonStyle.Quiet -> (if (pressed) SpicyColors.TintBg else Color.Transparent) to
             (if (pressed) SpicyColors.TextPrimary else SpicyColors.TextSecondary)
@@ -511,15 +554,15 @@ private val PlateMaterial = HazeStyle(
     fallbackTint = HazeTint(Color(22, 22, 22).copy(alpha = 0.9f)),
 )
 
-/** `inset 0 1px 0 rgba(255,255,255,.08), inset 0 0 0 1px var(--hairline-strong)`. */
-private fun Modifier.plateEdges(): Modifier = drawBehind {
+/** `inset 0 1px 0 [top], inset 0 0 0 1px [ring]`. */
+private fun Modifier.plateEdges(top: Color, ring: Color): Modifier = drawBehind {
     val px = 1.dp.toPx()
     val radius = CornerRadius(SpicyRadii.Lg.toPx())
     clipRect(bottom = px * 2f) {
-        drawRoundRect(Color.White.copy(alpha = 0.08f), cornerRadius = radius, topLeft = Offset(0f, px), size = size)
+        drawRoundRect(top, cornerRadius = radius, topLeft = Offset(0f, px), size = size)
     }
     drawRoundRect(
-        SpicyColors.HairlineStrong,
+        ring,
         topLeft = Offset(px / 2f, px / 2f),
         size = Size(size.width - px, size.height - px),
         cornerRadius = CornerRadius(radius.x - px / 2f),
@@ -547,6 +590,8 @@ private fun Modifier.modalShadow(): Modifier = drawBehind {
 }
 
 private const val OVERLAY_ALPHA = 0.45f
+private const val BRAND_OVERLAY_ALPHA = 0.55f
+private const val MARK_TURN_MS = 700
 private const val CLOSED_SCALE = 0.96f
 private val PLATE_WIDTH = 420.dp
 private val TAP_MIN = 40.dp

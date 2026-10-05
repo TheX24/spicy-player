@@ -105,6 +105,9 @@ fun configSnapshot(settings: AppSettings): Map<String, Any> = with(settings) {
         "resync_button" to resyncButton,
         "expand_button" to expandButton,
         "prereleases" to includePrereleases,
+        "settings_theme" to settingsTheme.name,
+        "popup_theme" to popupTheme.name,
+        "app_icon" to appIcon.name,
     )
 }
 

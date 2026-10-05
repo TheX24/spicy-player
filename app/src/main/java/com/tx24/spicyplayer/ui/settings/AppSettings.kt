@@ -10,6 +10,7 @@ import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
 import com.tx24.spicyplayer.lyrics.spicy.SyllableMerge
 import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
+import com.tx24.spicyplayer.ui.components.ChromeTheme
 import com.tx24.spicyplayer.ui.nowplaying.HeaderSize
 import kotlin.properties.ReadWriteProperty
 import kotlin.reflect.KClass
@@ -117,6 +118,11 @@ class AppSettings(private val prefs: SharedPreferences) {
     var expandButton by boolean("expandButton", true)
     /** How the Lyrics Manager's last upload was applied; the upload screen reopens on it. */
     var ttmlUploadSaves by boolean("ttmlUploadSaves", true)
+
+    /** How Settings and the pop-ups are dressed, and which launcher icon shows (`AppIcon.apply`). */
+    var settingsTheme by enum("settingsTheme", ChromeTheme.Purple)
+    var popupTheme by enum("popupTheme", ChromeTheme.Purple)
+    var appIcon by enum("appIcon", AppIcon.Purple)
 
     /** Anonymous usage stats (`UsageStats`); nothing is sent until the notice has been answered. */
     var usageStats by boolean(UsageStats.KEY_ENABLED, true)

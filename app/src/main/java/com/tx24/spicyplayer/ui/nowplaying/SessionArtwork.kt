@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.ui.nowplaying
 
+import com.tx24.spicyplayer.ui.settings.LocalAppIcon
+import com.tx24.spicyplayer.ui.settings.AppIcon
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -65,8 +67,9 @@ fun rememberSessionArtwork(
     hasSession: Boolean = true,
 ): SessionArtwork? {
     val context = LocalContext.current
+    val icon = LocalAppIcon.current
     var loaded by remember { mutableStateOf<SessionArtwork?>(null) }
-    LaunchedEffect(artwork, artworkUri, maxDimension, hasSession) {
+    LaunchedEffect(artwork, artworkUri, maxDimension, hasSession, icon) {
         val cover = loadSessionArtwork(context, artwork, artworkUri, maxDimension)
         if (cover != null) {
             // Keep the one shown when this is the same cover again, or the header slides it in twice.
@@ -74,21 +77,21 @@ fun rememberSessionArtwork(
             return@LaunchedEffect
         }
         if (hasSession) delay(FALLBACK_GRACE_MS)
-        loaded = fallbackArtwork(context)
+        loaded = fallbackArtwork(context, icon)
     }
     return loaded
 }
 
 private const val FALLBACK_GRACE_MS = 3_000L
 
-@Volatile private var fallback: SessionArtwork? = null
+private val fallbacks = java.util.concurrent.ConcurrentHashMap<AppIcon, SessionArtwork>()
 
-/** The app logo on its gradient, cropped to the launcher icon's visible square. */
-private suspend fun fallbackArtwork(context: Context): SessionArtwork =
-    fallback ?: withContext(Dispatchers.Default) {
+/** The app logo the user picked, on its gradient, cropped to the launcher icon's visible square. */
+private suspend fun fallbackArtwork(context: Context, icon: AppIcon): SessionArtwork =
+    fallbacks[icon] ?: withContext(Dispatchers.Default) {
         val options = BitmapFactory.Options().apply { inScaled = false }
-        val bitmap = BitmapFactory.decodeResource(context.resources, R.drawable.fallback_cover, options)
-        SessionArtwork.of(bitmap).also { fallback = it }
+        val bitmap = BitmapFactory.decodeResource(context.resources, icon.cover, options)
+        SessionArtwork.of(bitmap).also { fallbacks[icon] = it }
     }
 
 suspend fun loadSessionArtwork(

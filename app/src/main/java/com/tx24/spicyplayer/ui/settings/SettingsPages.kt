@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.ui.settings
 
+import com.tx24.spicyplayer.ui.components.ChromeTheme
+import androidx.compose.material.icons.rounded.Apps
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 
 import androidx.compose.material.icons.rounded.PauseCircle
@@ -620,6 +622,48 @@ internal fun ControlsContent(settings: AppSettings) {
             onCheckedChange = { settings.queueButton = it },
             description = "Show its own button for the player's queue, while it shares one. It's always in quick settings.",
             icon = Icons.AutoMirrored.Rounded.QueueMusic,
+        )
+    }
+}
+
+@Composable
+internal fun ThemeContent(settings: AppSettings) {
+    SettingRow(
+        label = "Settings Theme",
+        description = "Dress this screen in Spicy Lyrics' purple, or keep the plain glass.",
+        icon = Icons.Rounded.Tune,
+    ) {
+        SpicySelect(
+            value = settings.settingsTheme.name,
+            options = ChromeTheme.entries.map { it.name },
+            labels = ChromeTheme.entries.map { it.label },
+            onChange = { settings.settingsTheme = ChromeTheme.valueOf(it) },
+        )
+    }
+    SettingRow(
+        label = "Pop-up Theme",
+        description = "Dress the pop-ups, like quick settings, the queue and update notices, the same way.",
+        icon = Icons.Rounded.Widgets,
+    ) {
+        SpicySelect(
+            value = settings.popupTheme.name,
+            options = ChromeTheme.entries.map { it.name },
+            labels = ChromeTheme.entries.map { it.label },
+            onChange = { settings.popupTheme = ChromeTheme.valueOf(it) },
+        )
+    }
+    SettingRow(
+        label = "App Icon",
+        description = "Choose the icon on your home screen. It changes once you leave the app.",
+        icon = Icons.Rounded.Apps,
+    ) {
+        SpicySelect(
+            value = settings.appIcon.name,
+            options = AppIcon.entries.map { it.name },
+            labels = AppIcon.entries.map { it.label },
+            onChange = { name ->
+                settings.appIcon = AppIcon.valueOf(name)
+            },
         )
     }
 }

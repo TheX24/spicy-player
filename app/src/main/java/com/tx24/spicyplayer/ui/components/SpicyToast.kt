@@ -1,5 +1,22 @@
 package com.tx24.spicyplayer.ui.components
 
+import com.tx24.spicyplayer.R
+import androidx.compose.ui.res.vectorResource
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material3.Icon
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
@@ -23,7 +40,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
 import com.tx24.spicyplayer.ui.theme.SpicyRadii
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
@@ -51,22 +67,56 @@ fun SpicyToastHost(messages: Flow<String>, modifier: Modifier = Modifier) {
         }
     }
     val message = text ?: return
-    val shape = RoundedCornerShape(SpicyRadii.Md)
+    val palette = LocalPopupPalette.current
+    val brand = palette.brand
     Box(modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S4), contentAlignment = Alignment.TopCenter) {
-        Text(
-            message,
-            modifier = Modifier
-                .widthIn(max = 420.dp)
-                .graphicsLayer {
-                    alpha = shown.value
-                    translationY = (1f - shown.value) * -12.dp.toPx()
-                }
-                .clip(shape)
-                .background(SpicyColors.BgElevated)
-                .border(1.dp, SpicyColors.HairlineStrong, shape)
-                .padding(horizontal = SpicySpacing.S4, vertical = SpicySpacing.S3),
-            style = SpicyType.Caption.copy(color = SpicyColors.TextPrimary, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
-        )
+        val appear = Modifier
+            .widthIn(max = 420.dp)
+            .graphicsLayer {
+                alpha = shown.value
+                translationY = (1f - shown.value) * -12.dp.toPx()
+            }
+        if (brand != null) {
+            // The brand's pill: the ramp, a hairline ring with a lit top edge, the logo before the text.
+            Row(
+                appear
+                    .shadow(16.dp, CircleShape, ambientColor = Color.Black, spotColor = Color.Black)
+                    .clip(CircleShape)
+                    .drawBehind {
+                        drawBrandRamp(brand)
+                        val px = 1.dp.toPx()
+                        val radius = CornerRadius(size.height / 2f)
+                        clipRect(bottom = px * 2f) {
+                            drawRoundRect(brand.ink.copy(alpha = 0.22f), cornerRadius = radius, topLeft = Offset(0f, px), size = size)
+                        }
+                        drawRoundRect(
+                            brand.ink.copy(alpha = 0.16f),
+                            topLeft = Offset(px / 2f, px / 2f),
+                            size = Size(size.width - px, size.height - px),
+                            cornerRadius = CornerRadius(radius.x - px / 2f),
+                            style = Stroke(px),
+                        )
+                    }
+                    .heightIn(min = 44.dp)
+                    .padding(start = SpicySpacing.S4, end = 14.dp),
+                horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Icon(ImageVector.vectorResource(R.drawable.spicy_player_glyph), null, Modifier.size(16.dp), tint = brand.inkMuted)
+                Text(message, style = SpicyType.Caption.copy(color = brand.ink, fontWeight = FontWeight.SemiBold))
+            }
+        } else {
+            val shape = RoundedCornerShape(SpicyRadii.Md)
+            Text(
+                message,
+                modifier = appear
+                    .clip(shape)
+                    .background(palette.BgElevated)
+                    .border(1.dp, palette.HairlineStrong, shape)
+                    .padding(horizontal = SpicySpacing.S4, vertical = SpicySpacing.S3),
+                style = SpicyType.Caption.copy(color = palette.TextPrimary, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center),
+            )
+        }
     }
 }
 

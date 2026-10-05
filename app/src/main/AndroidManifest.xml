@@ -24,14 +24,38 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.SpicyPlayer">
         <activity
-            android:name="com.tx24.spicyplayer.MainActivity"
+            android:name="com.tx24.spicyplayer.LyricsActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:exported="true" />
+
+        <!--
+            The launcher icons, one enabled at a time (Settings → Theme → App icon). The default
+            keeps the name the activity used to have, so icons already on home screens stay.
+        -->
+        <activity-alias
+            android:name="com.tx24.spicyplayer.MainActivity"
+            android:targetActivity="com.tx24.spicyplayer.LyricsActivity"
+            android:icon="@mipmap/ic_launcher"
+            android:roundIcon="@mipmap/ic_launcher_round"
+            android:enabled="true"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
-        </activity>
+        </activity-alias>
+        <activity-alias
+            android:name="com.tx24.spicyplayer.LauncherPride"
+            android:targetActivity="com.tx24.spicyplayer.LyricsActivity"
+            android:icon="@mipmap/ic_launcher_pride"
+            android:roundIcon="@mipmap/ic_launcher_pride_round"
+            android:enabled="false"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity-alias>
 
         <service
             android:name="com.tx24.spicyplayer.playback.SessionAccessService"

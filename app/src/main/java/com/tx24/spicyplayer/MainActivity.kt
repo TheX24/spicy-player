@@ -1,5 +1,8 @@
 package com.tx24.spicyplayer
 
+import com.tx24.spicyplayer.ui.settings.LocalAppIcon
+import com.tx24.spicyplayer.ui.settings.AppIcon
+import com.tx24.spicyplayer.ui.components.LocalPopupPalette
 import kotlinx.coroutines.launch
 import androidx.compose.runtime.rememberCoroutineScope
 import com.tx24.spicyplayer.lyrics.LyricsNotices
@@ -182,7 +185,11 @@ import com.tx24.spicyplayer.analytics.lyricsOutcome
 import com.tx24.spicyplayer.ui.controls.ControlsRevealGuard
 import com.tx24.spicyplayer.ui.controls.LocalControlsRevealGuard
 
-class MainActivity : ComponentActivity() {
+/**
+ * The lyrics screen. Not named MainActivity: that name belongs to the launcher entry (an alias in
+ * the manifest), so home-screen icons pinned before the icon choice existed keep working.
+ */
+class LyricsActivity : ComponentActivity() {
     private val playbackViewModel: ExternalPlaybackViewModel by viewModels()
     private val updateViewModel: UpdateViewModel by viewModels()
 
@@ -195,7 +202,11 @@ class MainActivity : ComponentActivity() {
             val settings = remember { AppSettings(getSharedPreferences("ui", Context.MODE_PRIVATE)) }
             MaterialTheme(colorScheme = darkColorScheme()) {
                 ProvideTouchHaptics(settings.touchHaptics) {
-                    CompositionLocalProvider(LocalUiAnimations provides (settings.uiAnimations && !settings.lowPerformance)) {
+                    CompositionLocalProvider(
+                        LocalUiAnimations provides (settings.uiAnimations && !settings.lowPerformance),
+                        LocalPopupPalette provides settings.popupTheme.palette,
+                        LocalAppIcon provides settings.appIcon,
+                    ) {
                     LyricsApp(
                         viewModel = playbackViewModel,
                         updater = updateViewModel,
@@ -223,6 +234,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         playbackViewModel.setUiStarted(false)
+        // Switching the launcher icon disables the alias this screen was opened through, and
+        // Android closes it then: so the switch waits until the app is left. Also picks up a
+        // restore that changed the setting.
+        if (!isChangingConfigurations) {
+            val icon = runCatching { AppIcon.valueOf(getSharedPreferences("ui", Context.MODE_PRIVATE).getString("appIcon", null)!!) }
+                .getOrDefault(AppIcon.Purple)
+            AppIcon.apply(this, icon)
+        }
         super.onStop()
     }
 

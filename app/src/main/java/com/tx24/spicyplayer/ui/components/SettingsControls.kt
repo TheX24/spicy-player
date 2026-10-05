@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.ui.components
 
+import androidx.compose.ui.composed
+import androidx.compose.runtime.ReadOnlyComposable
 import android.os.SystemClock
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.MutableTransitionState
@@ -282,7 +284,7 @@ fun RowLabel(label: String, description: String?, modifier: Modifier = Modifier,
 }
 
 /** A row's description: caption in secondary text at 85%. */
-val DescriptionStyle = SpicyType.Caption.copy(color = SpicyColors.TextSecondary.copy(alpha = 0.6f * 0.85f), lineHeight = 1.4.em)
+val DescriptionStyle @Composable @ReadOnlyComposable get() = SpicyType.Caption.copy(color = SpicyColors.TextSecondary.copy(alpha = 0.6f * 0.85f), lineHeight = 1.4.em)
 
 /**
  * A toggle whose state shows through brightness alone. Off is a dark groove with a cream knob,
@@ -665,6 +667,7 @@ fun SpicyTextField(
 @Composable
 fun SpicySearchBar(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier) {
     val haptics = LocalHapticFeedback.current
+    val glyph = SpicyColors.TextTertiary
     SpicyTextField(
         value = value,
         onValueChange = onValueChange,
@@ -674,8 +677,8 @@ fun SpicySearchBar(value: String, onValueChange: (String) -> Unit, modifier: Mod
             Canvas(Modifier.size(14.dp)) {
                 val s = size.width / 14f
                 val stroke = Stroke(1.5f * s, cap = StrokeCap.Round)
-                drawCircle(SpicyColors.TextTertiary, 4.5f * s, Offset(6f * s, 6f * s), style = stroke)
-                drawLine(SpicyColors.TextTertiary, Offset(9.5f * s, 9.5f * s), Offset(13f * s, 13f * s), 1.5f * s, StrokeCap.Round)
+                drawCircle(glyph, 4.5f * s, Offset(6f * s, 6f * s), style = stroke)
+                drawLine(glyph, Offset(9.5f * s, 9.5f * s), Offset(13f * s, 13f * s), 1.5f * s, StrokeCap.Round)
             }
         },
         trailing = if (value.isEmpty()) null else {
@@ -691,8 +694,8 @@ fun SpicySearchBar(value: String, onValueChange: (String) -> Unit, modifier: Mod
                 ) {
                     Canvas(Modifier.size(10.dp)) {
                         val s = size.width / 10f
-                        drawLine(SpicyColors.TextTertiary, Offset(s, s), Offset(9f * s, 9f * s), 1.5f * s, StrokeCap.Round)
-                        drawLine(SpicyColors.TextTertiary, Offset(9f * s, s), Offset(s, 9f * s), 1.5f * s, StrokeCap.Round)
+                        drawLine(glyph, Offset(s, s), Offset(9f * s, 9f * s), 1.5f * s, StrokeCap.Round)
+                        drawLine(glyph, Offset(9f * s, s), Offset(s, 9f * s), 1.5f * s, StrokeCap.Round)
                     }
                 }
             }
@@ -739,6 +742,7 @@ fun SpicyBipolarSlider(
         return ((raw / step).roundToInt() * step).coerceIn(range)
     }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
+        val colors = SpicyColors
         Canvas(
             Modifier
                 .fillMaxWidth()
@@ -774,10 +778,10 @@ fun SpicyBipolarSlider(
             drawRoundRect(Color.White.copy(alpha = 0.18f), Offset(0f, cy - trackH / 2f), Size(size.width, trackH), CornerRadius(trackH / 2f))
             val from = posFor(minOf(zeroF, f))
             val to = posFor(maxOf(zeroF, f))
-            drawRoundRect(SpicyColors.Accent, Offset(from, cy - trackH / 2f), Size(to - from, trackH), CornerRadius(trackH / 2f))
+            drawRoundRect(colors.Accent, Offset(from, cy - trackH / 2f), Size(to - from, trackH), CornerRadius(trackH / 2f))
             val tickH = 12.dp.toPx()
             drawRoundRect(
-                SpicyColors.HairlineStrong,
+                colors.HairlineStrong,
                 Offset(posFor(zeroF) - 1.dp.toPx(), cy - tickH / 2f),
                 Size(2.dp.toPx(), tickH),
                 CornerRadius(1.dp.toPx()),
@@ -811,9 +815,9 @@ fun SpicyBipolarSlider(
 }
 
 /** A quiet outlined card: hairline ring, large radius. */
-fun Modifier.outlinedCard(tinted: Boolean = false): Modifier {
+fun Modifier.outlinedCard(tinted: Boolean = false): Modifier = composed {
     val shape = RoundedCornerShape(SpicyRadii.Lg)
-    return clip(shape)
+    clip(shape)
         .then(if (tinted) Modifier.background(SpicyColors.TintBg) else Modifier)
         .border(1.dp, SpicyColors.Hairline, shape)
 }

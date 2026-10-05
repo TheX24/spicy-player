@@ -1,5 +1,14 @@
 package com.tx24.spicyplayer.ui.settings
 
+import com.tx24.spicyplayer.ui.components.drawBrandMark
+import com.tx24.spicyplayer.ui.components.drawBrandRamp
+import com.tx24.spicyplayer.ui.components.rememberBrandGlyph
+import com.tx24.spicyplayer.ui.components.BrandTitleSize
+import com.tx24.spicyplayer.ui.components.SpicyBrandLine
+import com.tx24.spicyplayer.ui.theme.LocalSpicyPalette
+import androidx.compose.ui.unit.em
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.material.icons.rounded.ColorLens
 import com.tx24.spicyplayer.ui.components.LocalUiAnimations
 
 import androidx.compose.animation.core.snap
@@ -114,6 +123,7 @@ internal enum class SettingsPage(val title: String) {
     Background("Background"),
     NowPlaying("Now Playing"),
     Controls("Controls"),
+    Theme("Theme"),
     Sources("Sources"),
     Device("Device"),
     Advanced("Advanced"),
@@ -141,6 +151,8 @@ fun SettingsScreen(
     onOpenSpotifySearch: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
+    val palette = settings.settingsTheme.palette
+    val glyph = rememberBrandGlyph()
     // Interface animations off: every move is instant.
     val animate = LocalUiAnimations.current
     val modal: AnimationSpec<Float> = if (animate) tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal) else snap()
@@ -240,6 +252,25 @@ fun SettingsScreen(
                     },
                 ),
         )
+        // The brand's glass: a deep tint, its ramp, and the logo cropped big off the top-right
+        // corner, fading with the dim.
+        palette.brand?.let { brand ->
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .graphicsLayer { alpha = open.value * (1f - BACKDROP_PEEK * backSwipe.value) }
+                    .drawBehind {
+                        drawRect(brand.fieldDeep.copy(alpha = 0.14f))
+                        drawBrandRamp(brand, fromAlpha = 0.26f, toAlpha = 0.4f)
+                        val width = minOf(MARK_WIDTH.toPx(), size.width * 0.9f)
+                        drawBrandMark(
+                            glyph, brand.tint, alpha = 0.4f, width = width,
+                            right = -width * MARK_RIGHT, top = -width * MARK_TOP, degrees = -14f,
+                        )
+                    },
+            )
+        }
+        CompositionLocalProvider(LocalSpicyPalette provides palette) {
         BoxWithConstraints(
             Modifier
                 .fillMaxSize()
@@ -296,6 +327,7 @@ fun SettingsScreen(
                 }
             }
         }
+        }
     }
 }
 
@@ -316,6 +348,7 @@ private fun PageContent(
         SettingsPage.Background -> BackgroundContent(settings)
         SettingsPage.NowPlaying -> NowPlayingContent(settings)
         SettingsPage.Controls -> ControlsContent(settings)
+        SettingsPage.Theme -> ThemeContent(settings)
         SettingsPage.Sources -> SourcesContent(state, viewModel)
         SettingsPage.Device -> DeviceContent(settings)
         SettingsPage.Advanced -> AdvancedContent(state, viewModel, updater, settings)
@@ -347,7 +380,14 @@ private fun Page(
                 Icon(Icons.AutoMirrored.Rounded.KeyboardArrowLeft, null, tint = SpicyColors.TextPrimary, modifier = Modifier.size(24.dp))
             }
             Spacer(Modifier.size(SpicySpacing.S3))
-            Text(title, style = SpicyType.Title.copy(fontSize = 22.sp, fontWeight = FontWeight.SemiBold))
+            if (SpicyColors.brand != null) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    SpicyBrandLine()
+                    Text(title, style = SpicyType.Title.copy(fontSize = BrandTitleSize, lineHeight = 1.1.em, letterSpacing = (-0.025f).em))
+                }
+            } else {
+                Text(title, style = SpicyType.Title.copy(fontSize = 22.sp, fontWeight = FontWeight.SemiBold))
+            }
         }
         header()
         if (ready) {
@@ -381,6 +421,7 @@ private fun PageSkeleton(page: SettingsPage) {
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
         SettingsPage.Controls -> SettingsSkeleton(rows = 10)
+        SettingsPage.Theme -> SettingsSkeleton(rows = 3)
         SettingsPage.Sources -> SettingsSkeleton(rows = 13, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 7)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 11)
@@ -460,6 +501,16 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
                 "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.quickSettingsButton, settings.lyricsManagerButton, settings.queueButton).count { it }} of 7 extra buttons",
             ).joinToString(),
         ) { onOpen(SettingsPage.Controls) }
+        GroupDivider()
+        GroupRow(
+            Icons.Rounded.ColorLens,
+            SettingsPage.Theme.title,
+            listOf(
+                "${settings.settingsTheme.label} settings",
+                "${settings.popupTheme.label.lowercase()} pop-ups",
+                "${settings.appIcon.label.lowercase()} icon",
+            ).joinToString(),
+        ) { onOpen(SettingsPage.Theme) }
     }
     Spacer(Modifier.height(SpicySpacing.S3))
     Column(Modifier.fillMaxWidth().outlinedCard()) {
@@ -570,6 +621,7 @@ private fun FooterLink(label: String, modifier: Modifier, brand: Color? = null, 
 }
 
 /** "v0.6.0 · pre-release · Latest": the status only once a check has said something. */
+@Composable
 private fun versionLine(status: UpdateStatus, enabled: Boolean): AnnotatedString = buildAnnotatedString {
     append("v${BuildConfig.VERSION_NAME} · ${buildChannel()}")
     if (!enabled) return@buildAnnotatedString
@@ -672,6 +724,11 @@ private const val MODAL_CLOSED_SCALE = 0.96f
 /** Material's predictive back for a full screen: down to 90%, nudged 8dp away from the edge. */
 private const val BACK_GESTURE_SCALE = 0.9f
 private val BACK_GESTURE_SHIFT = 8.dp
+
+/** The mark over the themed backdrop: 420px across, 130px off the right edge and 150px off the top. */
+private val MARK_WIDTH = 420.dp
+private const val MARK_RIGHT = 130f / 420f
+private const val MARK_TOP = 150f / 420f
 
 /** How much the lyrics show through while a back gesture closes settings. */
 private const val BACKDROP_PEEK = 0.35f

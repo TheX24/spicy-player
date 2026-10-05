@@ -149,12 +149,13 @@ private fun ProfilePage(url: String, onDismiss: () -> Unit) {
                 }
             }
         }
+        val hairline = SpicyColors.Hairline
         Box(
             Modifier
                 .fillMaxWidth()
                 .drawBehind {
                     val px = 1.dp.toPx()
-                    drawRect(SpicyColors.Hairline, Offset.Zero, Size(size.width, px))
+                    drawRect(hairline, Offset.Zero, Size(size.width, px))
                 }
                 .padding(horizontal = SpicySpacing.S6, vertical = SpicySpacing.S4),
         ) {

@@ -1,6 +1,10 @@
 package com.tx24.spicyplayer.ui.theme
 
 import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Immutable
+import androidx.compose.runtime.ReadOnlyComposable
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -17,35 +21,108 @@ import dev.chrisbanes.haze.HazeTint
  * app's own chrome (controls, settings). CSS px are taken as dp and rem as 16sp.
  */
 
-object SpicyColors {
-    /** `--color-text-*`: white at 92/60/35/18%. */
-    val TextPrimary = Color.White.copy(alpha = 0.92f)
-    val TextSecondary = Color.White.copy(alpha = 0.6f)
-    val TextTertiary = Color.White.copy(alpha = 0.35f)
-    val TextQuaternary = Color.White.copy(alpha = 0.18f)
-    val TextOnFill = Color.Black
-
+/**
+ * The chrome's colours. Most screens use [Neutral], monochrome white; a themed part (Settings, the
+ * pop-ups) provides [Purple] through [LocalSpicyPalette], which re-tints its text, hairlines,
+ * highlights and buttons the way the themed Settings re-points its CSS tokens, and gives its
+ * plate the [brand] ramp.
+ */
+@Immutable
+class SpicyPalette(
+    /** `--color-text-*`. */
+    val TextPrimary: Color,
+    val TextSecondary: Color,
+    val TextTertiary: Color,
+    val TextQuaternary: Color,
+    /** `--accent-on-fill`: text on an [Accent] fill. */
+    val TextOnFill: Color,
+    /** `--hairline`, `--hairline-strong`. */
+    val Hairline: Color,
+    val HairlineStrong: Color,
+    /** `--accent-tint-bg(-hover)`: the soft highlight for selected rows and fields. */
+    val TintBg: Color,
+    val TintBgPressed: Color,
+    /** The primary button's fill, and while held. */
+    val Accent: Color,
+    val AccentPressed: Color,
+    /** The plate's ramp and mark; null for the plain glass. */
+    val brand: SpicyBrand? = null,
+) {
     /** `--color-bg-elevated`, `--color-bg-overlay`. */
     val BgElevated = Color(28, 28, 32).copy(alpha = 0.88f)
     val BgOverlay = Color.Black.copy(alpha = 0.35f)
-
-    /** `--hairline`, `--hairline-strong`. */
-    val Hairline = Color.White.copy(alpha = 0.08f)
-    val HairlineStrong = Color.White.copy(alpha = 0.14f)
-
-    /** `--accent-tint-bg(-hover)`: the soft highlight for selected rows and fields. */
-    val TintBg = Color.White.copy(alpha = 0.06f)
-    val TintBgPressed = Color.White.copy(alpha = 0.14f)
-
-    /** No colour accent, only brighter white. */
-    val Accent = Color.White.copy(alpha = 0.95f)
 
     /** `--color-status-*`: muted; tints an icon or one line of text, never a surface. */
     val StatusDanger = Color(255, 110, 110).copy(alpha = 0.78f)
     val StatusInfo = Color(120, 180, 255).copy(alpha = 0.78f)
     val StatusSuccess = Color(140, 220, 170).copy(alpha = 0.78f)
     val StatusWarning = Color(255, 195, 120).copy(alpha = 0.82f)
+
+    companion object {
+        /** White at 92/60/35/18%; no colour accent, only brighter white. */
+        val Neutral = SpicyPalette(
+            TextPrimary = Color.White.copy(alpha = 0.92f),
+            TextSecondary = Color.White.copy(alpha = 0.6f),
+            TextTertiary = Color.White.copy(alpha = 0.35f),
+            TextQuaternary = Color.White.copy(alpha = 0.18f),
+            TextOnFill = Color.Black,
+            Hairline = Color.White.copy(alpha = 0.08f),
+            HairlineStrong = Color.White.copy(alpha = 0.14f),
+            TintBg = Color.White.copy(alpha = 0.06f),
+            TintBgPressed = Color.White.copy(alpha = 0.14f),
+            Accent = Color.White.copy(alpha = 0.95f),
+            AccentPressed = Color.White.copy(alpha = 0.8f),
+        )
+
+        /** Lavender ink on a deep purple ramp: text at 100/muted/50/26%, lines at 12/20%, highlights at 8/14%. */
+        fun of(brand: SpicyBrand) = SpicyPalette(
+            TextPrimary = brand.ink,
+            TextSecondary = brand.inkMuted,
+            TextTertiary = brand.ink.copy(alpha = 0.5f),
+            TextQuaternary = brand.ink.copy(alpha = 0.26f),
+            TextOnFill = brand.ctaInk,
+            Hairline = brand.ink.copy(alpha = 0.12f),
+            HairlineStrong = brand.ink.copy(alpha = 0.2f),
+            TintBg = brand.ink.copy(alpha = 0.08f),
+            TintBgPressed = brand.ink.copy(alpha = 0.14f),
+            Accent = brand.cta,
+            AccentPressed = Color.White,
+            brand = brand,
+        )
+
+        val Purple = of(SpicyBrand.Purple)
+    }
 }
+
+/**
+ * A themed plate's colours, in sRGB: `oklch(0.30 0.095 297)` and so on (hue 297, lavender).
+ */
+@Immutable
+class SpicyBrand(
+    /** The ramp, top-left to bottom-right at 165°. */
+    val field: Color,
+    val fieldDeep: Color,
+    /** The big mark in the corner. */
+    val tint: Color,
+    val ink: Color,
+    val inkMuted: Color,
+    /** The primary button, and the text on it. */
+    val cta: Color,
+    val ctaInk: Color,
+) {
+    companion object {
+        val Purple = SpicyBrand(
+            field = Color(0xFF342057), fieldDeep = Color(0xFF23133E), tint = Color(0xFF584383),
+            ink = Color(0xFFD9CAFF), inkMuted = Color(0xFFB9AFD7), cta = Color(0xFFF1EDFE), ctaInk = Color(0xFF271446),
+        )
+    }
+}
+
+val LocalSpicyPalette = staticCompositionLocalOf { SpicyPalette.Neutral }
+
+/** The palette of the part being drawn; see [SpicyPalette]. */
+val SpicyColors: SpicyPalette
+    @Composable @ReadOnlyComposable get() = LocalSpicyPalette.current
 
 /**
  * `--material-regular-*` plus the `.ViewControl` edge and cast shadow. The blur comes from Haze
@@ -120,12 +197,18 @@ object SpicyMotion {
     const val MODAL_MS = 220
 }
 
-/** The text ramp, in the lyrics font. */
+/** The text ramp, in the lyrics font, in the current palette's primary text colour. */
 object SpicyType {
-    private val base = TextStyle(fontFamily = LyricsLayoutCalculator.spicyFontFamily, color = SpicyColors.TextPrimary)
-    val Title = base.copy(fontSize = 17.6.sp, lineHeight = 1.25.em, fontWeight = FontWeight.Bold)
-    val Headline = base.copy(fontSize = 15.32.sp, lineHeight = 1.3.em, fontWeight = FontWeight.SemiBold)
-    val Body = base.copy(fontSize = 14.sp, lineHeight = 1.4.em, fontWeight = FontWeight.Normal)
-    val Caption = base.copy(fontSize = 13.12.sp, lineHeight = 1.35.em, fontWeight = FontWeight.Normal)
-    val Footnote = base.copy(fontSize = 12.16.sp, lineHeight = 1.3.em, fontWeight = FontWeight.Normal)
+    private val base = TextStyle(fontFamily = LyricsLayoutCalculator.spicyFontFamily)
+    private val title = base.copy(fontSize = 17.6.sp, lineHeight = 1.25.em, fontWeight = FontWeight.Bold)
+    private val headline = base.copy(fontSize = 15.32.sp, lineHeight = 1.3.em, fontWeight = FontWeight.SemiBold)
+    private val body = base.copy(fontSize = 14.sp, lineHeight = 1.4.em, fontWeight = FontWeight.Normal)
+    private val caption = base.copy(fontSize = 13.12.sp, lineHeight = 1.35.em, fontWeight = FontWeight.Normal)
+    private val footnote = base.copy(fontSize = 12.16.sp, lineHeight = 1.3.em, fontWeight = FontWeight.Normal)
+
+    val Title @Composable @ReadOnlyComposable get() = title.copy(color = SpicyColors.TextPrimary)
+    val Headline @Composable @ReadOnlyComposable get() = headline.copy(color = SpicyColors.TextPrimary)
+    val Body @Composable @ReadOnlyComposable get() = body.copy(color = SpicyColors.TextPrimary)
+    val Caption @Composable @ReadOnlyComposable get() = caption.copy(color = SpicyColors.TextPrimary)
+    val Footnote @Composable @ReadOnlyComposable get() = footnote.copy(color = SpicyColors.TextPrimary)
 }
