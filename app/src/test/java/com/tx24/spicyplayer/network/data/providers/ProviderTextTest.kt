@@ -5,7 +5,10 @@ import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
+import com.tx24.spicyplayer.network.data.RemoteLyricsQuality
 import com.tx24.spicyplayer.network.data.isNoWordsNote
+import com.tx24.spicyplayer.network.data.measuredQuality
+import com.tx24.spicyplayer.lyrics.spicy.parser.TtmlLyricsParser
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -58,6 +61,24 @@ class ProviderTextTest {
 
         // Unlabelled: nothing to go by, so it keeps RMM Revival's own place.
         assertEquals(null, rmm("""{"ttml":"<tt/>"}""").originName)
+
+        // Labelled "spicy_lyrics" with no uploader: Apple Music's lyrics passed on through Spicy Lyrics.
+        assertEquals("Apple Music", rmm("""{"ttml":"<tt/>","lyricsSource":"spicylyrics","lyricsProviderSource":"spicy_lyrics","uploadAttribution":null}""").originName)
+    }
+
+    @Test fun lrcRedTtmlReadsAsApples() {
+        val ttml = """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:lrc="http://lrc.red/lyric-ttml-internal" xmlns:ttm="http://www.w3.org/ns/ttml#metadata" lrc:timing="Word" xml:lang="ja">""" +
+            """<head><metadata><sourceMetadata xmlns="http://lrc.red/lyric-ttml-internal"><songwriters><songwriter>Ayase</songwriter></songwriters>""" +
+            """<transliterations><transliteration xml:lang="ja-Latn"><text for="L1"><span begin="0.5" end="1.0" xmlns="http://www.w3.org/ns/ttml">ka</span><span begin="1.0" end="1.5" xmlns="http://www.w3.org/ns/ttml">sa</span></text></transliteration></transliterations>""" +
+            """</sourceMetadata></metadata></head><body><div lrc:songPart="Verse"><p begin="0.5" end="1.5" lrc:key="L1" ttm:agent="v1">""" +
+            """<span begin="0.5" end="1.0">傘</span><span begin="1.0" end="1.5">さ</span></p></div></body></tt>"""
+        val apple = LrcRedLyricsProvider.appleTtml(ttml)
+        assertTrue(apple.contains("""itunes:timing="Word""""))
+        assertTrue(apple.contains("""itunes:key="L1""""))
+        assertTrue(apple.contains("<iTunesMetadata") && apple.contains("</iTunesMetadata>"))
+        assertEquals(RemoteLyricsQuality.WORD_SYNCED, RemoteLyricsPayload(ttmlLyrics = apple).measuredQuality())
+        val line = TtmlLyricsParser.parse(apple.byteInputStream()).lines.single()
+        assertEquals(listOf("ka", "sa"), line.words.map { it.romanizedText })
     }
 
     @Test fun spicyLyricsApiErrorsSayWhy() {

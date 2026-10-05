@@ -177,9 +177,16 @@ class RemoteLyricsSource @Inject constructor(
         fun outstanding() = pending + waiting + toAsk.map { it.descriptor.id }.filter { it !in known }
         // A relay still out may yet bring a Spicy Lyrics sync, which ranks in that place, while
         // Spicy Lyrics itself has no real answer (e.g. no Spotify match; RMM Revival asks by Apple ID).
+        // lrc.red still out may yet bring Apple Music's lyrics.
         fun bestCase(): List<LyricsSourceDescriptor> {
-            if (known[SPICY_ID].let { it is ProviderResult.Hit || it == ProviderResult.Miss }) return byOrigin()
-            return rankByOrigin(ranked, known + (outstanding() intersect RELAY_IDS).associateWith { SPICY_SYNC }, policy.disabledSourceIds)
+            val out = outstanding()
+            val standIns = buildMap {
+                if (known[SPICY_ID].let { it !is ProviderResult.Hit && it != ProviderResult.Miss }) {
+                    (out intersect SPICY_RELAY_IDS).forEach { put(it, SPICY_SYNC) }
+                }
+                if (LRC_RED_ID in out) put(LRC_RED_ID, APPLE_LYRICS)
+            }
+            return rankByOrigin(ranked, known + standIns, policy.disabledSourceIds)
         }
         while (!settled(resolution, bestCase(), outstanding())) {
             if (!fannedOut && pending.isEmpty()) {
@@ -430,10 +437,14 @@ class RemoteLyricsSource @Inject constructor(
         const val SPICY_ID = "spicy_lyrics"
         const val APPLE_MUSIC_ID = "apple_music"
         const val MUSIXMATCH_ID = "musixmatch"
-        /** Sources that pass on lyrics from elsewhere and say where from (RMM Revival relays Spicy Lyrics' API). */
-        val RELAY_IDS = setOf(SPICY_ID, "rmm_revival")
-        /** Stands in for a relay's answer that isn't in yet, at the highest place it could take. */
+        const val LRC_RED_ID = "lrc_red"
+        /** Relays of Spicy Lyrics' API (RMM Revival relays it by Apple Music ID). */
+        private val SPICY_RELAY_IDS = setOf(SPICY_ID, "rmm_revival")
+        /** Sources that pass on lyrics from elsewhere and say where from. */
+        val RELAY_IDS = SPICY_RELAY_IDS + LRC_RED_ID
+        /** Stand in for a relay's answer that isn't in yet, at the highest place it could take. */
         private val SPICY_SYNC = ProviderResult.Hit(RemoteLyricsPayload(attribution = LyricsAttribution("", originName = "Spicy Lyrics")))
+        private val APPLE_LYRICS = ProviderResult.Hit(RemoteLyricsPayload(attribution = LyricsAttribution("", originName = "Apple Music")))
         /** Origin names (SpicyLyricsProvider.spicyOriginName) for Spicy Lyrics' own syncs. */
         val SPICY_OWN_ORIGINS = setOf("Spicy Lyrics", "Spicy Lyrics Community")
 

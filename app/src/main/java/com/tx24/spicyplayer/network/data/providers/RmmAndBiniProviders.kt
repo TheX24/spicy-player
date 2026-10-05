@@ -44,9 +44,12 @@ internal fun rmmPayload(data: JsonObject): ProviderResult? {
     fun obj(key: String) = data.get(key)?.takeIf { it.isJsonObject }?.asJsonObject
     val upload = obj("uploadAttribution") ?: obj("UploadAttribution")
     val origin = data.get("lyricsProviderSource")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf(String::isNotBlank)
+        ?.let(::spicyOriginName)
+        // RMM Revival says "spicy_lyrics" for Apple Music's lyrics too; only community syncs name an uploader.
+        ?.let { if (it in RemoteLyricsSource.SPICY_OWN_ORIGINS && upload == null) "Apple Music" else it }
     return ProviderResult.Hit(hit.payload.copy(attribution = LyricsAttribution(
         providerName = "RMM Revival",
-        originName = origin?.let(::spicyOriginName),
+        originName = origin,
         songwriters = data.get("songWriters")?.takeIf { it.isJsonArray }?.asJsonArray
             ?.mapNotNull { it.takeIf { value -> value.isJsonPrimitive }?.asString }.orEmpty(),
         maker = upload?.contributor("Maker"),
@@ -84,7 +87,7 @@ class BiniLyricsProvider @Inject constructor(private val client: OkHttpClient, p
     }
 }
 
-private suspend fun <T : ProviderResult> guarded(block: suspend () -> T): ProviderResult = try { block() }
+internal suspend fun <T : ProviderResult> guarded(block: suspend () -> T): ProviderResult = try { block() }
 catch (cancelled: CancellationException) { throw cancelled }
 catch (error: HttpStatusException) {
     when (error.code) {
@@ -95,9 +98,9 @@ catch (error: HttpStatusException) {
 } catch (error: IOException) { ProviderResult.Unavailable(ProviderFailureCategory.NETWORK, error.message, true) }
 catch (error: Exception) { ProviderResult.Unavailable(ProviderFailureCategory.MALFORMED_RESPONSE, error.message) }
 
-private class HttpStatusException(val code: Int, val retryAfter: String?) : IOException("HTTP $code")
+internal class HttpStatusException(val code: Int, val retryAfter: String?) : IOException("HTTP $code")
 
-private suspend fun OkHttpClient.text(url: Any): String {
+internal suspend fun OkHttpClient.text(url: Any): String {
     val requestUrl = when (url) { is okhttp3.HttpUrl -> url; else -> url.toString().toHttpUrl() }
     return newCall(Request.Builder().url(requestUrl).get().build()).awaitResponse().use { response ->
         if (!response.isSuccessful) throw HttpStatusException(response.code, response.header("Retry-After"))
@@ -105,7 +108,7 @@ private suspend fun OkHttpClient.text(url: Any): String {
     }
 }
 
-private suspend fun OkHttpClient.json(url: Any, gson: Gson): JsonObject = gson.fromJson(text(url), JsonObject::class.java)
+internal suspend fun OkHttpClient.json(url: Any, gson: Gson): JsonObject = gson.fromJson(text(url), JsonObject::class.java)
 
 private fun JsonObject.matches(request: LyricsLookupRequest, titleKey: String, artistKey: String): Boolean {
     val title = get(titleKey)?.asString ?: get("title")?.asString ?: get("name")?.asString ?: return false
