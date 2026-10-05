@@ -646,6 +646,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
      */
     suspend fun importTtml(ttml: String, persistent: Boolean): Boolean {
         val request = currentRequest() ?: return false.also { noTrack() }
+        // Taken together before parsing, which suspends: the song may change meanwhile.
+        val key = currentLyricsKey
+        val state = mutableState.value
+        val artwork = state.artwork
         val selection = localSelection(ttml, persistent)
         val usable = withContext(Dispatchers.Default) {
             runCatching { RemoteLyricsAdapter.render(selection, request.durationSeconds * 1_000L) }
@@ -655,10 +659,12 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             mutableMessages.tryEmit("Failed to parse TTML.")
             return false
         }
+        if (!persistent && currentLyricsKey != key) {
+            mutableMessages.tryEmit("The song changed before the lyrics were ready.")
+            return false
+        }
         forgetShown(request, dropResults = false)
         if (persistent) {
-            val state = mutableState.value
-            val artwork = state.artwork
             withContext(Dispatchers.IO) {
                 val entry = localLyrics.put(request.title, request.artist, state.title, state.artist, state.album, ttml)
                 artwork?.let { saveCover(it, localLyrics.coverFile(entry.key)) }
@@ -666,7 +672,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             refreshLocalLyrics()
             mutableMessages.tryEmit("TTML saved to Local DB!")
         } else {
-            temporaryLyrics = currentLyricsKey.orEmpty() to selection
+            temporaryLyrics = key.orEmpty() to selection
             mutableMessages.tryEmit("Lyrics parsed and applied!")
         }
         loadLyrics()
@@ -845,6 +851,10 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val restoredId = controller?.metadata.overrideKey()?.let { overrideStore.getString(it, null) }
         if (restoredId != manualSpotifyId) {
             if (restoredId != null) overrideSpotifyId(restoredId) else clearSpotifyIdOverride()
+        } else {
+            // The restored sources, order or romanization may pick other lyrics for this song.
+            currentRequest()?.let { forgetShown(it, dropResults = true) }
+            loadLyrics()
         }
     }
 
@@ -1271,8 +1281,17 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private fun updateFromController(metadataChanged: Boolean = false, preserveStatus: Boolean = false) {
         val active = controller
         if (active == null) {
+            // Song state goes; settings the screens show (sources, keys, the Lyrics Manager) stay.
+            val kept = mutableState.value
             mutableState.value = PlayerUiState(
-                accessGranted = mutableState.value.accessGranted,
+                accessGranted = kept.accessGranted,
+                humanRomanizations = kept.humanRomanizations,
+                ignoreMusixmatchWordSync = kept.ignoreMusixmatchWordSync,
+                ownKeyHint = kept.ownKeyHint,
+                localLyrics = kept.localLyrics,
+                customSources = kept.customSources,
+                lyricsFolder = kept.lyricsFolder,
+                lyricsFolderScanning = kept.lyricsFolderScanning,
                 outputLabel = outputRoute.label,
                 lyricDelayMs = outputProfiles.delayMs(outputRoute),
                 sourceDescriptors = lyricsBackend.descriptors + lyricsBackend.blendDescriptors,

@@ -13,9 +13,11 @@ import java.io.IOException
 import java.net.URLEncoder
 import java.util.UUID
 import kotlinx.coroutines.CancellationException
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.Response
 
 /**
  * A source the user describes: one GET to [url] with the song filled in (`{title}`, `{artist}`,
@@ -30,9 +32,11 @@ data class CustomLyricsSource(
     val url: String,
     val path: String = "",
     val headers: List<Pair<String, String>> = emptyList(),
+    /** Set anew each time its header values are saved; no key material, just "these changed". */
+    val keyRevision: String = "",
 ) {
     /** Changes whenever what it asks for does, so lyrics cached from an older version aren't reused. */
-    val revision: String get() = Integer.toHexString(listOf(url, path, headers.joinToString { it.first }).hashCode())
+    val revision: String get() = Integer.toHexString(listOf(url, path, headers.joinToString { it.first }, keyRevision).hashCode())
 
     companion object {
         const val ID_PREFIX = "custom_"
@@ -59,9 +63,14 @@ data class CustomLyricsSource(
         /** "Name: value" lines, as typed. */
         fun parseHeaders(text: String): List<Pair<String, String>> = text.lines().mapNotNull { line ->
             val name = line.substringBefore(':', "").trim()
-            if (name.isEmpty() || line.indexOf(':') < 0 || !name.all { it.isLetterOrDigit() || it in "-_" }) null
-            else name to line.substringAfter(':').trim()
+            val value = line.substringAfter(':').trim()
+            if (line.indexOf(':') < 0 || !isHeaderName(name) || !isHeaderValue(value)) null else name to value
         }
+
+        /** What HTTP (and OkHttp, which throws otherwise) takes as a header name: ASCII letters, digits, `-` and `_`. */
+        fun isHeaderName(name: String) = name.isNotEmpty() && name.all { it in 'a'..'z' || it in 'A'..'Z' || it in '0'..'9' || it in "-_" }
+
+        private fun isHeaderValue(value: String) = value.all { it == '\t' || it in ' '..'~' }
 
         fun headersText(headers: List<Pair<String, String>>) = headers.joinToString("\n") { "${it.first}: ${it.second}" }
 
@@ -88,7 +97,7 @@ data class CustomLyricsSource(
                 name = o.get("name")?.asString?.trim()?.take(40)?.ifBlank { null } ?: "Custom source",
                 url = url,
                 path = o.get("path")?.asString?.trim().orEmpty(),
-                headers = o.getAsJsonArray("headers")?.mapNotNull { h -> h.asString.trim().takeIf(String::isNotEmpty)?.let { it to "" } }.orEmpty(),
+                headers = o.getAsJsonArray("headers")?.mapNotNull { h -> h.asString.trim().takeIf(::isHeaderName)?.let { it to "" } }.orEmpty(),
             )
         }.getOrNull()
 
@@ -212,11 +221,8 @@ class CustomLyricsProvider(
             return ProviderResult.Unavailable(ProviderFailureCategory.NETWORK, "Spotify match: ${error.message}", retryable = true)
         }
         val url = CustomLyricsSource.expand(source.url, request, spotifyId) ?: return ProviderResult.NeedsMatch
-        val call = Request.Builder().url(url).get().header("User-Agent", userAgent).apply {
-            source.headers.filter { it.second.isNotEmpty() }.forEach { (name, value) -> header(name, value) }
-        }.build()
         return try {
-            client.newCall(call).awaitResponse().use { response ->
+            follow(url).use { response ->
                 when {
                     response.code == 404 || response.code == 204 -> ProviderResult.Miss
                     response.code == 429 -> ProviderResult.CoolingDown(
@@ -247,7 +253,32 @@ class CustomLyricsProvider(
         }
     }
 
+    /**
+     * GETs [url], following redirects by hand: the source's own headers (its keys) go along only
+     * while the address stays on the same scheme, host and port. OkHttp would forward all but
+     * `Authorization` to wherever it's sent.
+     */
+    private suspend fun follow(url: String): Response {
+        val origin = url.toHttpUrl()
+        var target = origin
+        repeat(MAX_REDIRECTS + 1) {
+            val sameOrigin = target.scheme == origin.scheme && target.host == origin.host && target.port == origin.port
+            val call = Request.Builder().url(target).get().header("User-Agent", userAgent).apply {
+                if (sameOrigin) source.headers.filter { it.second.isNotEmpty() }.forEach { (name, value) -> header(name, value) }
+            }.build()
+            val response = noRedirects.newCall(call).awaitResponse()
+            val next = response.takeIf { it.isRedirect }?.header("Location")?.let(target::resolve)
+            if (next == null || next.scheme != "https") return response
+            response.close()
+            target = next
+        }
+        throw IOException("Too many redirects")
+    }
+
+    private val noRedirects = client.newBuilder().followRedirects(false).followSslRedirects(false).build()
+
     private companion object {
+        const val MAX_REDIRECTS = 5
         /** Lyrics are kilobytes; a source answering with more is sending something else. */
         const val MAX_BODY_BYTES = 2L * 1024 * 1024
     }

@@ -117,10 +117,14 @@ internal object RemoteLyricsAdapter {
 
     private fun wrapPieces(text: String, attached: Boolean): List<Pair<String, Boolean>> =
         text.split(Regex("\\s+")).filter(String::isNotEmpty).flatMapIndexed { tokenIdx, token ->
+            // Cut by index: growing a String a character at a time is quadratic on a long token.
             val runs = mutableListOf<String>()
-            for (c in token) {
-                if (LyricsLayoutCalculator.isCjk(c) || runs.isEmpty() || LyricsLayoutCalculator.isCjk(runs.last().last())) runs += c.toString()
-                else runs[runs.lastIndex] += c
+            var start = 0
+            for (i in 1..token.length) {
+                if (i == token.length || LyricsLayoutCalculator.isCjk(token[i]) || LyricsLayoutCalculator.isCjk(token[i - 1])) {
+                    runs += token.substring(start, i)
+                    start = i
+                }
             }
             runs.mapIndexed { runIdx, run -> run to if (runIdx > 0) true else tokenIdx == 0 && attached }
         }

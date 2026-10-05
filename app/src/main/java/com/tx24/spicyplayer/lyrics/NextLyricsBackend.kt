@@ -228,6 +228,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
             )
         }
 
+        private val ORIGIN = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*")
+
         /** Bump when payload conversion changes, so stale conversions are refetched. */
         private const val CACHE_VERSION = 18
         /** Outcomes that are no answer at all: a later lookup may get one. */
@@ -308,14 +310,22 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
             runCatching {
                 val o = element.asJsonObject
                 val id = o.get("id").asString
-                val values = runCatching { JsonParser.parseString(customHeaders.getString(id, "{}")).asJsonObject }.getOrNull()
+                val url = o.get("url").asString
+                // Values only go to the host they were typed for: a restored backup that points
+                // a source elsewhere leaves them behind. Ones saved before this get bound now.
+                val bound = customHeaders.getString(originKey(id), null)
+                    ?: origin(url).also { customHeaders.edit().putString(originKey(id), it).apply() }
+                val values = if (bound != origin(url)) null
+                    else runCatching { JsonParser.parseString(customHeaders.getString(id, "{}")).asJsonObject }.getOrNull()
                 CustomLyricsSource(
                     id = id,
                     name = o.get("name").asString,
-                    url = o.get("url").asString,
+                    url = url,
                     path = o.get("path")?.asString.orEmpty(),
                     headers = o.getAsJsonArray("headers")?.map { it.asString }.orEmpty()
+                        .filter(CustomLyricsSource::isHeaderName)
                         .map { name -> name to (values?.get(name)?.asString.orEmpty()) },
+                    keyRevision = customHeaders.getString(revisionKey(id), null).orEmpty(),
                 )
             }.getOrNull()
         }
@@ -326,19 +336,28 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         writeCustomSources(customSources().let { list ->
             if (list.any { it.id == custom.id }) list.map { if (it.id == custom.id) custom else it } else list + custom
         })
-        customHeaders.edit().putString(custom.id, JsonObject().apply { custom.headers.forEach { (name, value) -> addProperty(name, value) } }.toString()).apply()
+        customHeaders.edit()
+            .putString(custom.id, JsonObject().apply { custom.headers.forEach { (name, value) -> addProperty(name, value) } }.toString())
+            .putString(originKey(custom.id), origin(custom.url))
+            .putString(revisionKey(custom.id), java.util.UUID.randomUUID().toString().take(8))
+            .apply()
         rebuild()
     }
 
     fun removeCustomSource(id: String) {
         writeCustomSources(customSources().filter { it.id != id })
-        customHeaders.edit().remove(id).apply()
+        customHeaders.edit().remove(id).remove(originKey(id)).remove(revisionKey(id)).apply()
         rebuild()
     }
 
     /** Asks [custom] alone for [request], for its editor's test; nothing is cached. */
     suspend fun testCustomSource(custom: CustomLyricsSource, request: LyricsLookupRequest): ProviderResult =
         CustomLyricsProvider(custom, client, SharedSpotify.resolver, 0, APP_USER_AGENT).fetch(request)
+
+    private fun originKey(id: String) = "$id@origin"
+    private fun revisionKey(id: String) = "$id@revision"
+    /** "https://host:port" of a URL template, placeholders and all. */
+    private fun origin(url: String) = ORIGIN.find(url)?.value?.lowercase().orEmpty()
 
     // Names and addresses only: header values are in [customHeaders].
     private fun writeCustomSources(list: List<CustomLyricsSource>) {

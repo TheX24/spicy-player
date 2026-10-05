@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.analytics.UsageStats
+import com.tx24.spicyplayer.ui.settings.AppSettings
+import kotlin.reflect.KClass
 
 /** Reads [SettingsBackup.STORES] out of the app's SharedPreferences, and writes a backup back in. */
 class SettingsBackupStore(private val context: Context) {
@@ -22,7 +24,9 @@ class SettingsBackupStore(private val context: Context) {
         for ((name, values) in stores) {
             val prefs = prefs(name)
             val kept = kept(name)
-            val restored = values.filterKeys { it !in kept }.toMutableMap()
+            val expected = expectedType(name, prefs)
+            // A value of the wrong type would throw every time the app reads it, launch included.
+            val restored = values.filter { (key, value) -> key !in kept && expected(key)?.isInstance(value) != false }.toMutableMap()
             // The custom font's file isn't in the backup, so "Custom" only comes back if this
             // install already has one picked.
             if (name == "ui" && restored["lyricsFont"] == "Custom" && prefs.getString("customFontFile", "").isNullOrEmpty()) {
@@ -32,6 +36,30 @@ class SettingsBackupStore(private val context: Context) {
                 prefs.all.keys.filter { it !in kept }.forEach(::remove)
                 restored.forEach { (key, value) -> put(key, value) }
             }.commit()
+        }
+    }
+
+    /**
+     * The type [store] reads each key as: the settings' own for `ui`, a fixed one for the stores
+     * that hold one kind of value, else whatever this install already has saved there.
+     */
+    private fun expectedType(store: String, prefs: SharedPreferences): (String) -> KClass<*>? {
+        val known: Map<String, KClass<*>> = when (store) {
+            "ui" -> AppSettings(prefs).storedTypes
+            "lyrics_sources" -> mapOf(
+                "defaults" to Int::class, "order" to String::class, "custom" to String::class,
+                "disabled" to Set::class, "blends" to Set::class,
+                "humanRomanizations" to Boolean::class, "ignoreMusixmatchWordSync" to Boolean::class,
+            )
+            else -> emptyMap()
+        }
+        val current = prefs.all
+        return { key ->
+            when (store) {
+                "song_delays", "lyric_output_delays" -> Int::class
+                "spotify_id_overrides" -> String::class
+                else -> known[key] ?: current[key]?.let { it::class }
+            }
         }
     }
 

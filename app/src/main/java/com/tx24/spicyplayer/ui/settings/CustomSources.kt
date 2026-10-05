@@ -197,8 +197,11 @@ private fun CustomSourceEditor(
                 val candidate = valid() ?: return@SpicyModalButton
                 testing = true
                 scope.launch {
-                    result = viewModel.testCustomSource(candidate)
-                    testing = false
+                    try {
+                        result = viewModel.testCustomSource(candidate)
+                    } finally {
+                        testing = false
+                    }
                 }
             })
             SpicyModalButton("Save", style = SpicyButtonStyle.Primary, onClick = {

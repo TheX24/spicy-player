@@ -12,6 +12,7 @@ import com.tx24.spicyplayer.lyrics.spicy.SyllableMerge
 import com.tx24.spicyplayer.lyrics.spicy.canvas.PinnedFooterMode
 import com.tx24.spicyplayer.ui.nowplaying.HeaderSize
 import kotlin.properties.ReadWriteProperty
+import kotlin.reflect.KClass
 import kotlin.reflect.KProperty
 
 /**
@@ -23,6 +24,10 @@ import kotlin.reflect.KProperty
 class AppSettings(private val prefs: SharedPreferences) {
     /** Every setting below, so [reload] can re-read them; first, so it exists when they register. */
     private val all = mutableListOf<Setting<*>>()
+    private val types = mutableMapOf<String, KClass<*>>()
+
+    /** The type each setting is stored as, by key, so a restore can turn away the wrong one. */
+    val storedTypes: Map<String, KClass<*>> get() = types
 
     /** Re-reads every setting from storage, after a restore wrote it behind their backs. */
     fun reload() = all.forEach { it.reload() }
@@ -36,7 +41,7 @@ class AppSettings(private val prefs: SharedPreferences) {
     var originalWordMotion by boolean("originalWordMotion", false)
     var lyricsSize by enum("lyricsSize", LyricsSize.Default)
     /** Carries over the old "Use System Font" switch. */
-    var lyricsFont by enum("lyricsFont", if (prefs.getBoolean("systemFont", false)) LyricsFont.System else LyricsFont.Default)
+    var lyricsFont by enum("lyricsFont", if (read { prefs.getBoolean("systemFont", false) } == true) LyricsFont.System else LyricsFont.Default)
     /** The picked font's file in the app's storage (`LyricsFontFile`), and the name it came with. */
     var customFontFile by string("customFontFile", "")
     var customFontName by string("customFontName", "")
@@ -48,7 +53,7 @@ class AppSettings(private val prefs: SharedPreferences) {
     var syllableMerge by enum("syllableMerge", SyllableMerge.Off)
 
     var scrollLeadEnabled by boolean("scrollLeadEnabled", false)
-    var scrollLeadMs by int("scrollLeadMs", 250)
+    var scrollLeadMs by int("scrollLeadMs", 250, 0..800)
     var smoothScrolling by boolean("smoothScrolling", false)
     var seekFadeCompensation by boolean("seekFadeCompensation", true)
 
@@ -62,10 +67,10 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** Carries over the old Default/Legacy switch. */
     var backgroundType by enum(
         "backgroundType",
-        if (prefs.getBoolean("legacyBackground", false)) BackgroundType.Legacy else BackgroundType.Default,
+        if (read { prefs.getBoolean("legacyBackground", false) } == true) BackgroundType.Legacy else BackgroundType.Default,
     )
     /** How much the image backgrounds ([BackgroundType.image]) are blurred, in dp (0..67). */
-    var backgroundBlur by int("backgroundBlur", 0)
+    var backgroundBlur by int("backgroundBlur", 0, 0..MAX_BACKGROUND_BLUR)
     /** The moving background speeds up and slows down with the song's tempo, loudness and beats. */
     var beatReactiveBackground by boolean("beatReactiveBackground", true)
     /** Holds the moving backgrounds (Default, Legacy) still. */
@@ -94,7 +99,7 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** Vibrates along with the song's beats while the lyrics are on screen. */
     var musicHaptics by boolean("musicHaptics", false)
     /** How strong the music haptics are, in percent of their own strength (25..400; over 100 layers heavier vibrations on). */
-    var musicHapticsStrength by int("musicHapticsStrength", 100)
+    var musicHapticsStrength by int("musicHapticsStrength", 100, 25..200)
     var musicHapticsStyle by enum("musicHapticsStyle", MusicHapticsStyle.Drums)
     /** A floating button that opens the quick settings (the song's and the output's delay). */
     var quickSettingsButton by boolean("quickSettingsButton", true)
@@ -124,20 +129,26 @@ class AppSettings(private val prefs: SharedPreferences) {
     val wordMotionBoost get() = if (originalWordMotion) 1f else WORD_MOTION_BOOST
 
     private fun boolean(key: String, default: Boolean) =
-        setting({ prefs.getBoolean(key, default) }) { prefs.edit().putBoolean(key, it).apply() }
+        setting(key, Boolean::class, { read { prefs.getBoolean(key, default) } ?: default }) { prefs.edit().putBoolean(key, it).apply() }
 
     private fun string(key: String, default: String) =
-        setting({ prefs.getString(key, default) ?: default }) { prefs.edit().putString(key, it).apply() }
+        setting(key, String::class, { read { prefs.getString(key, default) } ?: default }) { prefs.edit().putString(key, it).apply() }
 
-    private fun int(key: String, default: Int) =
-        setting({ prefs.getInt(key, default) }) { prefs.edit().putInt(key, it).apply() }
+    private fun int(key: String, default: Int, range: IntRange) =
+        setting(key, Int::class, { (read { prefs.getInt(key, default) } ?: default).coerceIn(range) }) {
+            prefs.edit().putInt(key, it).apply()
+        }
 
     private inline fun <reified E : Enum<E>> enum(key: String, default: E) =
-        setting({ runCatching { enumValueOf<E>(prefs.getString(key, null)!!) }.getOrDefault(default) }) {
+        setting(key, String::class, { runCatching { enumValueOf<E>(prefs.getString(key, null)!!) }.getOrDefault(default) }) {
             prefs.edit().putString(key, it.name).apply()
         }
 
-    private fun <T> setting(load: () -> T, save: (T) -> Unit) = Setting(load, save).also(all::add)
+    /** A value stored as another type (an old or hand-edited backup) reads as unset, not a crash. */
+    private inline fun <T> read(get: () -> T): T? = try { get() } catch (_: ClassCastException) { null }
+
+    private fun <T> setting(key: String, type: KClass<*>, load: () -> T, save: (T) -> Unit) =
+        Setting(load, save).also { all += it; types[key] = type }
 
     private class Setting<T>(private val load: () -> T, private val save: (T) -> Unit) : ReadWriteProperty<Any?, T> {
         private var value by mutableStateOf(load())
