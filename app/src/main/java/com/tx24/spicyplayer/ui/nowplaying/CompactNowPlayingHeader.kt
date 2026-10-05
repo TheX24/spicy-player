@@ -540,7 +540,7 @@ private fun HeaderArtwork(
         slide.snapTo(0f)
         blur.snapTo(0f)
         val resting = current
-        if (resting == null || resting.fingerprint == next.fingerprint) {
+        if (resting == null || resting.sameCover(next)) {
             current = next
             return@LaunchedEffect
         }

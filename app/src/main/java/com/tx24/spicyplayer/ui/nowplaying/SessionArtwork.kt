@@ -21,13 +21,35 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.math.abs
 
 /**
  * Cover art published by the remote session, as a software bitmap no larger than the size asked
  * for, plus a small fingerprint of its pixels. Players often republish the same cover as a new
  * Bitmap on every metadata update, so the fingerprint (not the object) says whether it changed.
  */
-class SessionArtwork(val bitmap: Bitmap, val fingerprint: Int)
+class SessionArtwork private constructor(val bitmap: Bitmap, private val signature: IntArray) {
+    val fingerprint: Int = signature.contentHashCode()
+
+    /**
+     * Whether [other] is the same picture, maybe at another size or encoding. Spotify sends a
+     * song's cover as a URI first and as a bitmap a moment later, sometimes twice at different
+     * sizes, and those never match pixel for pixel.
+     */
+    fun sameCover(other: SessionArtwork): Boolean {
+        if (other.fingerprint == fingerprint) return true
+        var diff = 0
+        for (i in signature.indices) diff += abs(signature[i] - other.signature[i])
+        return diff <= SAME_COVER_MAX_MEAN_DIFF * signature.size
+    }
+
+    companion object {
+        fun of(bitmap: Bitmap) = SessionArtwork(bitmap, signature(bitmap))
+    }
+}
+
+/** Mean channel difference (0..255) up to which two covers count as the same picture. */
+private const val SAME_COVER_MAX_MEAN_DIFF = 8
 
 /**
  * Loads the session's cover: its bitmap when it sent one, else its artwork URI through Coil.
@@ -47,7 +69,8 @@ fun rememberSessionArtwork(
     LaunchedEffect(artwork, artworkUri, maxDimension, hasSession) {
         val cover = loadSessionArtwork(context, artwork, artworkUri, maxDimension)
         if (cover != null) {
-            loaded = cover
+            // Keep the one shown when this is the same cover again, or the header slides it in twice.
+            if (loaded?.sameCover(cover) != true) loaded = cover
             return@LaunchedEffect
         }
         if (hasSession) delay(FALLBACK_GRACE_MS)
@@ -65,7 +88,7 @@ private suspend fun fallbackArtwork(context: Context): SessionArtwork =
     fallback ?: withContext(Dispatchers.Default) {
         val options = BitmapFactory.Options().apply { inScaled = false }
         val bitmap = BitmapFactory.decodeResource(context.resources, R.drawable.fallback_cover, options)
-        SessionArtwork(bitmap, fingerprint(bitmap)).also { fallback = it }
+        SessionArtwork.of(bitmap).also { fallback = it }
     }
 
 suspend fun loadSessionArtwork(
@@ -103,16 +126,33 @@ suspend fun loadSessionArtwork(
             (software.height * maxDimension.toFloat() / longest).toInt().coerceAtLeast(1),
             true,
         )
-        SessionArtwork(sized, fingerprint(sized))
+        SessionArtwork.of(sized)
     }
 }
 
-/** Hash of an 8x8 downscale: equal for the same cover at any size, different for another cover. */
-private fun fingerprint(bitmap: Bitmap): Int {
-    val tiny = Bitmap.createScaledBitmap(bitmap, 8, 8, true)
-    val pixels = IntArray(64)
-    tiny.getPixels(pixels, 0, 8, 0, 0, 8, 8)
-    if (tiny !== bitmap) tiny.recycle()
-    // Drop the low bits of each channel so scaler rounding at different source sizes still matches.
-    return pixels.fold(17) { hash, pixel -> hash * 31 + (pixel and 0x00F0F0F0) }
+/**
+ * The cover's 8x8 block averages, RGB. Averaging every pixel (rather than scaling down, which
+ * samples only a few) keeps it stable across sizes and encodings of the same picture.
+ */
+private fun signature(bitmap: Bitmap): IntArray {
+    val width = bitmap.width
+    val height = bitmap.height
+    val sums = LongArray(SIGNATURE_CELLS * SIGNATURE_CELLS * 3)
+    val counts = IntArray(SIGNATURE_CELLS * SIGNATURE_CELLS)
+    val row = IntArray(width)
+    for (y in 0 until height) {
+        bitmap.getPixels(row, 0, width, 0, y, width, 1)
+        val cellRow = y * SIGNATURE_CELLS / height * SIGNATURE_CELLS
+        for (x in 0 until width) {
+            val cell = cellRow + x * SIGNATURE_CELLS / width
+            val pixel = row[x]
+            sums[cell * 3] += (pixel shr 16 and 0xFF).toLong()
+            sums[cell * 3 + 1] += (pixel shr 8 and 0xFF).toLong()
+            sums[cell * 3 + 2] += (pixel and 0xFF).toLong()
+            counts[cell]++
+        }
+    }
+    return IntArray(sums.size) { i -> (sums[i] / counts[i / 3].coerceAtLeast(1)).toInt() }
 }
+
+private const val SIGNATURE_CELLS = 8
