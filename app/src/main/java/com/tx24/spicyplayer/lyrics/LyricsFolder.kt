@@ -122,7 +122,7 @@ class LyricsFolder(private val context: Context, private val indexFile: File) {
 
     private fun read(tree: Uri, id: String): String? = runCatching {
         context.contentResolver.openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, id))
-            ?.use { it.readBytes().decodeToString().removePrefix("﻿") }
+            ?.use { it.readBytes().decodeToString().removePrefix("\uFEFF") }
     }.getOrNull()
 
     private fun folderName(tree: Uri): String =
