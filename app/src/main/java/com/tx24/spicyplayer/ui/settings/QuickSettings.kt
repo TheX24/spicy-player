@@ -8,6 +8,7 @@ import androidx.compose.runtime.Composable
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.components.SettingRow
+import com.tx24.spicyplayer.ui.components.SettingsSkeleton
 import com.tx24.spicyplayer.ui.components.SpicyButton
 import com.tx24.spicyplayer.ui.components.SpicyModal
 import dev.chrisbanes.haze.HazeState
@@ -27,7 +28,13 @@ fun QuickSettingsModal(
     onOpenQueue: () -> Unit,
     onDismiss: () -> Unit,
 ) {
-    SpicyModal(visible = visible, onDismissRequest = onDismiss, backdrop = backdrop, title = "Quick settings") {
+    SpicyModal(
+        visible = visible,
+        onDismissRequest = onDismiss,
+        backdrop = backdrop,
+        title = "Quick settings",
+        skeleton = { SettingsSkeleton(rows = if (state.queue.isNotEmpty()) 4 else 3) },
+    ) {
         if (state.queue.isNotEmpty()) {
             SettingRow(
                 label = "Queue",

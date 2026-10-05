@@ -38,6 +38,7 @@ import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.playback.QueueEntry
 import com.tx24.spicyplayer.ui.components.SpicyModal
+import com.tx24.spicyplayer.ui.components.TrackListSkeleton
 import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyRadii
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
@@ -57,7 +58,15 @@ fun QueueModal(
     backdrop: HazeState?,
     onDismiss: () -> Unit,
 ) {
-    SpicyModal(visible = visible, onDismissRequest = onDismiss, backdrop = backdrop, title = "Queue", fillBody = true) {
+    SpicyModal(
+        visible = visible,
+        onDismissRequest = onDismiss,
+        backdrop = backdrop,
+        title = "Queue",
+        fillBody = true,
+        // Every row has a cover to load: the list comes in once the pop-up is open.
+        skeleton = { TrackListSkeleton(rows = 8, modifier = Modifier.padding(horizontal = SpicySpacing.S3, vertical = SpicySpacing.S2)) },
+    ) {
         val current = state.queue.indexOfFirst { it.current }.coerceAtLeast(0)
         // Opens with the playing song near the top, one before it in view.
         val list = rememberLazyListState(initialFirstVisibleItemIndex = (current - 1).coerceAtLeast(0))

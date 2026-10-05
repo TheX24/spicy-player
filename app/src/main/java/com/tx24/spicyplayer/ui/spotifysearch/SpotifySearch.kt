@@ -1,5 +1,8 @@
 package com.tx24.spicyplayer.ui.spotifysearch
 
+import com.tx24.spicyplayer.ui.components.BlockSkeleton
+import com.tx24.spicyplayer.ui.components.TrackListSkeleton
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -70,6 +73,10 @@ fun SpotifySearchModal(
         backdrop = backdrop,
         modifier = modifier,
         title = "Find on Spotify",
+        skeleton = {
+            BlockSkeleton()
+            TrackListSkeleton(rows = 4)
+        },
     ) {
         var query by remember { mutableStateOf("") }
         // null: the automatic match's own search. Bumped per search, so the same query re-runs.

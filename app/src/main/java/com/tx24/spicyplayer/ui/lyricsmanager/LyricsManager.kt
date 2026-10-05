@@ -75,6 +75,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.tx24.spicyplayer.haptics.withHaptic
 import com.tx24.spicyplayer.lyrics.LocalLyricsStore
+import com.tx24.spicyplayer.ui.components.BlockSkeleton
+import com.tx24.spicyplayer.ui.components.TrackListSkeleton
 import com.tx24.spicyplayer.lyrics.LrcConverter
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerUiState
@@ -120,6 +122,13 @@ fun LyricsManagerModal(
         backdrop = backdrop,
         modifier = modifier,
         title = if (uploading) "Upload TTML" else "Local Lyrics DB",
+        // The list decodes a cover per saved song: it comes in once the pop-up is open.
+        skeleton = {
+            BlockSkeleton()
+            BlockSkeleton()
+            BlockSkeleton(height = 56.dp)
+            TrackListSkeleton(rows = 4)
+        },
     ) {
         if (uploading) {
             BackHandler { uploading = false }

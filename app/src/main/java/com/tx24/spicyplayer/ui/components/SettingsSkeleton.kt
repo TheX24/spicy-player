@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.tx24.spicyplayer.ui.theme.SpicyColors
+import com.tx24.spicyplayer.ui.theme.SpicyRadii
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
 
 /**
@@ -60,6 +61,41 @@ fun SettingsSkeleton(rows: Int, modifier: Modifier = Modifier, cards: Boolean = 
             }
         }
     }
+}
+
+/**
+ * Stand-in rows for a list of songs (the queue, the Lyrics Manager): a cover square, then the
+ * title and artist as bars, breathing like [SettingsSkeleton].
+ */
+@Composable
+fun TrackListSkeleton(rows: Int, modifier: Modifier = Modifier) {
+    val pulse by rememberInfiniteTransition(label = "trackSkeleton").animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(PULSE_MS, easing = LinearEasing), RepeatMode.Reverse),
+        label = "trackSkeletonPulse",
+    )
+    Column(modifier.fillMaxWidth().graphicsLayer { alpha = pulse }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        repeat(rows) { index ->
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S3, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+            ) {
+                Box(Modifier.size(40.dp).background(SpicyColors.TintBgPressed, RoundedCornerShape(6.dp)))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Bar(LABEL_WIDTHS[index % LABEL_WIDTHS.size] + 0.15f, 14.dp)
+                    Bar(LABEL_WIDTHS[(index + 2) % LABEL_WIDTHS.size], 11.dp)
+                }
+            }
+        }
+    }
+}
+
+/** A stand-in for a text field or a row of buttons: one rounded block, [height] tall. */
+@Composable
+fun BlockSkeleton(modifier: Modifier = Modifier, height: Dp = 40.dp) {
+    Box(modifier.fillMaxWidth().height(height).background(SpicyColors.TintBg, RoundedCornerShape(SpicyRadii.Sm)))
 }
 
 @Composable

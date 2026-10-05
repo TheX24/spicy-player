@@ -1,5 +1,9 @@
 package com.tx24.spicyplayer.ui.components
 
+import kotlinx.coroutines.flow.first
+
+import androidx.compose.runtime.snapshotFlow
+
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.Animatable
@@ -103,6 +107,11 @@ fun SpicyModal(
     title: String? = null,
     /** The plate takes its full height and the body neither scrolls nor pads, for a page that scrolls itself. */
     fillBody: Boolean = false,
+    /**
+     * Shown while the pop-up opens, in place of [content], which comes in once it's open. Building
+     * a heavy body in the same frames as the opening animation stutters it, as Settings found.
+     */
+    skeleton: (@Composable ColumnScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val open = remember { Animatable(0f) }
@@ -117,6 +126,17 @@ fun SpicyModal(
         }
     }
     if (!composed) return
+
+    // Below the return, so each opening starts on the skeleton again.
+    var settled by remember { mutableStateOf(skeleton == null) }
+    val bodyFade = remember { Animatable(1f) }
+    if (skeleton != null) LaunchedEffect(Unit) {
+        snapshotFlow { open.value }.first { it >= 1f }
+        bodyFade.snapTo(0f)
+        settled = true
+        bodyFade.animateTo(1f, tween(SpicyMotion.FAST_MS, easing = SpicyMotion.Standard))
+    }
+    val body: @Composable ColumnScope.() -> Unit = if (settled) content else skeleton!!
 
     if (onDismissRequest != null) BackHandler(enabled = visible) { onDismissRequest() }
 
@@ -175,16 +195,17 @@ fun SpicyModal(
         ) {
             if (title != null) ModalHeader(title, onDismissRequest)
             if (fillBody) {
-                Column(Modifier.weight(1f), content = content)
+                Column(Modifier.weight(1f).graphicsLayer { alpha = bodyFade.value }, content = body)
             } else {
                 // The body: padding 20px 24px 24px, scrolling when it runs long.
                 Column(
                     Modifier
                         .weight(1f, fill = false)
                         .verticalScroll(rememberScrollState())
-                        .padding(start = SpicySpacing.S6, end = SpicySpacing.S6, top = SpicySpacing.S5, bottom = SpicySpacing.S6),
+                        .padding(start = SpicySpacing.S6, end = SpicySpacing.S6, top = SpicySpacing.S5, bottom = SpicySpacing.S6)
+                        .graphicsLayer { alpha = bodyFade.value },
                     verticalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
-                    content = content,
+                    content = body,
                 )
             }
         }

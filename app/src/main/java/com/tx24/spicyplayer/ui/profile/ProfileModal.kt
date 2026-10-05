@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.ui.profile
 
+import com.tx24.spicyplayer.ui.components.SettingsSkeleton
+
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.net.Uri
@@ -59,6 +61,8 @@ fun ProfileModal(line: FooterLine?, visible: Boolean, backdrop: HazeState?, onDi
         backdrop = backdrop,
         title = line?.name?.let { "@$it" } ?: "Profile",
         fillBody = true,
+        // The page is a web view: building it mid-animation stutters the opening.
+        skeleton = { SettingsSkeleton(rows = 5, modifier = Modifier.padding(SpicySpacing.S4)) },
     ) {
         val url = line?.profileUrl ?: return@SpicyModal
         key(url) { ProfilePage(url, onDismiss) }
