@@ -1,5 +1,29 @@
 package com.tx24.spicyplayer.ui.components
 
+import androidx.compose.ui.graphics.StrokeCap
+
+import androidx.compose.animation.core.animateDpAsState
+
+import androidx.compose.animation.fadeOut
+
+import androidx.compose.animation.fadeIn
+
+import androidx.compose.animation.shrinkHorizontally
+
+import androidx.compose.animation.expandHorizontally
+
+import androidx.compose.animation.ExitTransition
+
+import androidx.compose.animation.EnterTransition
+
+import androidx.compose.animation.AnimatedVisibility
+
+import androidx.compose.animation.animateContentSize
+
+import androidx.compose.animation.core.snap
+
+import androidx.compose.animation.core.AnimationSpec
+
 import kotlinx.coroutines.flow.first
 
 import androidx.compose.runtime.snapshotFlow
@@ -112,16 +136,21 @@ fun SpicyModal(
      * a heavy body in the same frames as the opening animation stutters it, as Settings found.
      */
     skeleton: (@Composable ColumnScope.() -> Unit)? = null,
+    /** A screen inside the pop-up: a back arrow by the title, and Back, step out to the one before. */
+    onBack: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     val open = remember { Animatable(0f) }
+    // Interface animations off: it opens and closes at once.
+    val animate = LocalUiAnimations.current
+    val openSpec: AnimationSpec<Float> = if (animate) tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal) else snap()
     var composed by remember { mutableStateOf(visible) }
     LaunchedEffect(visible) {
         if (visible) {
             composed = true
-            open.animateTo(1f, tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal))
+            open.animateTo(1f, openSpec)
         } else {
-            open.animateTo(0f, tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal))
+            open.animateTo(0f, openSpec)
             composed = false
         }
     }
@@ -134,11 +163,13 @@ fun SpicyModal(
         snapshotFlow { open.value }.first { it >= 1f }
         bodyFade.snapTo(0f)
         settled = true
-        bodyFade.animateTo(1f, tween(SpicyMotion.FAST_MS, easing = SpicyMotion.Standard))
+        if (animate) bodyFade.animateTo(1f, tween(SpicyMotion.FAST_MS, easing = SpicyMotion.Standard)) else bodyFade.snapTo(1f)
     }
     val body: @Composable ColumnScope.() -> Unit = if (settled) content else skeleton!!
 
     if (onDismissRequest != null) BackHandler(enabled = visible) { onDismissRequest() }
+    // Declared after, so it's asked first.
+    if (onBack != null) BackHandler(enabled = visible) { onBack() }
 
     // Set by the plate when a touch lands on it. Marking rather than consuming: drags inside the
     // plate (a text field's scroll, say) give up on a touch that something else consumed.
@@ -176,6 +207,9 @@ fun SpicyModal(
                 .fillMaxWidth()
                 .padding(horizontal = SpicySpacing.S4)
                 .then(if (fillBody) Modifier.height(maxHeight * 0.9f) else Modifier.heightIn(max = maxHeight * 0.9f))
+                // When what's inside changes (the skeleton giving way, a screen sliding in, results
+                // arriving), the plate grows or shrinks to it rather than jumping.
+                .then(if (animate && !fillBody) Modifier.animateContentSize(tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal)) else Modifier)
                 .graphicsLayer {
                     val scale = CLOSED_SCALE + (1f - CLOSED_SCALE) * open.value
                     scaleX = scale
@@ -193,7 +227,7 @@ fun SpicyModal(
                 // Touches on the plate stay on the plate.
                 .pointerInput(Unit) { awaitPointerEventScope { while (true) { awaitPointerEvent(); touchOnPlate[0] = true } } },
         ) {
-            if (title != null) ModalHeader(title, onDismissRequest)
+            if (title != null) ModalHeader(title, onDismissRequest, onBack, animate)
             if (fillBody) {
                 Column(Modifier.weight(1f).graphicsLayer { alpha = bodyFade.value }, content = body)
             } else {
@@ -214,7 +248,15 @@ fun SpicyModal(
 
 /** The header: title, close button, hairline underneath. */
 @Composable
-private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?) {
+private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?, onBack: (() -> Unit)?, animate: Boolean) {
+    // Kept while the arrow leaves, so its last tap still goes somewhere.
+    var lastBack by remember { mutableStateOf(onBack) }
+    if (onBack != null) lastBack = onBack
+    val backStart by animateDpAsState(
+        if (onBack != null) SpicySpacing.S3 else SpicySpacing.S6,
+        if (animate) tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal) else snap(),
+        label = "headerStart",
+    )
     Row(
         Modifier
             .fillMaxWidth()
@@ -222,11 +264,18 @@ private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?) {
                 val px = 1.dp.toPx()
                 drawRect(SpicyColors.Hairline, Offset(0f, size.height - px), Size(size.width, px))
             }
-            .padding(start = SpicySpacing.S6, end = SpicySpacing.S4, top = SpicySpacing.S5, bottom = SpicySpacing.S4)
+            .padding(start = backStart, end = SpicySpacing.S4, top = SpicySpacing.S5, bottom = SpicySpacing.S4)
             .heightIn(min = 32.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
     ) {
+        AnimatedVisibility(
+            visible = onBack != null,
+            enter = if (animate) fadeIn(tween(SpicyMotion.MODAL_MS)) + expandHorizontally(tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal)) else EnterTransition.None,
+            exit = if (animate) fadeOut(tween(SpicyMotion.FAST_MS)) + shrinkHorizontally(tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal)) else ExitTransition.None,
+        ) {
+            BackButton { lastBack?.invoke() }
+        }
         Text(
             title,
             modifier = Modifier.weight(1f),
@@ -237,6 +286,32 @@ private fun ModalHeader(title: String, onDismissRequest: (() -> Unit)?) {
 }
 
 /** The close button: an X in secondary text, a tinted pill while held. */
+/** A chevron to step back, drawn like [CloseButton]'s cross. */
+@Composable
+private fun BackButton(onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (pressed) 0.96f else 1f, tween(120), label = "backScale")
+    Box(
+        Modifier
+            .size(TAP_MIN)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .clip(CircleShape)
+            .background(if (pressed) SpicyColors.TintBgPressed else Color.Transparent)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = withHaptic(HapticFeedbackType.ContextClick, onClick))
+            .semantics { contentDescription = "Back" }
+            .drawBehind {
+                val half = 9.dp.toPx() * 0.9f
+                val c = center
+                val color = if (pressed) SpicyColors.TextPrimary else SpicyColors.TextSecondary
+                val width = 1.6.dp.toPx()
+                val tip = Offset(c.x - half * 0.5f, c.y)
+                drawLine(color, Offset(c.x + half * 0.5f, c.y - half), tip, width, cap = StrokeCap.Round)
+                drawLine(color, Offset(c.x + half * 0.5f, c.y + half), tip, width, cap = StrokeCap.Round)
+            },
+    )
+}
+
 @Composable
 private fun CloseButton(onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }

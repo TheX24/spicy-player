@@ -1,5 +1,15 @@
 package com.tx24.spicyplayer.ui.controls
 
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+
+import com.tx24.spicyplayer.ui.components.LocalUiAnimations
+
+import androidx.compose.animation.core.animateFloatAsState
+
+import androidx.compose.animation.core.snap
+
+import androidx.compose.animation.core.FastOutSlowInEasing
+
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.Icons
 import androidx.compose.animation.core.Animatable
@@ -132,6 +142,7 @@ fun LyricsControls(
     onOpenSettings: () -> Unit,
     /** Shows the Lyrics Manager button when set. */
     onOpenLyricsManager: (() -> Unit)? = null,
+    onOpenQueue: (() -> Unit)? = null,
     /** Shows the quick settings button when set. */
     onOpenQuickSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -191,9 +202,9 @@ fun LyricsControls(
             contentAlignment = Alignment.TopCenter,
         ) {
             if (wide) {
-                ControlsBar(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, shown, showResync, showExpand)
+                ControlsBar(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, shown, showResync, showExpand, onOpenQueue = onOpenQueue)
             } else {
-                ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, shown, showResync, showExpand)
+                ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, shown, showResync, showExpand, onOpenQueue = onOpenQueue)
             }
             // Hidden controls swallow touches too: a touch there only brings them back, rather
             // than pressing a button nobody can see.
@@ -230,6 +241,7 @@ private fun ControlsColumn(
     shown: () -> Float,
     showResync: Boolean,
     showExpand: Boolean,
+    onOpenQueue: (() -> Unit)? = null,
 ) {
     val shuffle = controls.customActions.firstOrNull { it.kind == ActionKind.Shuffle }
     val repeat = controls.customActions.firstOrNull { it.kind == ActionKind.Repeat }
@@ -249,11 +261,11 @@ private fun ControlsColumn(
         PlaybackRow(controls, shuffle, repeat, Modifier.padding(horizontal = SIDE_MARGIN - SpicySpacing.S2))
         Spacer(Modifier.height(ROW_GAP))
         // The gap shrinks when a player adds enough buttons that the usual one runs off the screen.
-        val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQuickSettings != null, showResync, showExpand).count { it } + others.size + 1
+        val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, showResync, showExpand).count { it } + others.size + 1
         BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S2), contentAlignment = Alignment.Center) {
             val fits = (maxWidth - FLOATING_SIZE * buttons) / (buttons - 1).coerceAtLeast(1)
             FloatingButtons(fits.coerceIn(4.dp, SpicySpacing.S4)) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = FLOATING_SIZE, showResync = showResync, showExpand = showExpand)
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = FLOATING_SIZE, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue)
             }
         }
     }
@@ -278,6 +290,7 @@ private fun ControlsBar(
     shown: () -> Float,
     showResync: Boolean,
     showExpand: Boolean,
+    onOpenQueue: (() -> Unit)? = null,
 ) {
     val shuffle = controls.customActions.firstOrNull { it.kind == ActionKind.Shuffle }
     val repeat = controls.customActions.firstOrNull { it.kind == ActionKind.Repeat }
@@ -294,11 +307,11 @@ private fun ControlsBar(
             Timeline(controls, shown, Modifier)
         }
         BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQuickSettings != null, showResync, showExpand).count { it } + others.size + 1
+            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, showResync, showExpand).count { it } + others.size + 1
             val room = maxWidth - SpicySpacing.S4
             val size = ((room - COVER_BUTTON_GAP * (buttons - 1)) / buttons).coerceIn(COVER_BUTTON_MIN, COVER_BUTTON_MAX)
             FloatingButtons(COVER_BUTTON_GAP) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = size, showResync = showResync, showExpand = showExpand)
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = size, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue)
             }
         }
     }
@@ -326,6 +339,7 @@ private fun FloatingButtonsContent(
     size: Dp,
     showResync: Boolean,
     showExpand: Boolean,
+    onOpenQueue: (() -> Unit)? = null,
 ) {
     // Icons keep their size against the button's (drawn for a 48dp one).
     fun icon(dp: Float) = size * (dp / FLOATING_SIZE.value)
@@ -369,6 +383,11 @@ private fun FloatingButtonsContent(
             Image(rememberVectorPainter(Icons.Rounded.Tune), null, Modifier.size(icon(24f)), colorFilter = ColorFilter.tint(Color.White))
         }
     }
+    if (onOpenQueue != null) {
+        GlassButton(onClick = onOpenQueue, contentDescription = "Queue", size = size) {
+            Image(rememberVectorPainter(Icons.AutoMirrored.Rounded.QueueMusic), null, Modifier.size(icon(23f)), colorFilter = ColorFilter.tint(Color.White))
+        }
+    }
     if (onOpenLyricsManager != null) {
         GlassButton(onClick = onOpenLyricsManager, contentDescription = "Lyrics Manager", size = size) {
             Image(rememberVectorPainter(SpicyIcons.LyricsManager), null, Modifier.size(icon(23f)))
@@ -394,6 +413,7 @@ fun CoverControls(
     onToggleRomanize: () -> Unit,
     onOpenSettings: () -> Unit,
     onOpenLyricsManager: (() -> Unit)?,
+    onOpenQueue: (() -> Unit)? = null,
     onOpenQuickSettings: (() -> Unit)?,
     expanded: Boolean,
     onToggleExpanded: () -> Unit,
@@ -425,12 +445,12 @@ fun CoverControls(
                 .padding(horizontal = side * 0.06f, vertical = side * 0.06f),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQuickSettings != null, onSwapSide != null, showResync, showExpand).count { it } + others.size + 1
+            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, onSwapSide != null, showResync, showExpand).count { it } + others.size + 1
             val room = side * 0.88f
             val size = ((room - COVER_BUTTON_GAP * (buttons - 1)) / buttons).coerceIn(COVER_BUTTON_MIN, COVER_BUTTON_MAX)
             val gap = ((room - size * buttons) / (buttons - 1).coerceAtLeast(1)).coerceIn(2.dp, SpicySpacing.S3)
             FloatingButtons(gap) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide, size, showResync, showExpand)
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide, size, showResync, showExpand, onOpenQueue = onOpenQueue)
             }
             Spacer(Modifier.weight(1f))
             PlaybackRow(controls, shuffle, repeat, Modifier, skipWidth = side * 0.15f, fillSlots = true)
@@ -525,21 +545,51 @@ private fun PlaybackRow(
     ) {
         val slot = if (fillSlots) Modifier.weight(1f).height(TOUCH_SIZE) else null
         SideAction(shuffle, controls, sideWidth, slot)
-        PressableGlyph(rememberVectorPainter(SpicyIcons.TrackSkip), skipWidth, SpicyIcons.TrackSkip.aspect, "Previous", rotate = true, touch = slot, onClick = controls.onPrevious)
+        val animate = LocalUiAnimations.current
+        val scope = rememberCoroutineScope()
+        // The skips move on and play turns into pause, Apple Music's way, when animations are on.
+        val previous = remember { Animatable(0f) }
+        val next = remember { Animatable(0f) }
+        fun moveOn(glyph: Animatable<Float, *>) = scope.launch {
+            glyph.snapTo(0f)
+            glyph.animateTo(1f, tween(SKIP_MOVE_MS, easing = FastOutSlowInEasing))
+            glyph.snapTo(0f)
+        }
+        val pause by animateFloatAsState(
+            if (controls.isPlaying) 1f else 0f,
+            if (animate) tween(MORPH_MS, easing = FastOutSlowInEasing) else snap(),
+            label = "playPause",
+        )
+        val previousGlyph = remember { SkipGlyph { previous.value } }
+        val nextGlyph = remember { SkipGlyph { next.value } }
+        val playPauseGlyph = remember { PlayPauseGlyph { pause } }
+        val skip = rememberVectorPainter(SpicyIcons.TrackSkip)
+        PressableGlyph(
+            if (animate) previousGlyph else skip, skipWidth, SpicyIcons.TrackSkip.aspect, "Previous", rotate = true, touch = slot,
+            onClick = { if (animate) moveOn(previous); controls.onPrevious() },
+        )
         val playIcon = if (controls.isPlaying) SpicyIcons.Pause else SpicyIcons.Play
         PressableGlyph(
-            rememberVectorPainter(playIcon), playWidth, playIcon.aspect,
+            if (animate) playPauseGlyph else rememberVectorPainter(playIcon),
+            playWidth,
+            if (animate) SpicyIcons.Pause.aspect else playIcon.aspect,
             if (controls.isPlaying) "Pause" else "Play",
             touch = slot,
             onClick = controls.onPlayPause,
         )
-        PressableGlyph(rememberVectorPainter(SpicyIcons.TrackSkip), skipWidth, SpicyIcons.TrackSkip.aspect, "Next", touch = slot, onClick = controls.onNext)
+        PressableGlyph(
+            if (animate) nextGlyph else skip, skipWidth, SpicyIcons.TrackSkip.aspect, "Next", touch = slot,
+            onClick = { if (animate) moveOn(next); controls.onNext() },
+        )
         SideAction(repeat, controls, sideWidth, slot)
     }
 }
 
 /** Big, like Apple Music's transport, which suits a thumb. */
 private val SKIP_WIDTH = 52.dp
+/** How long a skip glyph takes to move on, and play to turn into pause. */
+private const val SKIP_MOVE_MS = 420
+private const val MORPH_MS = 260
 
 @Composable
 private fun SideAction(action: SessionCustomAction?, controls: PlaybackControlsState, width: Dp, slot: Modifier?) {

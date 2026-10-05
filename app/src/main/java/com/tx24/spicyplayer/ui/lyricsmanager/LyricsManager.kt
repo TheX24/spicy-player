@@ -1,5 +1,31 @@
 package com.tx24.spicyplayer.ui.lyricsmanager
 
+import com.tx24.spicyplayer.ui.components.screenSlide
+
+import com.tx24.spicyplayer.ui.theme.SpicyMotion
+
+import com.tx24.spicyplayer.ui.components.LocalUiAnimations
+
+import androidx.compose.animation.togetherWith
+
+import androidx.compose.animation.slideOutHorizontally
+
+import androidx.compose.animation.slideInHorizontally
+
+import androidx.compose.animation.fadeOut
+
+import androidx.compose.animation.fadeIn
+
+import androidx.compose.animation.animateContentSize
+
+import androidx.compose.animation.SizeTransform
+
+import androidx.compose.animation.ExitTransition
+
+import androidx.compose.animation.EnterTransition
+
+import androidx.compose.animation.AnimatedContent
+
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
@@ -122,6 +148,7 @@ fun LyricsManagerModal(
         backdrop = backdrop,
         modifier = modifier,
         title = if (uploading) "Upload TTML" else "Local Lyrics DB",
+        onBack = if (uploading) ({ uploading = false }) else null,
         // The list decodes a cover per saved song: it comes in once the pop-up is open.
         skeleton = {
             BlockSkeleton()
@@ -130,18 +157,41 @@ fun LyricsManagerModal(
             TrackListSkeleton(rows = 4)
         },
     ) {
-        if (uploading) {
-            BackHandler { uploading = false }
-            UploadScreen(
-                songName = state.title,
-                settings = settings,
-                viewModel = viewModel,
-                onBack = { uploading = false },
-                // Once saved, back to the list with it; a just-once upload is done.
-                onDone = { saved -> if (saved) uploading = false else onDismissRequest() },
-            )
-        } else {
-            LibraryScreen(state, viewModel, onUpload = { uploading = true })
+        LyricsManagerContent(state, viewModel, settings, uploading, { uploading = it }, onDismissRequest)
+    }
+}
+
+/**
+ * The Lyrics Manager's screens, the list and the upload, for its own pop-up or quick settings.
+ * [uploading] picks the screen; the upload slides in over the list and back out.
+ */
+@Composable
+fun LyricsManagerContent(
+    state: PlayerUiState,
+    viewModel: ExternalPlaybackViewModel,
+    settings: AppSettings,
+    uploading: Boolean,
+    onUploadingChange: (Boolean) -> Unit,
+    onClose: () -> Unit,
+) {
+    val animate = LocalUiAnimations.current
+    AnimatedContent(
+        targetState = uploading,
+        transitionSpec = { screenSlide(forward = targetState, animate = animate) },
+        label = "lyricsManagerScreen",
+    ) { upload ->
+        Column(verticalArrangement = Arrangement.spacedBy(SpicySpacing.S3)) {
+            if (upload) {
+                UploadScreen(
+                    songName = state.title,
+                    settings = settings,
+                    viewModel = viewModel,
+                    // Once saved, back to the list with it; a just-once upload is done.
+                    onDone = { saved -> if (saved) onUploadingChange(false) else onClose() },
+                )
+            } else {
+                LibraryScreen(state, viewModel, onUpload = { onUploadingChange(true) })
+            }
         }
     }
 }
@@ -198,7 +248,10 @@ private fun LibraryScreen(state: PlayerUiState, viewModel: ExternalPlaybackViewM
             )
         }
     } else {
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        Column(
+            Modifier.then(if (LocalUiAnimations.current) Modifier.animateContentSize(tween(SpicyMotion.MODAL_MS)) else Modifier),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
             shown.forEach { entry ->
                 TrackRow(
                     entry = entry,
@@ -371,7 +424,6 @@ private fun UploadScreen(
     songName: String,
     settings: AppSettings,
     viewModel: ExternalPlaybackViewModel,
-    onBack: () -> Unit,
     onDone: (saved: Boolean) -> Unit,
 ) {
     val context = LocalContext.current
@@ -403,21 +455,19 @@ private fun UploadScreen(
         }
     }
 
-    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
-        RowAction(Icons.Rounded.ArrowBack, "Back to Local Lyrics DB", enabled = !busy, onClick = onBack)
-        // The two ways to apply it, as one segmented control; it reopens on the last one used.
-        Row(
-            Modifier
-                .weight(1f)
-                .clip(RoundedCornerShape(SpicyRadii.Sm))
-                .background(SpicyColors.TintBg)
-                .border(1.dp, SpicyColors.Hairline, RoundedCornerShape(SpicyRadii.Sm))
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            ModeButton(Icons.Rounded.Storage, "Save", selected = save, enabled = !busy, Modifier.weight(1f)) { settings.ttmlUploadSaves = true }
-            ModeButton(Icons.Rounded.Schedule, "Just once", selected = !save, enabled = !busy, Modifier.weight(1f)) { settings.ttmlUploadSaves = false }
-        }
+    // The two ways to apply it, as one segmented control; it reopens on the last one used.
+    // Back to the list is the header's arrow.
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(SpicyRadii.Sm))
+            .background(SpicyColors.TintBg)
+            .border(1.dp, SpicyColors.Hairline, RoundedCornerShape(SpicyRadii.Sm))
+            .padding(3.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        ModeButton(Icons.Rounded.Storage, "Save", selected = save, enabled = !busy, Modifier.weight(1f)) { settings.ttmlUploadSaves = true }
+        ModeButton(Icons.Rounded.Schedule, "Just once", selected = !save, enabled = !busy, Modifier.weight(1f)) { settings.ttmlUploadSaves = false }
     }
     Text(
         if (save) "Store in the local DB — survives restarts" else "Apply to the current song only, until refresh",

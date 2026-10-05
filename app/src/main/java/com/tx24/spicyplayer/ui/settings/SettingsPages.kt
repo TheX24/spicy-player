@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.ui.settings
 
+import androidx.compose.material.icons.automirrored.rounded.QueueMusic
+
 import androidx.compose.material.icons.rounded.PauseCircle
 import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Sync
@@ -612,6 +614,13 @@ internal fun ControlsContent(settings: AppSettings) {
             description = "Show its own button for the Lyrics Manager. It's always in quick settings and This song.",
             icon = Icons.Rounded.LibraryMusic,
         )
+        ToggleRow(
+            label = "Queue button",
+            checked = settings.queueButton,
+            onCheckedChange = { settings.queueButton = it },
+            description = "Show its own button for the player's queue, while it shares one. It's always in quick settings.",
+            icon = Icons.AutoMirrored.Rounded.QueueMusic,
+        )
     }
 }
 
@@ -638,6 +647,14 @@ internal fun DeviceContent(settings: AppSettings) {
             onCheckedChange = { settings.lowPerformance = it },
             description = "Stills the background and cover and turns off blur and glow, for smoother lyrics on slower phones.",
             icon = Icons.Rounded.Speed,
+        )
+        ToggleRow(
+            label = "Interface animations",
+            checked = settings.uiAnimations && !settings.lowPerformance,
+            onCheckedChange = { settings.uiAnimations = it },
+            description = "Animate the playback buttons, the queue and pop-up screens. Off in low performance mode.",
+            icon = Icons.Rounded.Animation,
+            enabled = !settings.lowPerformance,
         )
     }
     HapticsSection(settings)

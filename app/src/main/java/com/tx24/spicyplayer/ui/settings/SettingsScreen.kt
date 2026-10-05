@@ -1,5 +1,11 @@
 package com.tx24.spicyplayer.ui.settings
 
+import com.tx24.spicyplayer.ui.components.LocalUiAnimations
+
+import androidx.compose.animation.core.snap
+
+import androidx.compose.animation.core.AnimationSpec
+
 import com.tx24.spicyplayer.analytics.UsageCounter
 import com.tx24.spicyplayer.analytics.UsageStats
 import androidx.compose.material.icons.rounded.TouchApp
@@ -135,7 +141,9 @@ fun SettingsScreen(
     onOpenSpotifySearch: () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
-    val modal = tween<Float>(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal)
+    // Interface animations off: every move is instant.
+    val animate = LocalUiAnimations.current
+    val modal: AnimationSpec<Float> = if (animate) tween(SpicyMotion.MODAL_MS, easing = SpicyMotion.Modal) else snap()
     val open = remember { Animatable(0f) }
     // How far a back gesture on the first page has gone, and from which edge.
     val backSwipe = remember { Animatable(0f) }
@@ -343,8 +351,9 @@ private fun Page(
         }
         header()
         if (ready) {
-            val fade = remember { Animatable(0f) }
-            LaunchedEffect(Unit) { fade.animateTo(1f, tween(SpicyMotion.FAST_MS, easing = SpicyMotion.Standard)) }
+            val animate = LocalUiAnimations.current
+            val fade = remember { Animatable(if (animate) 0f else 1f) }
+            LaunchedEffect(Unit) { if (animate) fade.animateTo(1f, tween(SpicyMotion.FAST_MS, easing = SpicyMotion.Standard)) }
             Column(Modifier.fillMaxWidth().graphicsLayer { alpha = fade.value }, content = content)
         } else {
             skeleton()
@@ -371,7 +380,7 @@ private fun PageSkeleton(page: SettingsPage) {
         SettingsPage.ScrollSync -> SettingsSkeleton(rows = 6)
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
-        SettingsPage.Controls -> SettingsSkeleton(rows = 9)
+        SettingsPage.Controls -> SettingsSkeleton(rows = 10)
         SettingsPage.Sources -> SettingsSkeleton(rows = 13, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 7)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 11)
@@ -448,7 +457,7 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
             SettingsPage.Controls.title,
             listOf(
                 if (settings.autoHideControls) "Hide after ${settings.controlsHideDelay.label}" else "Always shown",
-                "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.quickSettingsButton, settings.lyricsManagerButton).count { it }} of 6 extra buttons",
+                "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.quickSettingsButton, settings.lyricsManagerButton, settings.queueButton).count { it }} of 7 extra buttons",
             ).joinToString(),
         ) { onOpen(SettingsPage.Controls) }
     }

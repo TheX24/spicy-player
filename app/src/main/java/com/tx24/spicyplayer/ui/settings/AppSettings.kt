@@ -56,6 +56,8 @@ class AppSettings(private val prefs: SharedPreferences) {
     var glow by boolean("glow", true)
     /** Drops the costliest effects: the moving background, animated cover, glass blur, and lyric blur and glow. */
     var lowPerformance by boolean("lowPerformance", false)
+    /** The playback buttons, the queue and pop-ups animate; off in [lowPerformance] too. */
+    var uiAnimations by boolean("uiAnimations", true)
 
     /** Carries over the old Default/Legacy switch. */
     var backgroundType by enum(
@@ -101,6 +103,8 @@ class AppSettings(private val prefs: SharedPreferences) {
      * settings and Settings → This song, and few open it often.
      */
     var lyricsManagerButton by boolean("lyricsManagerButton", false)
+    /** A floating button that opens the queue (it's always in quick settings); shown while the player shares one. */
+    var queueButton by boolean("queueButton", false)
     /** The player's own extra actions (like, shuffle modes, …) as floating buttons. */
     var playerButtons by boolean("playerButtons", false)
     var romanizeButton by boolean("romanizeButton", true)

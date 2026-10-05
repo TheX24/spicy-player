@@ -129,7 +129,7 @@ import com.tx24.spicyplayer.ui.components.SpicyVersionRow
 import com.tx24.spicyplayer.ui.controls.ActionKind
 import com.tx24.spicyplayer.ui.controls.CoverControls
 import com.tx24.spicyplayer.ui.settings.QuickSettingsModal
-import com.tx24.spicyplayer.ui.settings.QueueModal
+import com.tx24.spicyplayer.ui.components.LocalUiAnimations
 import com.tx24.spicyplayer.ui.controls.LyricsControls
 import com.tx24.spicyplayer.ui.controls.kind
 import com.tx24.spicyplayer.ui.nowplaying.LandscapeMetrics
@@ -195,6 +195,7 @@ class MainActivity : ComponentActivity() {
             val settings = remember { AppSettings(getSharedPreferences("ui", Context.MODE_PRIVATE)) }
             MaterialTheme(colorScheme = darkColorScheme()) {
                 ProvideTouchHaptics(settings.touchHaptics) {
+                    CompositionLocalProvider(LocalUiAnimations provides (settings.uiAnimations && !settings.lowPerformance)) {
                     LyricsApp(
                         viewModel = playbackViewModel,
                         updater = updateViewModel,
@@ -203,6 +204,7 @@ class MainActivity : ComponentActivity() {
                             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                         },
                     )
+                    }
                 }
             }
         }
@@ -384,11 +386,10 @@ private fun LyricsApp(
     var showSettings by remember { mutableStateOf(false) }
     var showLyricsManager by remember { mutableStateOf(false) }
     var showQuickSettings by remember { mutableStateOf(false) }
+    var quickOnQueue by remember { mutableStateOf(false) }
     var showSpotifySearch by remember { mutableStateOf(false) }
-    var showQueue by remember { mutableStateOf(false) }
     CountUsage(
         state,
-        showQueue to UsageCounter.QUEUE,
         showSettings to UsageCounter.SETTINGS,
         showLyricsManager to UsageCounter.LYRICS_MANAGER,
         showQuickSettings to UsageCounter.QUICK_SETTINGS,
@@ -593,7 +594,9 @@ private fun LyricsApp(
                     onResync = viewModel::resync,
                 )
                 val onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null
-                val onOpenQuickSettings = if (settings.quickSettingsButton) ({ showQuickSettings = true }) else null
+                val onOpenQuickSettings = if (settings.quickSettingsButton) ({ quickOnQueue = false; showQuickSettings = true }) else null
+                // The queue's own button opens quick settings on its queue screen.
+                val onOpenQueue = if (settings.queueButton && state.queue.isNotEmpty()) ({ quickOnQueue = true; showQuickSettings = true }) else null
                 val romanizeButton = romanizationAvailable && settings.romanizeButton
                 // Expanded, it's the only way back to the lyrics, so it stays.
                 val expandButton = settings.expandButton || headerExpanded
@@ -712,6 +715,7 @@ private fun LyricsApp(
                                     },
                                     onOpenSettings = { showSettings = true },
                                     onOpenLyricsManager = onOpenLyricsManager,
+                                    onOpenQueue = onOpenQueue,
                                     onOpenQuickSettings = onOpenQuickSettings,
                                     expanded = headerExpanded,
                                     onToggleExpanded = expandButtonTapped,
@@ -744,6 +748,7 @@ private fun LyricsApp(
                         },
                         onOpenSettings = { showSettings = true },
                         onOpenLyricsManager = onOpenLyricsManager,
+                        onOpenQueue = onOpenQueue,
                         onOpenQuickSettings = onOpenQuickSettings,
                         expanded = headerExpanded,
                         onToggleExpanded = expandButtonTapped,
@@ -821,12 +826,11 @@ private fun LyricsApp(
             visible = showQuickSettings,
             state = state,
             viewModel = viewModel,
+            settings = settings,
             backdrop = backdrop,
-            onOpenLyricsManager = { showQuickSettings = false; showLyricsManager = true },
-            onOpenQueue = { showQuickSettings = false; showQueue = true },
+            startOnQueue = quickOnQueue,
             onDismiss = { showQuickSettings = false },
         )
-        QueueModal(showQueue, state, viewModel, backdrop) { showQueue = false }
 
         // Kept through the closing animation, after the view model has cleared it.
         var lastLimit by remember { mutableStateOf<PlayerLimit?>(null) }

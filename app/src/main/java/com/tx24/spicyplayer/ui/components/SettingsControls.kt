@@ -116,6 +116,9 @@ import kotlin.math.roundToInt
 /** What the settings search box holds; blank shows everything. */
 val LocalSettingsQuery = compositionLocalOf { "" }
 
+/** Whether the interface animates (playback buttons, lists, pop-up screens): the setting, and not low performance mode. */
+val LocalUiAnimations = compositionLocalOf { true }
+
 /** Whether the label or the description contains the query, ignoring case. */
 fun settingMatches(query: String, vararg terms: String?): Boolean {
     val q = query.trim()

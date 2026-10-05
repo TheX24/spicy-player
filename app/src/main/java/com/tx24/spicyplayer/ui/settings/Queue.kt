@@ -1,5 +1,21 @@
 package com.tx24.spicyplayer.ui.settings
 
+import com.tx24.spicyplayer.ui.theme.SpicyMotion
+
+import com.tx24.spicyplayer.ui.components.LocalUiAnimations
+
+import androidx.compose.ui.graphics.Color
+
+import androidx.compose.runtime.getValue
+
+import androidx.compose.runtime.LaunchedEffect
+
+import androidx.compose.animation.core.tween
+
+import androidx.compose.animation.core.snap
+
+import androidx.compose.animation.animateColorAsState
+
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -46,63 +62,54 @@ import com.tx24.spicyplayer.ui.theme.SpicyType
 import dev.chrisbanes.haze.HazeState
 
 /**
- * The player's queue, opened from quick settings: the playing song marked and scrolled to, a tap
+ * The player's queue, a screen of quick settings: the playing song marked and scrolled to, a tap
  * on another jumping there (or saying the player won't). Only players that share their queue
- * have one; none let other apps reorder or remove songs.
+ * have one; none let other apps reorder or remove songs. [modifier] gives it its height: it
+ * scrolls itself.
  */
 @Composable
-fun QueueModal(
-    visible: Boolean,
-    state: PlayerUiState,
-    viewModel: ExternalPlaybackViewModel,
-    backdrop: HazeState?,
-    onDismiss: () -> Unit,
-) {
-    SpicyModal(
-        visible = visible,
-        onDismissRequest = onDismiss,
-        backdrop = backdrop,
-        title = "Queue",
-        fillBody = true,
-        // Every row has a cover to load: the list comes in once the pop-up is open.
-        skeleton = { TrackListSkeleton(rows = 8, modifier = Modifier.padding(horizontal = SpicySpacing.S3, vertical = SpicySpacing.S2)) },
-    ) {
-        val current = state.queue.indexOfFirst { it.current }.coerceAtLeast(0)
-        // Opens with the playing song near the top, one before it in view.
-        val list = rememberLazyListState(initialFirstVisibleItemIndex = (current - 1).coerceAtLeast(0))
-        if (state.queue.isEmpty()) {
-            Box(Modifier.fillMaxWidth().padding(vertical = 48.dp), contentAlignment = Alignment.Center) {
-                Text("The player isn't sharing a queue right now.", style = SpicyType.Body.copy(color = SpicyColors.TextSecondary))
-            }
-            return@SpicyModal
+fun QueueList(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, onJumped: () -> Unit, modifier: Modifier = Modifier) {
+    val current = state.queue.indexOfFirst { it.current }.coerceAtLeast(0)
+    // Opens with the playing song near the top, one before it in view.
+    val list = rememberLazyListState(initialFirstVisibleItemIndex = (current - 1).coerceAtLeast(0))
+    val animate = LocalUiAnimations.current
+    // The next song starting while the queue is open: follow it if it's out of view.
+    LaunchedEffect(current) {
+        val visible = list.layoutInfo.visibleItemsInfo.map { it.index }
+        if (visible.isNotEmpty() && current !in visible.drop(1).dropLast(1)) {
+            val target = (current - 1).coerceAtLeast(0)
+            if (animate) list.animateScrollToItem(target) else list.scrollToItem(target)
         }
-        LazyColumn(
-            Modifier.fillMaxSize(),
-            state = list,
-            contentPadding = PaddingValues(horizontal = SpicySpacing.S3, vertical = SpicySpacing.S2),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            items(state.queue, key = { it.id }) { entry ->
-                QueueRow(entry) {
-                    viewModel.skipToQueueItem(entry.id)
-                    onDismiss()
-                }
+    }
+    if (state.queue.isEmpty()) {
+        Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text("The player isn't sharing a queue right now.", style = SpicyType.Body.copy(color = SpicyColors.TextSecondary))
+        }
+        return
+    }
+    LazyColumn(modifier.fillMaxWidth(), state = list, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        items(state.queue, key = { it.id }) { entry ->
+            QueueRow(entry, if (animate) Modifier.animateItem() else Modifier) {
+                viewModel.skipToQueueItem(entry.id)
+                onJumped()
             }
         }
     }
 }
 
 @Composable
-private fun QueueRow(entry: QueueEntry, onClick: () -> Unit) {
+private fun QueueRow(entry: QueueEntry, modifier: Modifier, onClick: () -> Unit) {
     val shape = RoundedCornerShape(SpicyRadii.Md)
+    // The playing song's highlight fades across to the next one.
+    val spec = if (LocalUiAnimations.current) tween<Color>(SpicyMotion.FAST_MS * 2) else snap()
+    val fill by animateColorAsState(if (entry.current) SpicyColors.TintBg else Color.Transparent, spec, label = "queueFill")
+    val edge by animateColorAsState(if (entry.current) SpicyColors.HairlineStrong else Color.Transparent, spec, label = "queueEdge")
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(shape)
-            .then(
-                if (entry.current) Modifier.background(SpicyColors.TintBg).border(1.dp, SpicyColors.HairlineStrong, shape)
-                else Modifier,
-            )
+            .background(fill)
+            .border(1.dp, edge, shape)
             .clickable(enabled = !entry.current, role = Role.Button, onClick = onClick)
             .padding(horizontal = SpicySpacing.S3, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
