@@ -20,6 +20,10 @@ object UsageCounter {
     const val CALIBRATION = "delay_calibration"
     const val BACKUP_EXPORT = "backup_exported"
     const val BACKUP_RESTORE = "backup_restored"
+    const val QUEUE = "queue_opened"
+    /** The floating expand button only; a tap on the cover isn't counted. */
+    const val EXPAND_BUTTON = "expand_button_tapped"
+    const val PLAYER_ACTION = "player_action_tapped"
 
     fun lyrics(outcome: String) = "lyrics_$outcome"
     fun page(name: String) = "page_${slug(name)}"

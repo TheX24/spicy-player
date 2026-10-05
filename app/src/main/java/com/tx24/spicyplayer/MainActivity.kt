@@ -129,6 +129,7 @@ import com.tx24.spicyplayer.ui.components.SpicyVersionRow
 import com.tx24.spicyplayer.ui.controls.ActionKind
 import com.tx24.spicyplayer.ui.controls.CoverControls
 import com.tx24.spicyplayer.ui.settings.QuickSettingsModal
+import com.tx24.spicyplayer.ui.settings.QueueModal
 import com.tx24.spicyplayer.ui.controls.LyricsControls
 import com.tx24.spicyplayer.ui.controls.kind
 import com.tx24.spicyplayer.ui.nowplaying.LandscapeMetrics
@@ -336,6 +337,11 @@ private fun LyricsApp(
             userExpanded = true
         }
     }
+    // The floating button's own way in, counted apart from a tap on the cover.
+    val expandButtonTapped = {
+        UsageStats.count(UsageCounter.EXPAND_BUTTON)
+        toggleExpanded()
+    }
     // The header expands over 0.4 s with CSS's `ease`.
     val expansion by animateFloatAsState(
         if (headerExpanded) 1f else 0f,
@@ -379,8 +385,10 @@ private fun LyricsApp(
     var showLyricsManager by remember { mutableStateOf(false) }
     var showQuickSettings by remember { mutableStateOf(false) }
     var showSpotifySearch by remember { mutableStateOf(false) }
+    var showQueue by remember { mutableStateOf(false) }
     CountUsage(
         state,
+        showQueue to UsageCounter.QUEUE,
         showSettings to UsageCounter.SETTINGS,
         showLyricsManager to UsageCounter.LYRICS_MANAGER,
         showQuickSettings to UsageCounter.QUICK_SETTINGS,
@@ -578,7 +586,10 @@ private fun LyricsApp(
                     onSeek = viewModel::seekTo,
                     // Shuffle and repeat stay in the playback row; only the player's other actions are floating buttons.
                     customActions = if (settings.playerButtons) state.customActions else state.customActions.filter { it.kind != ActionKind.Other },
-                    onCustomAction = viewModel::sendCustomAction,
+                    onCustomAction = { action ->
+                        UsageStats.count(UsageCounter.PLAYER_ACTION)
+                        viewModel.sendCustomAction(action)
+                    },
                     onResync = viewModel::resync,
                 )
                 val onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null
@@ -703,7 +714,7 @@ private fun LyricsApp(
                                     onOpenLyricsManager = onOpenLyricsManager,
                                     onOpenQuickSettings = onOpenQuickSettings,
                                     expanded = headerExpanded,
-                                    onToggleExpanded = toggleExpanded,
+                                    onToggleExpanded = expandButtonTapped,
                                     // Only beside the lyrics: the big cover sits in the middle.
                                     onSwapSide = if (hideHeader || headerExpanded) null else ({
                                         settings.panelSide = if (settings.panelSide == PanelSide.Left) PanelSide.Right else PanelSide.Left
@@ -735,7 +746,7 @@ private fun LyricsApp(
                         onOpenLyricsManager = onOpenLyricsManager,
                         onOpenQuickSettings = onOpenQuickSettings,
                         expanded = headerExpanded,
-                        onToggleExpanded = toggleExpanded,
+                        onToggleExpanded = expandButtonTapped,
                         interactive = controlsVisible && !controlsOnCover,
                         shown = { controlsShown * barFade() },
                         // No lyrics behind them when expanded, so no shade over the cover.
@@ -806,7 +817,16 @@ private fun LyricsApp(
             }
         }
 
-        QuickSettingsModal(showQuickSettings, state, viewModel, backdrop) { showQuickSettings = false }
+        QuickSettingsModal(
+            visible = showQuickSettings,
+            state = state,
+            viewModel = viewModel,
+            backdrop = backdrop,
+            onOpenLyricsManager = { showQuickSettings = false; showLyricsManager = true },
+            onOpenQueue = { showQuickSettings = false; showQueue = true },
+            onDismiss = { showQuickSettings = false },
+        )
+        QueueModal(showQueue, state, viewModel, backdrop) { showQueue = false }
 
         // Kept through the closing animation, after the view model has cleared it.
         var lastLimit by remember { mutableStateOf<PlayerLimit?>(null) }

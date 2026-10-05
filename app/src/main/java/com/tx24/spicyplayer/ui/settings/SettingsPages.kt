@@ -602,14 +602,14 @@ internal fun ControlsContent(settings: AppSettings) {
             label = "Quick settings button",
             checked = settings.quickSettingsButton,
             onCheckedChange = { settings.quickSettingsButton = it },
-            description = "Show the button that opens the song and output delays without leaving the lyrics.",
+            description = "Show the button that opens the delays, the Lyrics Manager and the queue without leaving the lyrics.",
             icon = Icons.Rounded.Tune,
         )
         ToggleRow(
             label = "Lyrics Manager button",
             checked = settings.lyricsManagerButton,
             onCheckedChange = { settings.lyricsManagerButton = it },
-            description = "Show the button that opens the Lyrics Manager. It's always in This song too.",
+            description = "Show its own button for the Lyrics Manager. It's always in quick settings and This song.",
             icon = Icons.Rounded.LibraryMusic,
         )
     }

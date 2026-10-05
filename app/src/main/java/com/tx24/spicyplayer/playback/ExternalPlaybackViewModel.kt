@@ -167,11 +167,23 @@ data class PlayerUiState(
     val localLyricsKey: String? = null,
     /** The user's own sources, in the order they were added; their place in the lookup is in [sourceOrder]. */
     val customSources: List<CustomLyricsSource> = emptyList(),
+    /** The player's queue, when it shares one; empty otherwise. */
+    val queue: List<QueueEntry> = emptyList(),
     /** The linked lyrics folder, if any. */
     val lyricsFolder: LyricsFolder.Status? = null,
     val lyricsFolderScanning: Boolean = false,
     /** The output delay is being found by tapping along ([TapCalibration]); the music haptics rest. */
     val calibratingDelay: Boolean = false,
+)
+
+/** One song in the player's queue. */
+data class QueueEntry(
+    val id: Long,
+    val title: String,
+    val subtitle: String,
+    val icon: Bitmap?,
+    val iconUri: String?,
+    val current: Boolean,
 )
 
 /** The lookups beyond the lyrics that the screen currently shows. */
@@ -286,6 +298,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val controllerCallback = object : MediaController.Callback() {
         override fun onMetadataChanged(metadata: MediaMetadata?) = updateFromController(metadataChanged = true)
         override fun onPlaybackStateChanged(playbackState: PlaybackState?) = updateFromController()
+        override fun onQueueChanged(queue: MutableList<MediaSession.QueueItem>?) = refreshQueue()
         override fun onSessionDestroyed() = refresh()
     }
 
@@ -359,6 +372,46 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         pendingSkip = TrackDirection.Backward to SystemClock.elapsedRealtime()
         watchForRefusedSkip(PlayerLimit.Previous, PlaybackState.ACTION_SKIP_TO_PREVIOUS)
         commandForTrackChange { skipToPrevious() }
+    }
+
+    /** Jumps to a song in the player's queue. */
+    fun skipToQueueItem(id: Long) {
+        val active = controller ?: return
+        val queue = active.queue.orEmpty()
+        val from = queue.indexOfFirst { it.queueId == active.playbackState?.activeQueueItemId }
+        val to = queue.indexOfFirst { it.queueId == id }
+        if (to < 0 || to == from) return
+        pendingSkip = (if (from in 0 until to) TrackDirection.Forward else TrackDirection.Backward) to SystemClock.elapsedRealtime()
+        // Sent even when the player doesn't list queue jumps (Spotify doesn't): some take them anyway.
+        val before = active.metadata.trackIdentity()
+        commandForTrackChange { skipToQueueItem(id) }
+        skipCheckJob?.cancel()
+        skipCheckJob = viewModelScope.launch {
+            delay(SKIP_REFUSED_AFTER_MS)
+            if (controller === active && currentTrackIdentity == before) {
+                showMessage("The player didn't jump to that song: it doesn't take queue jumps from other apps.")
+            }
+        }
+    }
+
+    /** Re-reads the player's queue into the state; cheap, so it runs on every change that can move it. */
+    private fun refreshQueue() {
+        val active = controller
+        val items = active?.queue.orEmpty()
+        val currentId = active?.playbackState?.activeQueueItemId
+        val queue = items.map { item ->
+            val d = item.description
+            QueueEntry(
+                id = item.queueId,
+                title = d.title?.toString().orEmpty().ifBlank { "Unknown track" },
+                subtitle = d.subtitle?.toString().orEmpty(),
+                icon = d.iconBitmap,
+                iconUri = d.iconUri?.toString(),
+                current = item.queueId == currentId,
+            )
+        }
+        val state = mutableState.value
+        if (state.queue != queue) mutableState.value = state.copy(queue = queue)
     }
 
     fun dismissLimitNotice() {
@@ -1267,6 +1320,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         // Not cleared on the change: players often send a new song in steps (title, then artist or
         // cover), and each step must still see the button that caused it. It lapses on its own.
         if (queueIndex >= 0) lastQueueIndex = queueIndex
+        if (trackChanged || mutableState.value.queue.firstOrNull { it.current }?.id != playback?.activeQueueItemId) refreshQueue()
         if (trackChanged) {
             currentTrackIdentity = trackIdentity
             trackChangedAt = SystemClock.elapsedRealtime()

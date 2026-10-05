@@ -96,8 +96,11 @@ class AppSettings(private val prefs: SharedPreferences) {
     var musicHapticsStyle by enum("musicHapticsStyle", MusicHapticsStyle.Drums)
     /** A floating button that opens the quick settings (the song's and the output's delay). */
     var quickSettingsButton by boolean("quickSettingsButton", true)
-    /** A floating button that opens the Lyrics Manager (it is always in Settings → This song). */
-    var lyricsManagerButton by boolean("lyricsManagerButton", true)
+    /**
+     * A floating button that opens the Lyrics Manager. Off by default: it's always in quick
+     * settings and Settings → This song, and few open it often.
+     */
+    var lyricsManagerButton by boolean("lyricsManagerButton", false)
     /** The player's own extra actions (like, shuffle modes, …) as floating buttons. */
     var playerButtons by boolean("playerButtons", false)
     var romanizeButton by boolean("romanizeButton", true)
