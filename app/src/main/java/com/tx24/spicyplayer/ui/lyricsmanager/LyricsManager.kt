@@ -32,6 +32,9 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.ErrorOutline
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.FileUpload
+import androidx.compose.material.icons.rounded.Folder
+import androidx.compose.material.icons.rounded.LinkOff
+import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.MusicNote
 import androidx.compose.material.icons.rounded.RestartAlt
 import androidx.compose.material.icons.rounded.Schedule
@@ -72,6 +75,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import com.tx24.spicyplayer.haptics.withHaptic
 import com.tx24.spicyplayer.lyrics.LocalLyricsStore
+import com.tx24.spicyplayer.lyrics.LrcConverter
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.ui.components.SpicyModal
@@ -171,6 +175,7 @@ private fun LibraryScreen(state: PlayerUiState, viewModel: ExternalPlaybackViewM
         ToolbarButton(Icons.Rounded.RestartAlt, "Reset TTML", ToolbarStyle.Danger, viewModel::resetTtml, Modifier.weight(1f))
         ToolbarButton(Icons.Rounded.FileUpload, "Upload TTML", ToolbarStyle.Primary, onUpload, Modifier.weight(1f))
     }
+    FolderCard(state, viewModel)
     if (shown.isEmpty()) {
         Column(
             Modifier.fillMaxWidth().padding(vertical = 48.dp),
@@ -266,6 +271,72 @@ private fun TrackRow(
     }
 }
 
+/**
+ * The lyrics folder: .ttml and .lrc files read where they are, picked up as they're added or
+ * changed. Its songs aren't listed; a folder can hold thousands.
+ */
+@Composable
+private fun FolderCard(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
+    val pick = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocumentTree()) { tree ->
+        if (tree != null) viewModel.linkLyricsFolder(tree)
+    }
+    // Unlinking asks twice, like deleting.
+    var confirmUnlink by remember { mutableStateOf(false) }
+    LaunchedEffect(confirmUnlink) {
+        if (confirmUnlink) {
+            delay(3_000)
+            confirmUnlink = false
+        }
+    }
+    val folder = state.lyricsFolder
+    val shape = RoundedCornerShape(SpicyRadii.Md)
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(SpicyColors.TintBg)
+            .border(1.dp, SpicyColors.Hairline, shape)
+            .padding(horizontal = SpicySpacing.S3, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+    ) {
+        Icon(Icons.Rounded.Folder, null, tint = SpicyColors.TextSecondary, modifier = Modifier.size(22.dp))
+        Column(Modifier.weight(1f)) {
+            Text(folder?.name ?: "Lyrics folder", maxLines = 1, overflow = TextOverflow.Ellipsis, style = SpicyType.Body.copy(fontWeight = FontWeight.Medium))
+            Text(
+                when {
+                    folder == null -> "Read .ttml and .lrc files from a folder."
+                    state.lyricsFolderScanning -> "Reading…"
+                    else -> "${folder.files} ${if (folder.files == 1) "file" else "files"}"
+                },
+                maxLines = 2,
+                style = SpicyType.Caption.copy(color = SpicyColors.TextSecondary),
+            )
+        }
+        if (folder == null) {
+            RowAction(Icons.Rounded.Folder, "Choose a lyrics folder", label = "Choose", onClick = { pick.launch(null) })
+        } else {
+            if (state.lyricsFolderScanning) {
+                CircularProgressIndicator(Modifier.size(18.dp), color = SpicyColors.TextSecondary, strokeWidth = 2.dp)
+            } else {
+                RowAction(Icons.Rounded.Refresh, "Rescan lyrics folder", onClick = { viewModel.rescanLyricsFolder(manual = true) })
+            }
+            RowAction(
+                Icons.Rounded.LinkOff,
+                if (confirmUnlink) "Confirm unlink" else "Unlink lyrics folder",
+                label = if (confirmUnlink) "Confirm" else null,
+                danger = confirmUnlink,
+                onClick = {
+                    if (confirmUnlink) {
+                        confirmUnlink = false
+                        viewModel.unlinkLyricsFolder()
+                    } else confirmUnlink = true
+                },
+            )
+        }
+    }
+}
+
 /** The saved cover, or a note on a tinted square when the song had none. */
 @Composable
 private fun Cover(file: java.io.File, version: Long) {
@@ -304,12 +375,18 @@ private fun UploadScreen(
         busy = true
         scope.launch {
             val name = withContext(Dispatchers.IO) { displayName(context, uri) }
-            val ttml = if (name != null && !name.lowercase().endsWith(".ttml")) {
-                viewModel.showMessage("Only .ttml files are supported.")
+            val extension = name?.substringAfterLast('.', "")?.lowercase()
+            val ttml = if (extension != null && extension != "ttml" && extension != "lrc") {
+                viewModel.showMessage("Only .ttml and .lrc files are supported.")
                 null
             } else withContext(Dispatchers.IO) {
-                runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } }.getOrNull()
-                    .also { if (it == null) viewModel.showMessage("Error reading TTML file.") }
+                val text = runCatching { context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString().removePrefix("\uFEFF") } }.getOrNull()
+                when {
+                    text == null -> null.also { viewModel.showMessage("Error reading the file.") }
+                    extension == "lrc" || LrcConverter.isLrc(text) ->
+                        LrcConverter.toTtml(text).also { if (it == null) viewModel.showMessage("That LRC file has no timed lines.") }
+                    else -> text
+                }
             }
             val applied = ttml != null && viewModel.importTtml(ttml, persistent = save)
             busy = false
@@ -380,7 +457,7 @@ private fun DropZone(busy: Boolean, subtitle: String, onClick: () -> Unit) {
         }
         Spacer(Modifier.width(0.dp))
         Text(
-            if (busy) "Uploading…" else "Tap to choose a .ttml file",
+            if (busy) "Uploading…" else "Tap to choose a .ttml or .lrc file",
             style = SpicyType.Body.copy(fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center),
         )
         Text(
@@ -504,6 +581,6 @@ private const val PRESS_HOLD_MS = 300L
 /**
  * What the file picker offers. It filters by type, not name: a .ttml is TTML to a phone that
  * knows the extension and a nameless blob of bytes to one that doesn't, so both are asked for
- * (with plain XML), which keeps music, pictures and documents out of the list.
+ * (with plain XML, and plain text for .lrc), which keeps music, pictures and documents out.
  */
-private val PICKABLE_TYPES = arrayOf(TTML_MIME, "application/xml", "text/xml", "application/octet-stream")
+private val PICKABLE_TYPES = arrayOf(TTML_MIME, "application/xml", "text/xml", "text/plain", "application/octet-stream")

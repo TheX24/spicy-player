@@ -2,6 +2,7 @@ package com.tx24.spicyplayer.playback
 
 import com.tx24.spicyplayer.analytics.UsageCounter
 import com.tx24.spicyplayer.analytics.UsageStats
+import android.net.Uri
 import android.app.Application
 import android.content.ComponentName
 import android.graphics.Bitmap
@@ -24,11 +25,13 @@ import com.tx24.spicyplayer.haptics.MusicHaptic
 import com.tx24.spicyplayer.haptics.MusicHapticScore
 import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.lyrics.LocalLyricsStore
+import com.tx24.spicyplayer.lyrics.LyricsFolder
 import com.tx24.spicyplayer.lyrics.LyricsNotices
 import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.lyrics.NextLyricsBackend
 import com.tx24.spicyplayer.lyrics.RemoteLyricsAdapter
 import com.tx24.spicyplayer.network.data.LyricsLookupRequest
+import com.tx24.spicyplayer.network.data.RemoteLyricsQuality
 import com.tx24.spicyplayer.network.data.LyricsSourceDescriptor
 import com.tx24.spicyplayer.network.data.ProviderAttempt
 import com.tx24.spicyplayer.network.data.ProviderAttemptOutcome
@@ -94,6 +97,9 @@ private const val TRACK_REPORT_FRESH_MS = 1_000L
 /** Lyrics saved in the Lyrics Manager, and lyrics uploaded for one song "just once". */
 internal val LOCAL_SOURCE = LyricsSourceDescriptor("local", "Local Lyrics DB", 0, setOf(LyricsCapability.WORD_SYNC))
 internal val UPLOADED_SOURCE = LyricsSourceDescriptor("uploaded", "Uploaded TTML", 0, setOf(LyricsCapability.WORD_SYNC))
+internal val FOLDER_SOURCE = LyricsSourceDescriptor("folder", "Lyrics folder", 0, setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC))
+/** How long after one the folder is listed again on its own, when the app comes back. */
+private const val FOLDER_RESCAN_MS = 30_000L
 /** How wide a saved song's cover is kept for the Lyrics Manager's list. */
 private const val COVER_THUMB_PX = 128
 private val IN_BETWEEN_STATES = setOf(
@@ -158,6 +164,9 @@ data class PlayerUiState(
     val localLyrics: List<LocalLyricsStore.Entry> = emptyList(),
     /** The playing song's key in the Lyrics Manager, saved there or not. */
     val localLyricsKey: String? = null,
+    /** The linked lyrics folder, if any. */
+    val lyricsFolder: LyricsFolder.Status? = null,
+    val lyricsFolderScanning: Boolean = false,
     /** The output delay is being found by tapping along ([TapCalibration]); the music haptics rest. */
     val calibratingDelay: Boolean = false,
 )
@@ -201,6 +210,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     val messages: SharedFlow<String> = mutableMessages
 
     private val localLyrics = LocalLyricsStore(File(application.filesDir, "local-lyrics"))
+    private val lyricsFolder = LyricsFolder(application, File(application.filesDir, "lyrics-folder-index.json"))
+    private var folderScan: Job? = null
+    private var lastFolderScanAt = Long.MIN_VALUE / 2
     /** A TTML applied to one song "just once" (by lyrics key): it holds until the song changes or is reset. */
     private var temporaryLyrics: Pair<String, RemoteLyricsSelection>? = null
 
@@ -283,10 +295,15 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         viewModelScope.launch(Dispatchers.IO) { lyricsBackend.warmUp() }
         startTicker()
         refresh()
+        viewModelScope.launch(Dispatchers.IO) {
+            val status = lyricsFolder.status()
+            mutableState.value = mutableState.value.copy(lyricsFolder = status)
+        }
     }
 
     fun refresh() {
         refreshOutputRoute()
+        if (SystemClock.elapsedRealtime() - lastFolderScanAt >= FOLDER_RESCAN_MS) rescanLyricsFolder()
         // The grant is per listener class, not per app: after the class moves, the package can
         // still be listed while this component is not, and every session read is refused.
         val granted = Settings.Secure.getString(getApplication<Application>().contentResolver, "enabled_notification_listeners")
@@ -599,6 +616,52 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         return true
     }
 
+    /** Links [tree] as the lyrics folder (replacing any other) and reads it. */
+    fun linkLyricsFolder(tree: Uri) {
+        viewModelScope.launch {
+            val linked = withContext(Dispatchers.IO) { runCatching { lyricsFolder.link(tree) }.isSuccess }
+            if (!linked) return@launch showMessage("Couldn't open that folder.")
+            rescanLyricsFolder(manual = true)
+        }
+    }
+
+    fun unlinkLyricsFolder() {
+        folderScan?.cancel()
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { lyricsFolder.unlink() }
+            mutableState.value = mutableState.value.copy(lyricsFolder = null, lyricsFolderScanning = false)
+            showMessage("Lyrics folder unlinked.")
+            if (shownSelection?.source == FOLDER_SOURCE) currentRequest()?.let { request ->
+                forgetShown(request, dropResults = false)
+                loadLyrics()
+            }
+        }
+    }
+
+    /**
+     * Lists the lyrics folder again, reading new and changed files. When that changes what the
+     * playing song should show (a file for it arrived, or the one showing changed), it shows that.
+     */
+    fun rescanLyricsFolder(manual: Boolean = false) {
+        if (lyricsFolder.tree == null || folderScan?.isActive == true) return
+        lastFolderScanAt = SystemClock.elapsedRealtime()
+        folderScan = viewModelScope.launch {
+            mutableState.value = mutableState.value.copy(lyricsFolderScanning = true)
+            val changed = withContext(Dispatchers.IO) { lyricsFolder.rescan() }
+            val status = withContext(Dispatchers.IO) { lyricsFolder.status() }
+            mutableState.value = mutableState.value.copy(lyricsFolder = status, lyricsFolderScanning = false)
+            if (manual) showMessage(status?.let { "Lyrics folder: ${it.files} ${if (it.files == 1) "file" else "files"}." } ?: "Couldn't read the lyrics folder.")
+            val request = currentRequest() ?: return@launch
+            val shown = shownSelection?.source
+            val affected = shown == FOLDER_SOURCE || shown != LOCAL_SOURCE && shown != UPLOADED_SOURCE &&
+                withContext(Dispatchers.IO) { lyricsFolder.has(request.title, request.artist) }
+            if (changed && affected) {
+                forgetShown(request, dropResults = false)
+                loadLyrics()
+            }
+        }
+    }
+
     /** Deletes a saved song; if it's the one playing, its lyrics are looked up again. */
     fun removeLocalLyrics(key: String) {
         viewModelScope.launch {
@@ -629,10 +692,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         forgetShown(request, dropResults = false)
         loadLyrics()
         val saved = localLyrics.contains(request.title, request.artist)
+        val inFolder = !saved && lyricsFolder.has(request.title, request.artist)
         showMessage(
             when {
                 uploaded && saved -> "TTML has been reset. This song's saved lyrics are showing; delete them to use the online ones."
                 saved -> "This song's lyrics are saved in the Local DB. Delete them there to go back to the online ones."
+                uploaded && inFolder -> "TTML has been reset. This song's lyrics from your lyrics folder are showing."
+                inFolder -> "This song's lyrics come from your lyrics folder. Remove the file there to go back to the online ones."
                 uploaded -> "TTML has been reset."
                 else -> "No uploaded TTML to reset."
             },
@@ -644,12 +710,24 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         return RemoteLyricsSelection(if (persistent) LOCAL_SOURCE else UPLOADED_SOURCE, payload, payload.measuredQuality())
     }
 
-    /** The playing song's lyrics from the Lyrics Manager: a just-once upload, else a saved song. */
+    /**
+     * The playing song's lyrics from the Lyrics Manager: a just-once upload, else a saved song,
+     * else a file in the lyrics folder.
+     */
     private fun localLyricsFor(identity: String?, request: LyricsLookupRequest): RemoteLyricsResolution? {
         val selection = temporaryLyrics?.takeIf { it.first == identity.orEmpty() }?.second
             ?: localLyrics.get(request.title, request.artist)?.let { localSelection(it, persistent = true) }
+            ?: lyricsFolder.lyrics(request.title, request.artist)?.let { ttml ->
+                val payload = RemoteLyricsPayload(ttmlLyrics = ttml, sourceId = FOLDER_SOURCE.id)
+                RemoteLyricsSelection(FOLDER_SOURCE, payload, payload.measuredQuality())
+                    .takeIf { it.quality != RemoteLyricsQuality.NONE }
+            }
             ?: return null
-        val message = if (selection.source == UPLOADED_SOURCE) "applied once" else "saved"
+        val message = when (selection.source) {
+            UPLOADED_SOURCE -> "applied once"
+            FOLDER_SOURCE -> "from your lyrics folder"
+            else -> "saved"
+        }
         return RemoteLyricsResolution.Found(
             selection,
             listOf(ProviderAttempt(selection.source.id, ProviderAttemptOutcome.HIT, selection.quality, message = message)),
@@ -909,7 +987,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val backend = lyricsBackend
         warmJob = viewModelScope.launch(Dispatchers.IO) {
             for (request in upcoming) {
-                if (localLyrics.contains(request.title, request.artist)) continue
+                if (localLyrics.contains(request.title, request.artist) || lyricsFolder.has(request.title, request.artist)) continue
                 val resolution = backend.cachedResolution(request)?.resolution
                     // Failures are not reported: nobody is looking at this song yet.
                     ?: runCatching { backend.resolve(request, ConcurrentHashMap()).also { backend.store(request, it) } }
