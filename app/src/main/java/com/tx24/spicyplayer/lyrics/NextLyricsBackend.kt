@@ -2,6 +2,9 @@ package com.tx24.spicyplayer.lyrics
 
 import android.content.Context
 import com.google.gson.Gson
+import com.google.gson.JsonParser
+import com.google.gson.JsonObject
+import com.google.gson.JsonArray
 import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.network.data.*
 import com.tx24.spicyplayer.network.data.providers.*
@@ -28,12 +31,20 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         .readTimeout(12, TimeUnit.SECONDS)
         .build()
     private val gson = Gson()
-    private val providers: Set<RemoteLyricsProvider> =
+    /** Header values of custom sources: kept out of [preferences], which backups copy. */
+    private val customHeaders = context.getSharedPreferences("custom_source_headers", Context.MODE_PRIVATE)
+    private val builtIn: Set<RemoteLyricsProvider> =
         createProviders(client, gson, clientKey, context.cacheDir, SharedSpotify.resolver) { ignoreMusixmatchWordSync }
-    private val source = RemoteLyricsSource(providers, ProviderCooldownTracker())
+    private val cooldowns = ProviderCooldownTracker()
+    // Custom sources come and go, so these are rebuilt with them ([rebuild]).
+    @Volatile private var providers: Set<RemoteLyricsProvider> = builtIn
+    @Volatile private var source = RemoteLyricsSource(providers, cooldowns)
+    @Volatile var descriptors: List<LyricsSourceDescriptor> = emptyList()
+        private set
 
-    val descriptors: List<LyricsSourceDescriptor> = providers.map(RemoteLyricsProvider::descriptor)
-        .sortedWith(compareBy<LyricsSourceDescriptor> { it.defaultPriority }.thenBy { it.id })
+    init {
+        rebuild()
+    }
     /** Blends are switched on and off apart from the ordered sources; their rank follows their donors. */
     val blendDescriptors: List<LyricsSourceDescriptor> = LyricsBlends.ALL.map(LyricsBlendDefinition::descriptor)
 
@@ -113,7 +124,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     /** Also keyed on the Musixmatch word-sync switch, which changes what those sources answer. */
     private fun enabledOrder(): List<String> = policy().let { p ->
-        p.sourceOrder.filter { it !in p.disabledSourceIds } + p.enabledBlendIds.sorted() +
+        val revisions = providers.mapNotNull { (it as? CustomLyricsProvider)?.source }.associate { it.id to it.revision }
+        p.sourceOrder.filter { it !in p.disabledSourceIds }.map { id -> revisions[id]?.let { "$id@$it" } ?: id } + p.enabledBlendIds.sorted() +
             listOfNotNull(MUSIXMATCH_LINES_ONLY.takeIf { ignoreMusixmatchWordSync })
     }
 
@@ -191,7 +203,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
                 // LRCLIB asks clients to identify themselves; its Cloudflare front answers OkHttp's
                 // default user agent with HTTP 520.
                 .client(client.newBuilder().addInterceptor { chain ->
-                    chain.proceed(chain.request().newBuilder().header("User-Agent", LRCLIB_USER_AGENT).build())
+                    chain.proceed(chain.request().newBuilder().header("User-Agent", APP_USER_AGENT).build())
                 }.build())
                 .addConverterFactory(GsonConverterFactory.create(gson))
                 .build()
@@ -227,8 +239,10 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         )
         /** Bump when the default source order or on/off set changes, to reset saved choices once. */
         private const val SOURCE_DEFAULTS_VERSION = 1
-        private val LRCLIB_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
+        private val APP_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
         private const val CACHE_DAYS = 3
+        /** Custom sources start after every built-in one. */
+        private const val CUSTOM_PRIORITY = 1_000
         private const val MUSIXMATCH_LINES_ONLY = "musixmatch-lines-only"
     }
 
@@ -287,6 +301,71 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     }
 
     private data class StoredRoman(val expiresAt: Long, val lines: List<String>?)
+
+    /** The user's own sources ([CustomLyricsSource]), in the order they were added. */
+    fun customSources(): List<CustomLyricsSource> = runCatching {
+        JsonParser.parseString(preferences.getString("custom", null) ?: return emptyList()).asJsonArray.mapNotNull { element ->
+            runCatching {
+                val o = element.asJsonObject
+                val id = o.get("id").asString
+                val values = runCatching { JsonParser.parseString(customHeaders.getString(id, "{}")).asJsonObject }.getOrNull()
+                CustomLyricsSource(
+                    id = id,
+                    name = o.get("name").asString,
+                    url = o.get("url").asString,
+                    path = o.get("path")?.asString.orEmpty(),
+                    headers = o.getAsJsonArray("headers")?.map { it.asString }.orEmpty()
+                        .map { name -> name to (values?.get(name)?.asString.orEmpty()) },
+                )
+            }.getOrNull()
+        }
+    }.getOrDefault(emptyList())
+
+    /** Adds [custom], or replaces the one with its ID. */
+    fun saveCustomSource(custom: CustomLyricsSource) {
+        writeCustomSources(customSources().let { list ->
+            if (list.any { it.id == custom.id }) list.map { if (it.id == custom.id) custom else it } else list + custom
+        })
+        customHeaders.edit().putString(custom.id, JsonObject().apply { custom.headers.forEach { (name, value) -> addProperty(name, value) } }.toString()).apply()
+        rebuild()
+    }
+
+    fun removeCustomSource(id: String) {
+        writeCustomSources(customSources().filter { it.id != id })
+        customHeaders.edit().remove(id).apply()
+        rebuild()
+    }
+
+    /** Asks [custom] alone for [request], for its editor's test; nothing is cached. */
+    suspend fun testCustomSource(custom: CustomLyricsSource, request: LyricsLookupRequest): ProviderResult =
+        CustomLyricsProvider(custom, client, SharedSpotify.resolver, 0, APP_USER_AGENT).fetch(request)
+
+    // Names and addresses only: header values are in [customHeaders].
+    private fun writeCustomSources(list: List<CustomLyricsSource>) {
+        val array = JsonArray()
+        list.forEach { custom ->
+            array.add(JsonObject().apply {
+                addProperty("id", custom.id)
+                addProperty("name", custom.name)
+                addProperty("url", custom.url)
+                addProperty("path", custom.path)
+                add("headers", JsonArray().apply { custom.headers.forEach { add(it.first) } })
+            })
+        }
+        preferences.edit().putString("custom", array.toString()).apply()
+    }
+
+    /** Re-reads the custom sources, after a settings restore. */
+    fun reloadCustomSources() = rebuild()
+
+    private fun rebuild() {
+        val custom = customSources().mapIndexed { index, it -> CustomLyricsProvider(it, client, SharedSpotify.resolver, CUSTOM_PRIORITY + index, APP_USER_AGENT) }
+        val all = builtIn + custom
+        providers = all
+        source = RemoteLyricsSource(all, cooldowns)
+        descriptors = all.map(RemoteLyricsProvider::descriptor)
+            .sortedWith(compareBy<LyricsSourceDescriptor> { it.defaultPriority }.thenBy { it.id })
+    }
 
     fun setPolicy(order: List<String>, disabledSourceIds: Set<String>) {
         val normalized = LyricsSourcePreferenceNormalizer.normalize(order, disabledSourceIds, descriptors)

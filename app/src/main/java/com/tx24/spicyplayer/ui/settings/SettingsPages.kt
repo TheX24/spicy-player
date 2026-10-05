@@ -669,6 +669,7 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
             }
         }
     }
+    CustomSourcesSection(state, viewModel)
     SettingsSection("Musixmatch") {
         ToggleRow(
             label = "Ignore Musixmatch word sync",

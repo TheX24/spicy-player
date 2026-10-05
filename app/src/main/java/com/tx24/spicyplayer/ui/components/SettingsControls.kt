@@ -598,6 +598,8 @@ fun SpicyTextField(
     trailing: (@Composable () -> Unit)? = null,
     /** The keyboard's action key becomes Search and calls this. */
     onSearch: (() -> Unit)? = null,
+    /** Grows to a few lines, Enter adding one. */
+    multiline: Boolean = false,
 ) {
     val state = rememberTextFieldState(value)
     val latestValue by rememberUpdatedState(value)
@@ -620,7 +622,7 @@ fun SpicyTextField(
                 .clip(shape)
                 .background(if (focused) SpicyColors.TintBgPressed else SpicyColors.TintBg)
                 .border(1.dp, if (focused) SpicyColors.HairlineStrong else SpicyColors.Hairline, shape)
-                .padding(horizontal = 10.dp),
+                .padding(horizontal = 10.dp, vertical = if (multiline) 9.dp else 0.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2),
         ) {
@@ -649,7 +651,7 @@ fun SpicyTextField(
             textStyle = SpicyType.Body,
             keyboardOptions = if (onSearch != null) KeyboardOptions(imeAction = ImeAction.Search) else KeyboardOptions.Default,
             onKeyboardAction = onKeyboardAction,
-            lineLimits = TextFieldLineLimits.SingleLine,
+            lineLimits = if (multiline) TextFieldLineLimits.MultiLine(minHeightInLines = 2, maxHeightInLines = 6) else TextFieldLineLimits.SingleLine,
             cursorBrush = cursorBrush,
             decorator = decorator,
         )

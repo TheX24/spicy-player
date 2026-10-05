@@ -372,7 +372,7 @@ private fun PageSkeleton(page: SettingsPage) {
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
         SettingsPage.Controls -> SettingsSkeleton(rows = 9)
-        SettingsPage.Sources -> SettingsSkeleton(rows = 12, cards = true)
+        SettingsPage.Sources -> SettingsSkeleton(rows = 13, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 7)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 11)
     }

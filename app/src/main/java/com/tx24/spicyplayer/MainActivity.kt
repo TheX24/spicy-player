@@ -121,6 +121,7 @@ import com.tx24.spicyplayer.lyrics.spicy.models.buildDisplayTimeline
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerLimit
 import com.tx24.spicyplayer.playback.PlayerUiState
+import com.tx24.spicyplayer.network.data.providers.CustomLyricsSource
 import com.tx24.spicyplayer.ui.background.SpicySessionBackground
 import com.tx24.spicyplayer.ui.components.LocalBackdrop
 import com.tx24.spicyplayer.ui.components.SpicyModalNotes
@@ -239,19 +240,24 @@ class MainActivity : ComponentActivity() {
 
 /** The lookup settings for the daily settings snapshot: which sources are on and first, never a key. */
 private fun lookupSnapshot(state: PlayerUiState): Map<String, Any> = buildMap {
-    state.sourceOrder.firstOrNull { it !in state.disabledSourceIds }?.let { put("first_source", it) }
+    // A custom source's ID and name are the user's own: only that it's custom is said.
+    state.sourceOrder.firstOrNull { it !in state.disabledSourceIds }
+        ?.let { put("first_source", if (CustomLyricsSource.isCustom(it)) "custom" else it) }
     put("sources_off", state.disabledSourceIds.size)
     put("blends_on", state.enabledBlendIds.size)
     put("human_romanizations", state.humanRomanizations)
     put("ignore_mxm_word_sync", state.ignoreMusixmatchWordSync)
     put("own_key", state.ownKeyHint != null)
+    put("custom_sources", state.customSources.size)
 }
 
 /** Counts, for the usage report, what each song's lookup ended with and which pop-ups get opened. */
 @Composable
 private fun CountUsage(state: PlayerUiState, vararg opened: Pair<Boolean, String>) {
     val outcome = when (val lyrics = state.lyrics) {
-        is LyricsState.Ready -> lyricsOutcome(lyrics.lyricsType) to lyrics.provider
+        // A custom source counts as "Custom", never by the name the user gave it.
+        is LyricsState.Ready -> lyricsOutcome(lyrics.lyricsType) to
+            if (state.customSources.any { it.name == lyrics.provider }) "Custom" else lyrics.provider
         is LyricsState.Error -> lyricsOutcome(null) to null
         else -> null
     }

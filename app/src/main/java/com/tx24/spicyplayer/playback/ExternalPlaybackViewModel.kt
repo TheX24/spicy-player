@@ -26,6 +26,7 @@ import com.tx24.spicyplayer.haptics.MusicHapticScore
 import com.tx24.spicyplayer.haptics.MusicHapticsStyle
 import com.tx24.spicyplayer.lyrics.LocalLyricsStore
 import com.tx24.spicyplayer.lyrics.LyricsFolder
+import com.tx24.spicyplayer.network.data.providers.CustomLyricsSource
 import com.tx24.spicyplayer.lyrics.LyricsNotices
 import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.lyrics.NextLyricsBackend
@@ -164,6 +165,8 @@ data class PlayerUiState(
     val localLyrics: List<LocalLyricsStore.Entry> = emptyList(),
     /** The playing song's key in the Lyrics Manager, saved there or not. */
     val localLyricsKey: String? = null,
+    /** The user's own sources, in the order they were added; their place in the lookup is in [sourceOrder]. */
+    val customSources: List<CustomLyricsSource> = emptyList(),
     /** The linked lyrics folder, if any. */
     val lyricsFolder: LyricsFolder.Status? = null,
     val lyricsFolderScanning: Boolean = false,
@@ -295,6 +298,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         viewModelScope.launch(Dispatchers.IO) { lyricsBackend.warmUp() }
         startTicker()
         refresh()
+        refreshSourcePolicy()
         viewModelScope.launch(Dispatchers.IO) {
             val status = lyricsFolder.status()
             mutableState.value = mutableState.value.copy(lyricsFolder = status)
@@ -775,6 +779,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     /** Picks up a settings restore: sources, delays and Spotify links are re-read from storage. */
     fun reloadSavedSettings() {
+        lyricsBackend.reloadCustomSources()
+        lookupCache.clear()
         refreshSourcePolicy()
         mutableState.value = mutableState.value.copy(
             lyricDelayMs = outputProfiles.delayMs(outputRoute),
@@ -789,9 +795,48 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         }
     }
 
+    /** Adds [custom] or saves changes to it; the lookup asks it from now on. */
+    fun saveCustomSource(custom: CustomLyricsSource) {
+        lyricsBackend.saveCustomSource(custom)
+        lookupCache.clear()  // its answers may differ now
+        refreshSourcePolicy()
+        loadLyrics()
+    }
+
+    fun removeCustomSource(id: String) {
+        lyricsBackend.removeCustomSource(id)
+        lookupCache.clear()
+        refreshSourcePolicy()
+        loadLyrics()
+    }
+
+    /** What a custom source's test got: lyrics or not, said in a few words. */
+    data class SourceTest(val found: Boolean, val message: String)
+
+    /** Asks [custom] for the playing song, for its editor. */
+    suspend fun testCustomSource(custom: CustomLyricsSource): SourceTest {
+        val request = currentRequest() ?: return SourceTest(false, "Play a song to test with it.")
+        val result = withContext(Dispatchers.IO) { lyricsBackend.testCustomSource(custom, request) }
+        fun no(message: String) = SourceTest(false, message)
+        return when (result) {
+            is ProviderResult.Hit -> when (result.payload.measuredQuality()) {
+                RemoteLyricsQuality.WORD_SYNCED -> SourceTest(true, "Word-synced lyrics for ${request.title}.")
+                RemoteLyricsQuality.LINE_SYNCED -> SourceTest(true, "Line-synced lyrics for ${request.title}.")
+                RemoteLyricsQuality.PLAIN -> SourceTest(true, "Unsynced lyrics for ${request.title}.")
+                RemoteLyricsQuality.NONE -> no("It answered, but with nothing that reads as lyrics.")
+            }
+            ProviderResult.Miss -> no("No lyrics for ${request.title}. If it answers in JSON, check the path.")
+            ProviderResult.NeedsMatch -> no("${request.title} has no Spotify match, which {spotifyId} needs.")
+            is ProviderResult.CoolingDown -> no("Rate limited. Try again in a bit.")
+            is ProviderResult.Queued -> no("It's busy. Try again in a bit.")
+            is ProviderResult.Unavailable -> no("Failed: ${result.message ?: result.category.name.lowercase()}.")
+        }
+    }
+
     private fun refreshSourcePolicy() {
         val policy = lyricsBackend.policy()
         mutableState.value = mutableState.value.copy(
+            customSources = lyricsBackend.customSources(),
             sourceDescriptors = lyricsBackend.descriptors + lyricsBackend.blendDescriptors,
             sourceOrder = policy.sourceOrder,
             disabledSourceIds = policy.disabledSourceIds,
