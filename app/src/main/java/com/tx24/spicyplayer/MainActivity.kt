@@ -228,7 +228,7 @@ class LyricsActivity : ComponentActivity() {
         if (pipSupported) {
             // Recreated inside the window (the system's call, not a resize), no change is reported:
             // the window's own state says where it starts.
-            inPip = isInPictureInPictureMode
+            inPip = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && isInPictureInPictureMode
             addOnPictureInPictureModeChangedListener { inPip = it.isInPictureInPictureMode }
             // Keeps the window's play/pause icon right, and whether leaving the app enters it.
             lifecycleScope.launch {
