@@ -120,14 +120,51 @@ class LyricClockTest {
     }
 
     @Test fun aLocalPlayerIsTakenAtOnce() {
-        // Spotify paused at 87 788, then resumed reporting 88 699: its real position.
         val clock = clockAt(87_000L)
-        clock.local(788L, 87_788L, paused)
-        assertEquals(911L, clock.local(35_000L, 88_699L).appliedMs)
         // YouTube Music 116 ms behind, in one burst, then quiet for over a second.
-        assertEquals(-116L, clock.local(36_000L, 89_583L).appliedMs)
+        assertEquals(-116L, clock.local(1_000L, 87_884L).appliedMs)
         // Under a frame is left alone.
-        assertEquals(0L, clock.local(37_000L, 90_593L).appliedMs)
+        assertEquals(0L, clock.local(2_000L, 88_894L).appliedMs)
+        // A seek is taken at once.
+        assertEquals(30_000L - 89_884L, clock.local(3_000L, 30_000L).appliedMs)
+    }
+
+    @Test fun spotifysResumeJumpDoesNotMoveTheClock() {
+        // Pixel, October 2026: paused at 195 123 for 4.7 s. The mixer's frame count carried on
+        // from the pause, but Spotify's resume report (196 083) ran 877 ms ahead of it.
+        val clock = clockAt(194_000L)
+        clock.local(1_123L, 195_123L, paused)
+        val resume = clock.local(5_831L, 196_083L)
+        assertEquals(0L, resume.appliedMs)
+        assertEquals(-960L, resume.biasMs)
+        assertNear(195_123L, clock.positionAt(5_831L))
+        // Spotify's reports keep the lead; read with the bias they agree with the clock.
+        assertEquals(0L, clock.local(7_831L, 198_083L).appliedMs)
+        assertNear(197_123L, clock.positionAt(7_831L))
+        // A second pause and resume adds its own jump on top.
+        clock.local(8_831L, 199_083L, paused)
+        assertNear(198_123L, clock.positionAt(8_831L))
+        assertEquals(0L, clock.local(9_500L, 199_233L).appliedMs)
+        assertNear(198_123L, clock.positionAt(9_500L))
+        // A seek drops it.
+        assertEquals(0L, clock.local(10_500L, 40_000L).biasMs)
+        assertNear(40_000L, clock.positionAt(10_500L))
+    }
+
+    @Test fun aLatePauseReportDoesNotPullTheClockBack() {
+        // Spotify's pause report lands 70-130 ms behind the clock: it comes after the audio stops.
+        val clock = clockAt(195_000L)
+        assertEquals(0L, clock.local(1_227L, 195_123L, paused).appliedMs)
+        assertNear(196_227L, clock.positionAt(5_000L))
+        // A pause report ahead of the clock is taken.
+        val ahead = clockAt(50_000L)
+        assertEquals(200L, ahead.local(1_000L, 51_200L, paused).appliedMs)
+    }
+
+    @Test fun aResumeFarPastThePauseIsASeek() {
+        val clock = clockAt(50_000L)
+        clock.local(0L, 50_000L, paused)
+        assertEquals(10_000L, clock.local(5_000L, 60_000L).appliedMs)
     }
 
     @Test fun aPlayerThatResumesAtItsTruePositionDropsTheBias() {
@@ -138,6 +175,19 @@ class LyricClockTest {
         val resume = clock.local(1_420L, 35_441L)
         assertEquals(0L, resume.biasMs)
         assertNear(35_441L, clock.positionAt(1_420L))
+    }
+
+    @Test fun bufferingAfterOurSeekIsNotAStalePause() {
+        // Pixel, October 2026: our seek to 176 764, Spotify buffered 202 ms at the target, then
+        // played on from it. Read as a stale pause, the lyrics stayed 202 ms ahead.
+        val clock = clockAt(170_000L)
+        clock.seekTo(176_764L, 1_000L)
+        val buffering = clock.local(1_202L, 176_764L, state = 6)
+        assertEquals(0L, buffering.biasMs)
+        assertNear(176_764L, clock.positionAt(1_202L))
+        clock.local(1_400L, 176_807L)
+        assertEquals(0L, clock.local(3_400L, 178_807L).biasMs)
+        assertNear(178_807L, clock.positionAt(3_400L))
     }
 
     @Test fun snapTakesTheReportOutright() {

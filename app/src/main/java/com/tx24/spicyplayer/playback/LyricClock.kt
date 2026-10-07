@@ -22,7 +22,13 @@ import kotlin.math.abs
  * some players count on from a stale pause position after resuming, so every report after it is
  * wrong by the same amount and would win any vote. Whether a player does is read off its own
  * resume: YouTube Music's first report after a resume is within ~40 ms of its pause report, while
- * Spotify and KDE Connect resume 0.07-3 s past theirs, at their true position, and the bias is dropped.
+ * Spotify and KDE Connect resume 0.07-3 s past theirs, and the bias is dropped.
+ *
+ * Spotify's resume is wrong the other way: its audio carries on from the pause, but its reports
+ * after a resume run ahead of it, more the longer the pause (~150 ms after 0.5 s, ~850 ms after
+ * 5 s, measured against the mixer's frame count). So a local player's resume ahead of the paused
+ * clock by less than [RESUME_JUMP_MAX_MS] doesn't move the clock: the gap becomes a negative
+ * [biasMs] that later reports are read with.
  *
  * Plain Kotlin, no Android: the times are `elapsedRealtime`, passed in.
  */
@@ -58,6 +64,8 @@ internal class LyricClock(nowMs: Long) {
         private set
     /** The position of the pause report that set [biasMs]. */
     private var stalePauseAtMs = 0L
+    /** The clock stopped on a local player's pause report, so a resume that jumps ahead of it is suspect. */
+    private var pausedByReport = false
     private val votes = ArrayDeque<Vote>()
 
     val isPlaying get() = anchor.isPlaying
@@ -82,20 +90,39 @@ internal class LyricClock(nowMs: Long) {
         val elapsed = if (report.playing) (nowMs - report.updatedAtMs).coerceAtLeast(0L) else 0L
         val raw = (report.positionMs + elapsed * report.speed).toLong().coerceAtLeast(0L)
         val predicted = positionAt(nowMs)
-        val pauseReport = fresh && wasPlaying && !report.playing
-        // A resume that doesn't carry on from the stale pause report is the player's true position.
-        if (report.playing && !anchor.isPlaying && abs(report.positionMs - stalePauseAtMs) >= RESUME_CARRIES_ON_MS) biasMs = 0L
-        biasMs = if (snap) 0L else ClockCorrection.reportBiasMs(
-            rawMs = raw,
-            predictedMs = predicted,
-            biasMs = biasMs,
-            pauseReport = pauseReport,
-        )
+        // Buffering after a seek isn't a pause: its report is the seek target, not an old sample.
+        val pauseReport = fresh && wasPlaying && report.state == STATE_PAUSED
+        val resuming = report.playing && !anchor.isPlaying
+        // How far a resume lands past the paused clock, read with the lead it already had.
+        val heldBiasMs = biasMs.coerceAtMost(0L)
+        val resumeJumpMs = raw + heldBiasMs - predicted
+        val resumesAhead = resuming && pausedByReport && !report.relayed && !snap &&
+            resumeJumpMs in MIN_MOVE_MS until RESUME_JUMP_MAX_MS
+        // A resume that doesn't carry on from the stale pause report isn't counting on from it.
+        if (resuming && abs(report.positionMs - stalePauseAtMs) >= RESUME_CARRIES_ON_MS) biasMs = 0L
+        biasMs = when {
+            snap -> 0L
+            resumesAhead -> heldBiasMs - resumeJumpMs
+            else -> ClockCorrection.reportBiasMs(
+                rawMs = raw,
+                predictedMs = predicted,
+                biasMs = biasMs,
+                pauseReport = pauseReport,
+            )
+        }
         if (pauseReport) stalePauseAtMs = report.positionMs
+        if (snap || report.playing) pausedByReport = false
+        if (fresh && report.state == STATE_PAUSED && !report.relayed && !snap) pausedByReport = true
         val reported = raw + biasMs
         val drift = reported - predicted
         val speedChanged = report.playing && anchor.isPlaying && report.speed != anchor.speed
         val adjustment = when {
+            // A local pause report a little behind the clock arrives ~70 ms after the audio stopped
+            // and names a spot ~30 ms short of it: where the clock stopped is nearer the audio.
+            pauseReport && !report.relayed && !snap && drift in -PAUSE_LAG_MAX_MS until 0L -> {
+                votes.clear()
+                0L
+            }
             snap || speedChanged || !report.playing -> {
                 votes.clear()
                 drift
@@ -145,6 +172,7 @@ internal class LyricClock(nowMs: Long) {
     fun seekTo(targetMs: Long, nowMs: Long) {
         anchor = anchor.copy(positionMs = targetMs, atMs = nowMs)
         biasMs = 0L
+        pausedByReport = false
         votes.clear()
     }
 
@@ -152,6 +180,7 @@ internal class LyricClock(nowMs: Long) {
     fun startTrack(nowMs: Long, speed: Float, playing: Boolean) {
         anchor = Anchor(0L, nowMs, speed, playing)
         biasMs = 0L
+        pausedByReport = false
         votes.clear()
     }
 
@@ -160,6 +189,7 @@ internal class LyricClock(nowMs: Long) {
         anchor = Anchor(0L, nowMs, 0f, false)
         lastReport = null
         biasMs = 0L
+        pausedByReport = false
         votes.clear()
     }
 
@@ -179,8 +209,14 @@ internal class LyricClock(nowMs: Long) {
          * Music's stay within 36 ms of theirs, and Spotify's land 71 ms or more past theirs.
          */
         const val RESUME_CARRIES_ON_MS = 50L
+        /** A local pause report at most this far behind the clock is late, not the song going back. */
+        const val PAUSE_LAG_MAX_MS = 150L
+        /** A local player's resume this far or more past its paused clock is a seek, not Spotify's resume jump. */
+        const val RESUME_JUMP_MAX_MS = 3_000L
         /** Votes older than this don't count: sparse reporters send one every couple of seconds. */
         const val VOTE_WINDOW_MS = 5_000L
         private const val MAX_VOTES = 64
+        /** `PlaybackState.STATE_PAUSED`. */
+        private const val STATE_PAUSED = 2
     }
 }
