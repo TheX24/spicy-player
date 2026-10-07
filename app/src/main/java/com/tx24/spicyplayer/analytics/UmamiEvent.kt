@@ -33,15 +33,15 @@ fun umamiEventBody(
     val payload = JsonObject().apply {
         addProperty("website", websiteId)
         addProperty("id", installId)
-        addProperty("hostname", "spicy-player")
+        addProperty("hostname", "spicy-lyrics-mobile")
         addProperty("url", "/")
-        addProperty("title", "Spicy Player")
+        addProperty("title", "Spicy Lyrics Mobile")
         addProperty("name", name)
         addProperty("language", device.language)
         addProperty("screen", "${device.screenWidthDp}x${device.screenHeightDp}")
         // Given outright, so the dashboard doesn't depend on Umami parsing the user agent.
         addProperty("os", "Android OS")
-        addProperty("browser", "Spicy Player")
+        addProperty("browser", "Spicy Lyrics Mobile")
         addProperty("device", if (device.tablet) "tablet" else "mobile")
         add("data", JsonObject().apply {
             addProperty("version", device.appVersion)
@@ -70,7 +70,7 @@ fun umamiEventBody(
  */
 fun umamiUserAgent(device: DeviceInfo): String =
     "Mozilla/5.0 (Linux; Android ${device.androidRelease}; ${if (device.tablet) "Tablet" else "Mobile"}) " +
-        "SpicyPlayer/${device.appVersion}"
+        "SpicyLyricsMobile/${device.appVersion}"
 
 /** How often an app open is reported: often enough for daily counts, rarely enough to be cheap. */
 const val APP_OPEN_INTERVAL_MS = 6 * 60 * 60 * 1000L
