@@ -170,7 +170,29 @@ fun RemoteLyricsPayload.isNoWordsNote(): Boolean {
     return BlendDonors.isNoWordsNote(lines)
 }
 
+/**
+ * These lyrics with synced text that has no real timing read as plain text. Some sources fill the
+ * synced field with untimed text (QQ Music) or stamp every line with one time, e.g. the song's
+ * end (Kuwo): ranked as line synced, they beat real plain lyrics and then show nothing, or every
+ * line at once. Lines with words need two distinct times between them to count as synced (or one,
+ * for a single line).
+ */
+fun RemoteLyricsPayload.withoutFakeTiming(): RemoteLyricsPayload {
+    val synced = syncedLyrics?.takeIf(String::isNotBlank) ?: return this
+    val lines = synced.lines()
+    val textLines = lines.filter { line -> line.replace(LRC_STAMP, "").any(Char::isLetterOrDigit) }
+    val times = textLines.flatMap { line -> LRC_TIME.findAll(line).map { it.value } }.toSet()
+    if (times.size >= 2 || (times.size == 1 && textLines.size == 1)) return this
+    // Tag lines ("[ar:...]") go; a stamp alone is a stanza break.
+    val text = lines.filterNot { line -> LRC_TAG.matches(line.trim()) }
+        .joinToString("\n") { it.replace(LRC_STAMP, "").trim() }
+        .trim()
+    return copy(syncedLyrics = null, plainLyrics = plainLyrics?.takeIf(String::isNotBlank) ?: text.ifBlank { null })
+}
+
 private val LRC_STAMP = Regex("""\[[^\]]*]""")
+private val LRC_TAG = Regex("""\[[a-zA-Z]+:[^\]]*]""")
+private val LRC_TIME = Regex("""\[\d+:\d+(?:[.:]\d+)?]""")
 
 private fun RemoteLyricsPayload.parsedTtmlQuality(): RemoteLyricsQuality {
     val ttml = ttmlLyrics?.takeIf(String::isNotBlank) ?: return RemoteLyricsQuality.NONE

@@ -335,7 +335,11 @@ class RemoteLyricsSource @Inject constructor(
 
     private suspend fun fetch(provider: RemoteLyricsProvider, request: LyricsLookupRequest): ProviderResult = try {
         // A note saying the song has no words ("纯音乐，请欣赏") is no answer: other sources may have them.
-        provider.fetch(request).let { if (it is ProviderResult.Hit && it.payload.isNoWordsNote()) ProviderResult.Miss else it }
+        // Synced text without real timing is plain text, and ranks as such.
+        provider.fetch(request).let { result ->
+            val hit = (result as? ProviderResult.Hit)?.let { it.copy(payload = it.payload.withoutFakeTiming()) } ?: return@let result
+            if (hit.payload.isEmpty() || hit.payload.isNoWordsNote()) ProviderResult.Miss else hit
+        }
     } catch (cancelled: CancellationException) {
         throw cancelled
     } catch (_: NotFoundException) {

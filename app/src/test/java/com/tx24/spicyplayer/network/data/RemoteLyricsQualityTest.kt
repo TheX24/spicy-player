@@ -73,4 +73,38 @@ class RemoteLyricsQualityTest {
             RemoteLyricsPayload("  ", "\n", "\t").measuredQuality(),
         )
     }
+
+    @Test
+    fun `untimed text in the synced field is plain`() {
+        val payload = RemoteLyricsPayload(syncedLyrics = "First line\nSecond line\n\nThird line").withoutFakeTiming()
+
+        assertEquals(null, payload.syncedLyrics)
+        assertEquals("First line\nSecond line\n\nThird line", payload.plainLyrics)
+        assertEquals(RemoteLyricsQuality.PLAIN, payload.measuredQuality())
+    }
+
+    @Test
+    fun `every line on one stamp is plain, without tags or stamps`() {
+        val payload = RemoteLyricsPayload(
+            syncedLyrics = "[ar:rosa]\n[01:50.00]First line\n[01:50.00]Second line\n[01:50.00]\n[01:50.00]Third line",
+        ).withoutFakeTiming()
+
+        assertEquals(null, payload.syncedLyrics)
+        assertEquals("First line\nSecond line\n\nThird line", payload.plainLyrics)
+    }
+
+    @Test
+    fun `fake timing keeps the source's own plain lyrics`() {
+        val payload = RemoteLyricsPayload(plainLyrics = "Real plain", syncedLyrics = "Untimed").withoutFakeTiming()
+
+        assertEquals("Real plain", payload.plainLyrics)
+    }
+
+    @Test
+    fun `real timing is left alone`() {
+        val payload = RemoteLyricsPayload(syncedLyrics = "[ti:x]\n[00:01.00]First\n[00:03.50]Second")
+
+        assertEquals(payload, payload.withoutFakeTiming())
+        assertEquals(RemoteLyricsQuality.LINE_SYNCED, payload.withoutFakeTiming().measuredQuality())
+    }
 }

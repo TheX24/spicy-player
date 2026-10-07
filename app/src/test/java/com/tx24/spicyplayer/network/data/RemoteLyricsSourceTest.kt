@@ -231,7 +231,7 @@ class RemoteLyricsSourceTest {
         val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
 
         assertEquals("first", result.selection.source.id)
-        assertEquals("first", result.selection.payload.syncedLyrics)
+        assertEquals("[00:01.00]first", result.selection.payload.syncedLyrics)
     }
 
     @Test
@@ -576,7 +576,7 @@ class RemoteLyricsSourceTest {
     )
 
     private fun plain(value: String) = RemoteLyricsPayload(plainLyrics = value)
-    private fun synced(value: String) = RemoteLyricsPayload(syncedLyrics = value)
+    private fun synced(value: String) = RemoteLyricsPayload(syncedLyrics = "[00:01.00]$value")
     private fun ttml(value: String) = RemoteLyricsPayload(ttmlLyrics = value)
     private fun wordTtml(value: String) = ttml(
         """<tt xmlns="http://www.w3.org/ns/ttml" xmlns:itunes="http://music.apple.com/lyric-ttml-internal" itunes:timing="Word"><body><div><p begin="1s" end="3s"><span begin="1s" end="2s">$value</span></p></div></body></tt>"""
