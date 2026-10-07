@@ -13,18 +13,18 @@ import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
 
-/** MIT port of Lyrica's lrcmux adapter, requesting Musixmatch word data first. */
+/** MIT port of Lyrica's lrcmux adapter, requesting word timing first. */
 @Singleton
 class LrcMuxLyricsProvider @Inject constructor(
     private val client: OkHttpClient,
     private val gson: Gson,
-    /** Serve line timing only: its word timing comes from Musixmatch. */
+    /** Serve line timing only: its word timing is often off. */
     private val ignoreWordSync: () -> Boolean = { false },
 ) : RemoteLyricsProvider {
     override val descriptor = LyricsSourceDescriptor(
         id = "lrcmux", displayName = "LRCMux", defaultPriority = 120,
         capabilities = setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
-        upstreamFamily = "musixmatch", releaseChannel = SourceReleaseChannel.EXTENDED, defaultEnabled = false,
+        releaseChannel = SourceReleaseChannel.EXTENDED,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = try {

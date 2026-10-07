@@ -2,8 +2,8 @@ package com.tx24.spicyplayer.network.data
 
 /**
  * What switching a source on shares, said once before it's switched on. Out of the box only
- * Spicy Lyrics and the open databases that invite apps to use them (LRCLIB, AMLL TTML DB) are on;
- * every other source asks first.
+ * Spicy Lyrics and the lyrics APIs that say any app may use them are on; every other source asks
+ * first.
  */
 data class SourceDisclosure(
     /** The source or setting it's for. */
@@ -35,13 +35,10 @@ object SourceDisclosures {
     private val byId = listOf(
         SourceDisclosure("unison", "Unison", "Unison (unison.boidu.dev), a community lyrics service"),
         SourceDisclosure("rmm_revival", "RMM Revival", "Apple's iTunes search and RMM Revival (rmmreviv.al)"),
-        SourceDisclosure("lrc_red", "lrc.red", "lrc.red, which relays Apple Music lyrics"),
-        SourceDisclosure("bini_lyrics", "BiniLyrics", "BiniLyrics (binimum.org), which relays Apple Music lyrics", WITH_LENGTH),
         SourceDisclosure("kugou", "Kugou", "Kugou's servers in China", WITH_LENGTH),
         SourceDisclosure("qq_music", "QQ Music", "Tencent's QQ Music servers in China"),
         SourceDisclosure("kuwo", "Kuwo", "Kuwo's servers in China"),
         SourceDisclosure("netease", "NetEase", "NetEase Cloud Music's servers in China"),
-        SourceDisclosure("lrcmux", "LRCMux", "LRCMux (lrcmux.dev), which relays Musixmatch lyrics", WITH_LENGTH),
         SourceDisclosure("genius", "Genius", "Genius (genius.com)"),
         SourceDisclosure("youtube_transcript", "YouTube transcripts", "YouTube's search (youtube.com)"),
         SourceDisclosure(GENIUS_ROMANIZATION_ID, "Human romanizations", "Genius (genius.com)",

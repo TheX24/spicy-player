@@ -125,7 +125,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         diskCache.deleteRecursively()
     }
 
-    /** Also keyed on the Musixmatch word-sync switch, which changes what those sources answer. */
+    /** Also keyed on the LRCMux word-sync switch, which changes what it answers. */
     private fun enabledOrder(): List<String> = policy().let { p ->
         val revisions = providers.mapNotNull { (it as? CustomLyricsProvider)?.source }.associate { it.id to it.revision }
         p.sourceOrder.filter { it !in p.disabledSourceIds }.map { id -> revisions[id]?.let { "$id@$it" } ?: id } + p.enabledBlendIds.sorted() +
@@ -259,7 +259,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         )
         /**
          * Bump when the default source order or on/off set changes, to reset saved choices once.
-         * 2: Spicy Lyrics, LRCLIB and AMLL TTML DB are on; every other source asks first ([SourceDisclosures]).
+         * 2: Spicy Lyrics and the lyrics APIs open to any app (LRCLIB, AMLL TTML DB, LRCMux, lrc.red,
+         * BiniLyrics) are on; every other source asks first ([SourceDisclosures]).
          */
         internal const val SOURCE_DEFAULTS_VERSION = 2
         private val APP_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
@@ -313,7 +314,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         get() = preferences.getBoolean("humanRomanizations", false)
         set(value) = preferences.edit().putBoolean("humanRomanizations", value).apply()
 
-    /** Line timing over word timing from the Musixmatch sources (on by default: their word syncs are poor). */
+    /** Line timing over word timing from LRCMux (on by default: its word syncs are poor). */
     var ignoreMusixmatchWordSync: Boolean
         get() = preferences.getBoolean("ignoreMusixmatchWordSync", true)
         set(value) = preferences.edit().putBoolean("ignoreMusixmatchWordSync", value).apply()

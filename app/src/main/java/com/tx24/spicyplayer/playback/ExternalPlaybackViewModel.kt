@@ -848,7 +848,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     fun setIgnoreMusixmatchWordSync(enabled: Boolean) {
         lyricsBackend.ignoreMusixmatchWordSync = enabled
         mutableState.value = mutableState.value.copy(ignoreMusixmatchWordSync = enabled)
-        lookupCache.clear()  // the Musixmatch sources answer differently
+        lookupCache.clear()  // LRCMux answers differently
         loadLyrics()
     }
 

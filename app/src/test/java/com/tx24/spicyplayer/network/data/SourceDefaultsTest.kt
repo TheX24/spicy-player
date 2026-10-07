@@ -15,7 +15,7 @@ class SourceDefaultsTest {
         .map(RemoteLyricsProvider::descriptor)
 
     @Test
-    fun `a fresh install asks Spicy Lyrics and the open databases that invite apps`() {
+    fun `a fresh install asks Spicy Lyrics and the lyrics APIs open to any app`() {
         val prefs = LyricsSourcePreferenceNormalizer.normalize(null, emptySet(), descriptors)
         val asked = descriptors.filter { !it.rankOnly && it.id !in prefs.disabledSourceIds }.map { it.id }.toSet()
         assertEquals(DEFAULT_ON, asked)
@@ -63,7 +63,7 @@ class SourceDefaultsTest {
     }
 
     private companion object {
-        /** Spicy Lyrics, and the databases whose public APIs say any app may use them. */
-        val DEFAULT_ON = setOf(RemoteLyricsSource.SPICY_ID, "lrclib", "amll_ttml_db")
+        /** Spicy Lyrics, and the lyrics APIs that say any app may use them. */
+        val DEFAULT_ON = setOf(RemoteLyricsSource.SPICY_ID, "lrclib", "amll_ttml_db", "lrcmux", "lrc_red", "bini_lyrics")
     }
 }
