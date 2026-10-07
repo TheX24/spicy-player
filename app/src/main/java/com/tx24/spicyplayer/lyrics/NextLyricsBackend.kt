@@ -276,7 +276,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
          * lrc.red, BiniLyrics) are on; every other source asks first ([SourceDisclosures]).
          */
         internal const val SOURCE_DEFAULTS_VERSION = 2
-        private val APP_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
+        private val APP_USER_AGENT = "Spicy Lyrics Mobile ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
         private const val CACHE_DAYS = 3
         /** Custom sources start after every built-in one. */
         private const val CUSTOM_PRIORITY = 1_000

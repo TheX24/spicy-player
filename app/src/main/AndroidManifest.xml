@@ -22,7 +22,7 @@
         android:label="@string/app_name"
         android:roundIcon="@mipmap/ic_launcher_round"
         android:supportsRtl="true"
-        android:theme="@style/Theme.SpicyPlayer">
+        android:theme="@style/Theme.SpicyLyricsMobile">
         <activity
             android:name="com.tx24.spicyplayer.LyricsActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"

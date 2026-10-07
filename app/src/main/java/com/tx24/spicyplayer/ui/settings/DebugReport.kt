@@ -33,7 +33,7 @@ internal fun debugReport(context: Context, state: PlayerUiState): String {
     }
     val time = SimpleDateFormat("HH:mm:ss", Locale.ROOT)
     val report = buildString {
-        appendLine("Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+        appendLine("Spicy Lyrics Mobile ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
         appendLine("Phone: ${Build.MANUFACTURER} ${Build.MODEL}, Android ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})")
         appendLine("Song: ${state.title} · ${state.artist}" + state.album.takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty())
         sessionLines(state).forEach { (label, value) ->
@@ -82,7 +82,7 @@ internal fun CopyDebugInfoRow(state: PlayerUiState) {
     ) {
         SpicyButton(if (copied) "Copied" else "Copy", onClick = {
             val clipboard = context.getSystemService(ClipboardManager::class.java)
-            clipboard?.setPrimaryClip(ClipData.newPlainText("Spicy Player debug info", debugReport(context, state)))
+            clipboard?.setPrimaryClip(ClipData.newPlainText("Spicy Lyrics Mobile debug info", debugReport(context, state)))
             copied = clipboard != null
         })
     }

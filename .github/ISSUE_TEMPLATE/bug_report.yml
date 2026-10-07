@@ -1,5 +1,5 @@
 name: Report a bug
-description: Something in Spicy Player isn't working as expected.
+description: Something in Spicy Lyrics Mobile isn't working as expected.
 labels: ["bug"]
 body:
   - type: markdown
@@ -22,14 +22,14 @@ body:
       description: Include steps and a song link if it affects a specific track. If you can't reproduce it, say so.
       placeholder: |
         1. Play a song in...
-        2. Open Spicy Player...
+        2. Open Spicy Lyrics Mobile...
         3. ...
     validations:
       required: true
   - type: input
     id: version
     attributes:
-      label: Spicy Player version
+      label: Spicy Lyrics Mobile version
       description: Find it at the bottom of Settings. Include the debug suffix if shown.
       placeholder: e.g. 0.6.0
     validations:

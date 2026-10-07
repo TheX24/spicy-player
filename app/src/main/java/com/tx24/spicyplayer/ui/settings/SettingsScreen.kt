@@ -587,7 +587,7 @@ private fun AboutCard(state: PlayerUiState, updater: UpdateViewModel, settings: 
     val update by updater.state.collectAsState()
     LaunchedEffect(Unit) { updater.checkQuietly(settings.includePrereleases) }
     // Found or hidden as one card; inside it, everything shows.
-    Searchable("About", "Version", "GitHub", "Star", "Spicy Player", "Updates", "Check for updates", "Feedback", "Bug", "Report", "Feature", "Suggest", "Discord") {
+    Searchable("About", "Version", "GitHub", "Star", "Spicy Lyrics Mobile", "Spicy Player", "Updates", "Check for updates", "Feedback", "Bug", "Report", "Feature", "Suggest", "Discord") {
         CompositionLocalProvider(LocalSettingsQuery provides "") {
             Column(
                 Modifier.fillMaxWidth().outlinedCard().padding(SpicySpacing.S4),
@@ -595,7 +595,7 @@ private fun AboutCard(state: PlayerUiState, updater: UpdateViewModel, settings: 
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                        Text("Spicy Player", style = SpicyType.Headline)
+                        Text("Spicy Lyrics Mobile", style = SpicyType.Headline)
                         Text(versionLine(update.status, updater.enabled), style = SpicyType.Footnote.copy(color = SpicyColors.TextSecondary))
                     }
                     if (updater.enabled) UpdateButton(update.status, onUpdate = updater::show) { updater.check(settings.includePrereleases) }
@@ -688,7 +688,7 @@ private fun SearchResults(query: String, state: PlayerUiState, viewModel: Extern
 
 @Composable
 private fun AboutCardSpacer(state: PlayerUiState, updater: UpdateViewModel, settings: AppSettings) {
-    Searchable("About", "Version", "GitHub", "Star", "Spicy Player", "Updates", "Check for updates", "Feedback", "Bug", "Report", "Feature", "Suggest", "Discord") { Spacer(Modifier.height(SpicySpacing.S4)) }
+    Searchable("About", "Version", "GitHub", "Star", "Spicy Lyrics Mobile", "Spicy Player", "Updates", "Check for updates", "Feedback", "Bug", "Report", "Feature", "Suggest", "Discord") { Spacer(Modifier.height(SpicySpacing.S4)) }
     AboutCard(state, updater, settings)
 }
 

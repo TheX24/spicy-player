@@ -49,7 +49,7 @@ val LocalPopupPalette = compositionLocalOf { ChromeTheme.Purple.palette }
 
 /** The logo's note and sparkles, to tint. */
 @Composable
-fun rememberBrandGlyph(): VectorPainter = rememberVectorPainter(ImageVector.vectorResource(R.drawable.spicy_player_glyph))
+fun rememberBrandGlyph(): VectorPainter = rememberVectorPainter(ImageVector.vectorResource(R.drawable.app_glyph))
 
 /**
  * The ramp from [SpicyBrand.field] to [SpicyBrand.fieldDeep] at [fromAlpha] and [toAlpha], drawn
@@ -94,12 +94,12 @@ fun DrawScope.drawBrandMark(
     }
 }
 
-/** "♪ Spicy Player": the small brand line over a themed heading, in muted ink. */
+/** "♪ Spicy Lyrics Mobile": the small brand line over a themed heading, in muted ink. */
 @Composable
 fun SpicyBrandLine(modifier: Modifier = Modifier) {
     Row(modifier, horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        Icon(ImageVector.vectorResource(R.drawable.spicy_player_glyph), null, Modifier.size(16.dp), tint = SpicyColors.TextSecondary)
-        Text("Spicy Player", style = SpicyType.Caption.copy(fontSize = 13.12.sp, fontWeight = FontWeight.SemiBold, color = SpicyColors.TextSecondary))
+        Icon(ImageVector.vectorResource(R.drawable.app_glyph), null, Modifier.size(16.dp), tint = SpicyColors.TextSecondary)
+        Text("Spicy Lyrics Mobile", style = SpicyType.Caption.copy(fontSize = 13.12.sp, fontWeight = FontWeight.SemiBold, color = SpicyColors.TextSecondary))
     }
 }
 

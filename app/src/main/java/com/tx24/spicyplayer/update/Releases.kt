@@ -28,10 +28,11 @@ object Releases {
             if (release.bool("draft")) return@mapNotNull null
             val tag = release.string("tag_name") ?: return@mapNotNull null
             val assets = release.getAsJsonArray("assets")?.mapNotNull { it as? JsonObject }.orEmpty()
-            // Only this app's builds, as the release workflow names them ("spicy-player-v1.2.3.apk"):
-            // the repository name once belonged to an older app with its own releases.
+            // Only this app's builds, as the release workflow names them ("spicy-lyrics-mobile-v1.2.3.apk",
+            // or "spicy-player-v1.2.3.apk" from before the rename and alongside it, for installs that
+            // only know that name): the repository name once belonged to an older app with its own releases.
             val apk = assets.firstOrNull { asset ->
-                asset.string("name")?.let { it.startsWith(APK_PREFIX) && it.endsWith(".apk") } == true
+                asset.string("name")?.let { name -> APK_PREFIXES.any(name::startsWith) && name.endsWith(".apk") } == true
             } ?: return@mapNotNull null
             val apkName = apk.string("name")!!
             AppRelease(
@@ -109,5 +110,5 @@ object Releases {
     private fun JsonObject.bool(key: String): Boolean = get(key)?.takeIf { it.isJsonPrimitive }?.asBoolean == true
 
     private const val MAX_NOTES = 8
-    private const val APK_PREFIX = "spicy-player-"
+    private val APK_PREFIXES = listOf("spicy-lyrics-mobile-", "spicy-player-")
 }

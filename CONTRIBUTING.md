@@ -1,6 +1,6 @@
 # Contributing
 
-Bug reports, feature ideas, documentation fixes, and code contributions are welcome. Spicy Player is in early development, so discuss substantial changes before spending days building them.
+Bug reports, feature ideas, documentation fixes, and code contributions are welcome. Spicy Lyrics Mobile is in early development, so discuss substantial changes before spending days building them.
 
 ## Bugs and ideas
 
@@ -10,7 +10,7 @@ For bugs, include the app version from Settings, phone and Android version, musi
 
 For ideas, explain what you want to do and how the change would help. A concrete example beats a giant specification.
 
-You can also report bugs and discuss ideas in the [Spicy Player thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j). Join the server first; the thread link only opens for members. Use the same details there; avoid posting the same report in both places unless you link them.
+You can also report bugs and discuss ideas in the [Spicy Lyrics Mobile thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j). Join the server first; the thread link only opens for members. Use the same details there; avoid posting the same report in both places unless you link them.
 
 Security vulnerabilities go through [private reporting](SECURITY.md), rather than public issues or Discord.
 

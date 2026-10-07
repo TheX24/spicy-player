@@ -40,7 +40,9 @@ data class CustomLyricsSource(
 
     companion object {
         const val ID_PREFIX = "custom_"
-        const val SHARE_FORMAT = "spicy-player-source"
+        const val SHARE_FORMAT = "spicy-lyrics-mobile-source"
+        /** Shared while the app was called Spicy Player. */
+        private const val OLD_SHARE_FORMAT = "spicy-player-source"
         val PLACEHOLDERS = listOf("title", "artist", "album", "duration", "durationMs", "spotifyId")
         // Both braces escaped: Android's regex engine (ICU) refuses a bare "}", unlike the JVM's.
         private val PLACEHOLDER = Regex("""\{(\w+)\}""")
@@ -89,7 +91,7 @@ data class CustomLyricsSource(
         /** A pasted [share], as a new source; null when [text] isn't one. */
         fun fromShare(text: String): CustomLyricsSource? = runCatching {
             val o = JsonParser.parseString(text.trim()).asJsonObject
-            if (o.get("format")?.asString != SHARE_FORMAT) return null
+            if (o.get("format")?.asString !in setOf(SHARE_FORMAT, OLD_SHARE_FORMAT)) return null
             val url = o.get("url").asString.trim()
             if (problem(url) != null) return null
             CustomLyricsSource(

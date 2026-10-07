@@ -1,10 +1,10 @@
 # Third-party notices
 
-Spicy Player is licensed under the [GNU Affero General Public License, version 3](LICENSE). It adapts code and data from the projects below and bundles the fonts listed at the end. Each keeps its own license and copyright.
+Spicy Lyrics Mobile is licensed under the [GNU Affero General Public License, version 3](LICENSE). It adapts code and data from the projects below and bundles the fonts listed at the end. Each keeps its own license and copyright.
 
 ## Adapted code
 
-| Project | What Spicy Player adapts | License |
+| Project | What Spicy Lyrics Mobile adapts | License |
 | --- | --- | --- |
 | [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics) by Spikerko and contributors | The lyrics renderer: layout, word and line animation, scrolling, interludes, the song header, controls and settings styling, TTML parsing and romanization rules | AGPL-3.0 |
 | [Spicy Lyrics fork](https://github.com/iPixelGalaxy/spicy-lyrics) by iPixelGalaxy | Settings layout, source cards, the legacy background and pop-up styling | AGPL-3.0 |

@@ -13,12 +13,14 @@ import com.google.gson.JsonPrimitive
  * else in a file is ignored rather than written into the app.
  *
  * ```
- * { "format": "spicy-player-settings", "version": 1, "app": "0.5.1",
+ * { "format": "spicy-lyrics-mobile-settings", "version": 1, "app": "0.5.1",
  *   "stores": { "ui": { "lyricsSize": { "type": "string", "value": "Large" } } } }
  * ```
  */
 object SettingsBackup {
-    const val FORMAT = "spicy-player-settings"
+    const val FORMAT = "spicy-lyrics-mobile-settings"
+    /** Backups saved while the app was called Spicy Player. */
+    private const val OLD_FORMAT = "spicy-player-settings"
     const val VERSION = 1
 
     /**
@@ -51,7 +53,7 @@ object SettingsBackup {
     fun decode(text: String): Map<String, Map<String, Any>> {
         val root = runCatching { JsonParser.parseString(text).asJsonObject }.getOrNull()
             ?: throw InvalidBackup("That file isn't a settings backup.")
-        if (root.string("format") != FORMAT) throw InvalidBackup("That file isn't a settings backup.")
+        if (root.string("format") !in setOf(FORMAT, OLD_FORMAT)) throw InvalidBackup("That file isn't a settings backup.")
         val version = runCatching { root.get("version").asInt }.getOrNull()
             ?: throw InvalidBackup("That file isn't a settings backup.")
         if (version > VERSION) throw InvalidBackup("That backup is from a newer version of the app. Update first.")

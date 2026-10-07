@@ -58,15 +58,20 @@ jobs:
           apksigner=$(find "$ANDROID_HOME/build-tools" -maxdepth 2 -name apksigner -type f | sort -V | tail -n 1)
           test -n "$apksigner"
           "$apksigner" verify --verbose --print-certs "$apk"
-          cp "$apk" "spicy-player-${GITHUB_REF_NAME}.apk"
-          sha256sum "spicy-player-${GITHUB_REF_NAME}.apk" > "spicy-player-${GITHUB_REF_NAME}.apk.sha256"
+          # Also under the name from before the rename: installs from then only update to that name.
+          for name in spicy-lyrics-mobile spicy-player; do
+            cp "$apk" "$name-${GITHUB_REF_NAME}.apk"
+            sha256sum "$name-${GITHUB_REF_NAME}.apk" > "$name-${GITHUB_REF_NAME}.apk.sha256"
+          done
       - name: Publish prerelease
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
+            "spicy-lyrics-mobile-${GITHUB_REF_NAME}.apk" \
+            "spicy-lyrics-mobile-${GITHUB_REF_NAME}.apk.sha256" \
             "spicy-player-${GITHUB_REF_NAME}.apk" \
             "spicy-player-${GITHUB_REF_NAME}.apk.sha256" \
             --repo "$GITHUB_REPOSITORY" \
-            --title "Spicy Player $GITHUB_REF_NAME" \
+            --title "Spicy Lyrics Mobile $GITHUB_REF_NAME" \
             --generate-notes --prerelease --verify-tag

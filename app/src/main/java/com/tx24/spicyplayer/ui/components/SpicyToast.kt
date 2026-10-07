@@ -102,7 +102,7 @@ fun SpicyToastHost(messages: Flow<String>, modifier: Modifier = Modifier) {
                 horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(ImageVector.vectorResource(R.drawable.spicy_player_glyph), null, Modifier.size(16.dp), tint = brand.inkMuted)
+                Icon(ImageVector.vectorResource(R.drawable.app_glyph), null, Modifier.size(16.dp), tint = brand.inkMuted)
                 Text(message, style = SpicyType.Caption.copy(color = brand.ink, fontWeight = FontWeight.SemiBold))
             }
         } else {

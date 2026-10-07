@@ -267,10 +267,10 @@ private fun ColumnScope.WelcomeStep(next: () -> Unit) {
         centred = true,
         buttons = { SpicyModalButton("Get started", next, style = SpicyButtonStyle.Primary, fill = true) },
     ) {
-        Icon(ImageVector.vectorResource(R.drawable.spicy_player_glyph), null, Modifier.size(88.dp), tint = SpicyColors.TextPrimary)
+        Icon(ImageVector.vectorResource(R.drawable.app_glyph), null, Modifier.size(88.dp), tint = SpicyColors.TextPrimary)
         Spacer(Modifier.height(SpicySpacing.S6))
         Text(
-            "Spicy Player",
+            "Spicy Lyrics Mobile",
             style = TitleStyle.copy(fontSize = 36.sp, textAlign = TextAlign.Center),
         )
         Spacer(Modifier.height(SpicySpacing.S3))
@@ -296,7 +296,7 @@ private fun ColumnScope.AccessStep(granted: Boolean, openNotificationAccess: () 
         StepHeading(
             Icons.Rounded.NotificationsActive,
             "Let it see what's playing",
-            "Spicy Player reads the song playing in your music app, and controls it, through its media notification. " +
+            "Spicy Lyrics Mobile reads the song playing in your music app, and controls it, through its media notification. " +
                 "Android files that under notification access. You can turn it off again in system settings.",
         )
         if (granted) {
@@ -305,7 +305,7 @@ private fun ColumnScope.AccessStep(granted: Boolean, openNotificationAccess: () 
                 Text("Access is on", style = SpicyType.Body.copy(fontWeight = FontWeight.Medium, color = SpicyColors.TextPrimary))
             }
         } else {
-            Hint("Find Spicy Player in the list, turn it on, then come back here.")
+            Hint("Find Spicy Lyrics Mobile in the list, turn it on, then come back here.")
         }
     }
 }
@@ -321,7 +321,7 @@ private fun ColumnScope.UsageStatsStep(onAnswer: (keepOn: Boolean) -> Unit) {
         StepHeading(
             Icons.Rounded.Insights,
             "Anonymous usage stats",
-            "Spicy Player sends a small anonymous report a few times a day: the app and Android version, your phone " +
+            "Spicy Lyrics Mobile sends a small anonymous report a few times a day: the app and Android version, your phone " +
                 "model and country, and which features you use. Never what you listen to. It shows what's worth " +
                 "working on. You can change this in Settings → Advanced.",
         )

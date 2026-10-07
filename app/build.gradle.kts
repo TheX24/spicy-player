@@ -45,7 +45,7 @@ android {
             // Its own app next to the release one, so testing never touches the installed release.
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
-            resValue("string", "app_name", "Spicy Player Debug")
+            resValue("string", "app_name", "Spicy Lyrics Mobile Debug")
         }
         getByName("release") {
             // Shrunk and optimised: Compose runs noticeably slower unoptimised (debug builds are
@@ -66,7 +66,7 @@ android {
             buildConfigField("boolean", "USAGE_STATS", "false")
             signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
-            resValue("string", "app_name", "Spicy Player Profile")
+            resValue("string", "app_name", "Spicy Lyrics Mobile Profile")
         }
     }
 

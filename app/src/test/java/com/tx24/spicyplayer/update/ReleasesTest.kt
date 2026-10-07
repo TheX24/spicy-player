@@ -29,6 +29,25 @@ class ReleasesTest {
     }
 
     @Test
+    fun `a release named after the rename is found, under either name`() {
+        val json = """
+            [{"tag_name": "v1.0.0", "draft": false, "prerelease": false, "assets": [
+              {"name": "spicy-lyrics-mobile-v1.0.0.apk", "browser_download_url": "https://example.com/new.apk", "size": 1},
+              {"name": "spicy-lyrics-mobile-v1.0.0.apk.sha256", "browser_download_url": "https://example.com/new.apk.sha256", "size": 1},
+              {"name": "spicy-player-v1.0.0.apk", "browser_download_url": "https://example.com/old.apk", "size": 1}]},
+             {"tag_name": "v0.9.9", "draft": false, "prerelease": false, "assets": [
+              {"name": "spicy-lyrics-mobile-v0.9.9.apk", "browser_download_url": "https://example.com/only-new.apk", "size": 1}]},
+             {"tag_name": "v0.9.8", "draft": false, "prerelease": false, "assets": [
+              {"name": "some-other-app-v0.9.8.apk", "browser_download_url": "https://example.com/x.apk", "size": 1}]}]
+        """.trimIndent()
+        val releases = Releases.parse(json)
+        assertEquals(listOf("v1.0.0", "v0.9.9"), releases.map { it.tag })
+        assertEquals("https://example.com/new.apk", releases[0].apkUrl)
+        assertEquals("https://example.com/new.apk.sha256", releases[0].sha256Url)
+        assertEquals("https://example.com/only-new.apk", releases[1].apkUrl)
+    }
+
+    @Test
     fun `newest respects the pre-release choice`() {
         val releases = Releases.parse(SAMPLE)
         assertEquals("v0.3.0", Releases.newest(releases, "0.1.0", includePrereleases = true)?.tag)

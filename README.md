@@ -1,11 +1,11 @@
-![Spicy Player: word-synced lyrics for whatever is playing on your phone](.github/assets/banner.webp)
+![Spicy Lyrics Mobile: word-synced lyrics for whatever is playing on your phone](.github/assets/banner.webp)
 
-# Spicy Player
+# Spicy Lyrics Mobile
 
 > [!NOTE]
 > **Looking for the offline music player?** The earlier Spicy Player, which plays your own music files, now lives at [Spicy Player (old)](https://github.com/TheX24/spicy-player-old). It is no longer developed.
 
-An Android lyrics screen for music playing in another app. It follows the active Android media session, fetches timed lyrics from online sources, and shows playback controls when the music app supports them. It has no local music library or playback service. It succeeds the [original Spicy Player](https://github.com/TheX24/spicy-player-old), an offline music player.
+An Android lyrics screen for music playing in another app. It follows the active Android media session, fetches timed lyrics from online sources, and shows playback controls when the music app supports them. It has no local music library or playback service. It was called Spicy Player until version 0.9.1, and succeeds the [original Spicy Player](https://github.com/TheX24/spicy-player-old), an offline music player.
 
 **Status:** early development. The interface and provider availability may change. Releases are prereleases; check their notes before installing.
 
@@ -13,19 +13,19 @@ An Android lyrics screen for music playing in another app. It follows the active
 
 1. Install an APK from [Releases](https://github.com/TheX24/spicy-player/releases), or build one below. After that, the app offers new versions itself when you open it; "Check for updates" at the bottom of Settings looks right away.
 
-   Google Play Protect may block the APK when you open it from a browser or file manager, because the app asks for notification access. Installing through [Obtainium](https://obtainium.imranr.dev/) is an alternative ([add Spicy Player to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.tx24.spicyplayer.next%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FTheX24%2Fspicy-player%22%2C%22author%22%3A%22TheX24%22%2C%22name%22%3A%22Spicy%20Player%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3A%20true%7D%22%7D)). It installs the same signed APK from Releases and handles updates.
+   Google Play Protect may block the APK when you open it from a browser or file manager, because the app asks for notification access. Installing through [Obtainium](https://obtainium.imranr.dev/) is an alternative ([add Spicy Lyrics Mobile to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.tx24.spicyplayer.next%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FTheX24%2Fspicy-player%22%2C%22author%22%3A%22TheX24%22%2C%22name%22%3A%22Spicy%20Lyrics%20Mobile%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3A%20true%7D%22%7D)). It installs the same signed APK from Releases and handles updates.
 2. Open the app and grant notification access when prompted. Android uses this permission to let the app discover active media sessions. You can revoke it in system settings.
 3. Start music in another app, then return to the lyrics app. It should follow the active player and look up lyrics.
 4. Use Settings to adjust lyric sources, timing, or an optional Spicy Lyrics client key. Settings → Advanced → Last lookup shows what each source returned for the current song.
-5. Optional, but worth it: get your own free Spicy Lyrics key. The built-in key is shared by everyone and runs out when many people use the app at once. Open [Spicy Player in the Spicy Lyrics catalog](https://developers.spicylyrics.org/catalog/spicy-player), sign in, tap **Add**, and paste the client key into Settings → Sources → Spicy Lyrics key. Your key has its own rate limit and doesn't use one of your application slots.
+5. Optional, but worth it: get your own free Spicy Lyrics key. The built-in key is shared by everyone and runs out when many people use the app at once. Open [Spicy Lyrics Mobile in the Spicy Lyrics catalog](https://developers.spicylyrics.org/catalog/spicy-player), sign in, tap **Add**, and paste the client key into Settings → Sources → Spicy Lyrics key. Your key has its own rate limit and doesn't use one of your application slots.
 
 Playback controls depend on what the music app exposes through Android MediaSession. Some apps or account tiers limit seek and skip; the app explains when Spotify Free refuses one. Lyrics depend on the source having a usable match; a missing or uncertain Spotify match is not silently replaced with a different recording.
 
 ## Bugs, ideas, and contributions
 
-Found a bug or have an idea? [Report a bug or suggest a feature](https://github.com/TheX24/Spicy-Player/issues/new/choose), or post in the [Spicy Player thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j) (join first, then the thread link works). Both are linked from the version card in Settings. Include your app version, phone/Android version, music app, and steps to reproduce a bug; screenshots and song links help.
+Found a bug or have an idea? [Report a bug or suggest a feature](https://github.com/TheX24/Spicy-Player/issues/new/choose), or post in the [Spicy Lyrics Mobile thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j) (join first, then the thread link works). Both are linked from the version card in Settings. Include your app version, phone/Android version, music app, and steps to reproduce a bug; screenshots and song links help.
 
-If Spicy Player is useful to you, a star on the [repository](https://github.com/TheX24/spicy-player) helps other people find it. The "Star on GitHub" button in Settings opens it.
+If Spicy Lyrics Mobile is useful to you, a star on the [repository](https://github.com/TheX24/spicy-player) helps other people find it. The "Star on GitHub" button in Settings opens it.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for reports and pull requests, and [SECURITY.md](SECURITY.md) for private vulnerability reporting. Remove keys and private information before sharing diagnostics.
 
@@ -43,7 +43,7 @@ Your numbers will differ with your phone, the brightness and the background you 
 
 ### Lyrics lookups
 
-Out of the box, Spicy Player asks [Spicy Lyrics](https://spicylyrics.org) for lyrics, then the lyrics services whose public APIs say any app may use them: [LRCLIB](https://lrclib.net) (the song's title, artist, album and length), [AMLL TTML DB](https://github.com/amll-dev/amll-ttml-db) (title and artist), [Unison](https://unison.boidu.dev) (title and artist), [LRCMux](https://lrcmux.dev) (title, artist and length), [lrc.red](https://lrc.red) (title and artist) and [BiniLyrics](https://lyrics.binimum.org) (title, artist and length). To find a song on Spicy Lyrics, it first matches it to a Spotify track: it searches Spotify, without an account, for the song's title, artist, album and length. On Android 13 and newer, the moving background also asks Spotify for the track's beats (Settings → Background → Move with the Music turns that off).
+Out of the box, Spicy Lyrics Mobile asks [Spicy Lyrics](https://spicylyrics.org) for lyrics, then the lyrics services whose public APIs say any app may use them: [LRCLIB](https://lrclib.net) (the song's title, artist, album and length), [AMLL TTML DB](https://github.com/amll-dev/amll-ttml-db) (title and artist), [Unison](https://unison.boidu.dev) (title and artist), [LRCMux](https://lrcmux.dev) (title, artist and length), [lrc.red](https://lrc.red) (title and artist) and [BiniLyrics](https://lyrics.binimum.org) (title, artist and length). To find a song on Spicy Lyrics, it first matches it to a Spotify track: it searches Spotify, without an account, for the song's title, artist, album and length. On Android 13 and newer, the moving background also asks Spotify for the track's beats (Settings → Background → Move with the Music turns that off).
 
 Every other lyrics source (QQ Music, NetEase, Kugou, Kuwo, RMM Revival, Genius, YouTube transcripts) is off until you switch it on in Settings → Sources. Before one is switched on for the first time, the app says who it asks and what it sends: the song's title and artist, and for some, its album or length. The same goes for human romanizations, which ask Genius. No account or device details go to any of them. Release year and animated covers, which ask Spotify and Apple's iTunes search, are off by default too.
 
@@ -72,7 +72,7 @@ On Windows, from the repository root:
 .\gradlew.bat assembleDebug testDebugUnitTest lintDebug
 ```
 
-On macOS or Linux, run `./gradlew assembleDebug testDebugUnitTest lintDebug`. The APK is `app/build/outputs/apk/debug/app-debug.apk`; install it with `adb install -r` or Android Studio. The application ID is `com.tx24.spicyplayer.next`; debug builds install next to it as `com.tx24.spicyplayer.next.debug` ("Spicy Player Debug").
+On macOS or Linux, run `./gradlew assembleDebug testDebugUnitTest lintDebug`. The APK is `app/build/outputs/apk/debug/app-debug.apk`; install it with `adb install -r` or Android Studio. The application ID is `com.tx24.spicyplayer.next`; debug builds install next to it as `com.tx24.spicyplayer.next.debug` ("Spicy Lyrics Mobile Debug").
 
 The Spicy Lyrics provider needs a publishable `sl_pk_` client key. To include one in your own build, copy `.env.example` to `.env` and set `SPICY_LYRICS_CLIENT_KEY`. You may also enter your own key in the app’s Settings. The file is ignored by Git, but **the value is embedded in the APK**. Never use an `sl_sk_` secret key. Other sources can still be used when this key is blank.
 
@@ -94,4 +94,4 @@ An intentional `v<versionName>` tag starts the prerelease workflow. It checks th
 
 ## License and attribution
 
-Spicy Player is licensed under the [GNU Affero General Public License, version 3](LICENSE). Its lyrics renderer is adapted from [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), its source fetching and blends from [mild-lyrics](https://github.com/gcoolL/mild-lyrics), and more comes from other open-source projects. Lyrics come from Spicy Lyrics, [LRCLIB](https://lrclib.net), the [AMLL TTML DB](https://github.com/amll-dev/amll-ttml-db) (CC0), [Unison](https://unison.boidu.dev) (ODbL), [LRCMux](https://lrcmux.dev), [lrc.red](https://lrc.red) and [BiniLyrics](https://lyrics.binimum.org), plus any sources you switch on. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists them all with their licenses.
+Spicy Lyrics Mobile is licensed under the [GNU Affero General Public License, version 3](LICENSE). Its lyrics renderer is adapted from [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics), its source fetching and blends from [mild-lyrics](https://github.com/gcoolL/mild-lyrics), and more comes from other open-source projects. Lyrics come from Spicy Lyrics, [LRCLIB](https://lrclib.net), the [AMLL TTML DB](https://github.com/amll-dev/amll-ttml-db) (CC0), [Unison](https://unison.boidu.dev) (ODbL), [LRCMux](https://lrcmux.dev), [lrc.red](https://lrc.red) and [BiniLyrics](https://lyrics.binimum.org), plus any sources you switch on. [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists them all with their licenses.

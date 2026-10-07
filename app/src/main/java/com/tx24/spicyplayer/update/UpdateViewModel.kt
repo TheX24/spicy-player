@@ -200,7 +200,7 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
     private fun fetch(url: String) = http.newCall(
         Request.Builder()
             .url(url)
-            .header("User-Agent", "Spicy Player ${BuildConfig.VERSION_NAME}")
+            .header("User-Agent", "Spicy Lyrics Mobile ${BuildConfig.VERSION_NAME}")
             .header("Accept", "application/vnd.github+json")
             .build(),
     ).execute().also { response ->

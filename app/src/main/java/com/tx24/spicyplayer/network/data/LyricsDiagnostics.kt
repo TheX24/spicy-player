@@ -25,7 +25,7 @@ class LyricsDiagnostics @Inject constructor() {
 
     /** A shareable report deliberately omits song metadata, lyric text, URLs, and credentials. */
     fun safeReport(): String = buildString {
-        appendLine("Spicy Player lyrics diagnostics")
+        appendLine("Spicy Lyrics Mobile lyrics diagnostics")
         _recent.value.forEach { entry ->
             appendLine("${entry.recordedAt} ${entry.outcome} ${entry.durationMs}ms")
             entry.attempts.forEach { attempt ->

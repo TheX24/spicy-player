@@ -1194,7 +1194,7 @@ private fun SettingsBackupRows(viewModel: ExternalPlaybackViewModel, settings: A
         description = "Save your settings, source order, delays and Spotify links to a file. Your custom font and Spicy Lyrics key stay out.",
         icon = Icons.Rounded.Save,
     ) {
-        SpicyButton("Save", onClick = { export.launch("spicy-player-settings-${java.time.LocalDate.now()}.json") })
+        SpicyButton("Save", onClick = { export.launch("spicy-lyrics-mobile-settings-${java.time.LocalDate.now()}.json") })
     }
     SettingRow(
         label = "Restore settings",

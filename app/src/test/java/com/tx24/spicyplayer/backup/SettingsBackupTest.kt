@@ -40,6 +40,14 @@ class SettingsBackupTest {
     }
 
     @Test
+    fun `backups from before the rename still restore`() {
+        val old = """{"format":"spicy-player-settings","version":1,"stores":{"ui":{"c":{"type":"boolean","value":true}}}}"""
+        assertEquals(mapOf("ui" to mapOf("c" to true)), SettingsBackup.decode(old))
+        val format = com.google.gson.JsonParser.parseString(SettingsBackup.encode(emptyMap(), "1.0.0")).asJsonObject.get("format").asString
+        assertEquals("spicy-lyrics-mobile-settings", format)
+    }
+
+    @Test
     fun `other files and newer backups are refused`() {
         assertRefused("not json at all")
         assertRefused("""{"hello":"world"}""")
