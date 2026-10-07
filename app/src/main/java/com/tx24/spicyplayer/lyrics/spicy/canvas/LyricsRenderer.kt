@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
+import com.tx24.spicyplayer.lyrics.spicy.animation.AppleMusicMotion
 import com.tx24.spicyplayer.lyrics.spicy.animation.LineAnimState
 import com.tx24.spicyplayer.lyrics.spicy.animation.WordAnimState
 
@@ -242,7 +243,7 @@ internal fun DrawScope.drawInterludeGroup(
 ) {
     // Widened past 1 (but not below 0 — a negative scale would mirror-flip the dots) so the
     // overshoot collapse curve (DOT_GROUP_COLLAPSE_EASING) stays visible.
-    val groupScale = lineAnim.scale.coerceIn(0f, 1.3f)
+    val groupScale = (lineAnim.scale * lineAnim.groupScale).coerceIn(0f, 1.3f)
     if (groupScale < 0.01f) return
 
     val firstDot = layout.words.firstOrNull() ?: return
@@ -320,7 +321,7 @@ private const val REFERENCE_LYRIC_SIZE_CSS_PX = 56f
 private fun cssPx(layout: TextLayoutResult, isBackground: Boolean): Float =
     lyricSizePx(layout, isBackground) / REFERENCE_LYRIC_SIZE_CSS_PX
 
-/** The lyric size in px: a background line's text is 0.75 of it. */
+/** The lyric size in px: a background line's text is 0.75 of it (an approximation in the Apple Music style's 0.7). */
 private fun lyricSizePx(layout: TextLayoutResult, isBackground: Boolean): Float =
     with(layout.layoutInput) { with(density) { style.fontSize.toPx() } } / (if (isBackground) 0.75f else 1f)
 
@@ -358,12 +359,18 @@ internal fun DrawScope.drawStandardLine(
         val textWidth = wLayout.textLayoutResult.size.width.toFloat()
         val textHeight = wLayout.textLayoutResult.size.height.toFloat()
 
-        val paintPlan = lyricPaintPlan(lineAnim.state, lineAnim.isBackground, lineAnim.opacity, lineAnim.blur, config)
+        val paintPlan = lyricPaintPlan(lineAnim.state, lineAnim.isBackground, lineAnim.opacity, lineAnim.blur, config, lit = lineAnim.lit)
 
-        if (wordAnim.isLetterGroup) {
-            drawSyllabicLetterFragment(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, config, paintPlan, rtl, anchor)
-        } else {
-            drawStandardWord(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, config, paintPlan, rtl, anchor)
+        val wordText = sourceWords.getOrNull(wLayout.sourceWordIndex)?.text.orEmpty()
+        when {
+            config.isAppleMusic && wordAnim.isLetterGroup ->
+                drawAppleMusicLetter(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, paintPlan, rtl, wordText)
+            config.isAppleMusic ->
+                drawAppleMusicWord(wLayout, wordAnim, lineAnim, xPos, yPos, scrollOffset, paintPlan, rtl, wordText)
+            wordAnim.isLetterGroup ->
+                drawSyllabicLetterFragment(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, config, paintPlan, rtl, anchor)
+            else ->
+                drawStandardWord(wLayout, wordAnim, lineAnim, xPos, yPos, textWidth, textHeight, scrollOffset, config, paintPlan, rtl, anchor)
         }
     }
 }
@@ -511,6 +518,113 @@ private fun DrawScope.drawStandardWord(
     }
 }
 
+/**
+ * The Apple Music style's wipe as [drawWipeText] takes it: from the word's [progress] (0..100), a
+ * fully lit part that ends at the edge, then a soft edge of [AppleMusicMotion.featherEm] into the
+ * unsung colour. The edge starts a feather before the word and ends at its far side, so the word
+ * is wholly dim at 0 and wholly lit at 100. Returns the position and the extra band width.
+ */
+private fun appleWipe(progress: Float, fullWidth: Float, lyricSize: Float, text: String): Pair<Float, Float> {
+    val width = fullWidth.coerceAtLeast(1f)
+    val feather = minOf(AppleMusicMotion.featherEm(text.length, AppleMusicMotion.isCjk(text)) * lyricSize, width / 2f)
+    val edge = progress / 100f * (width + feather) - feather
+    return edge / width * 100f to feather / width * 100f - 20f
+}
+
+private fun appleAlphas(lineAnim: LineAnimState): Pair<Float, Float> = if (lineAnim.isBackground) {
+    AppleMusicMotion.BACKGROUND_BRIGHT_ALPHA * lineAnim.opacity to AppleMusicMotion.BACKGROUND_DIM_ALPHA * lineAnim.opacity
+} else {
+    AppleMusicMotion.BRIGHT_ALPHA * lineAnim.opacity to AppleMusicMotion.DIM_ALPHA * lineAnim.opacity
+}
+
+/** A word in the Apple Music style: no glow and no growth, only its rise and the soft-edged wipe. */
+private fun DrawScope.drawAppleMusicWord(
+    wLayout: WordLayout,
+    wordAnim: WordAnimState,
+    lineAnim: LineAnimState,
+    xPos: Float,
+    yPos: Float,
+    scrollOffset: Float,
+    paintPlan: LyricPaintPlan,
+    rtl: Boolean,
+    text: String,
+) {
+    val lyricSize = lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground)
+    translate(top = scrollOffset + wordAnim.yOffset * lyricSize) {
+        if (paintPlan is LyricPaintPlan.InactiveShadow) {
+            drawInactiveText(wLayout.textLayoutResult, xPos, yPos, paintPlan, lineAnim.suppressShadows, cssPx(wLayout.textLayoutResult, lineAnim.isBackground))
+        } else {
+            val (position, band) = appleWipe(wordAnim.gradientPosition, wLayout.fullWordWidth, lyricSize, text)
+            val (bright, dim) = appleAlphas(lineAnim)
+            drawWipeText(
+                layoutResult = wLayout.textLayoutResult,
+                xPos = xPos,
+                yPos = yPos,
+                fragmentWidth = wLayout.textLayoutResult.size.width.toFloat(),
+                fullWidth = wLayout.fullWordWidth,
+                startXOffset = wLayout.startXOffset,
+                gradientPositionPercent = position,
+                brightAlpha = bright,
+                dimAlpha = dim,
+                shadow = null,
+                rtl = rtl,
+                gradientOffsetPercent = band,
+            )
+        }
+    }
+}
+
+/**
+ * A held word's letter in the Apple Music style: it rises, swells and moves apart from its
+ * neighbours with a soft glow, while the word's one wipe runs across all its letters.
+ */
+private fun DrawScope.drawAppleMusicLetter(
+    wLayout: WordLayout,
+    wordAnim: WordAnimState,
+    lineAnim: LineAnimState,
+    xPos: Float,
+    yPos: Float,
+    textWidth: Float,
+    textHeight: Float,
+    scrollOffset: Float,
+    paintPlan: LyricPaintPlan,
+    rtl: Boolean,
+    text: String,
+) {
+    val letter = wordAnim.letterStates.getOrNull(wLayout.charIndex) ?: return
+    val lyricSize = lyricSizePx(wLayout.textLayoutResult, lineAnim.isBackground)
+    val top = yPos + scrollOffset
+    val glowAlpha = (letter.glow * lineAnim.opacity).coerceIn(0f, 1f)
+    val glow = if (!lineAnim.suppressShadows && glowAlpha > 0.02f && letter.glowRadius > 0f) {
+        Shadow(color = Color.White.copy(alpha = glowAlpha), blurRadius = letter.glowRadius * lyricSize)
+    } else null
+    withTransform({
+        translate(left = letter.xOffset * lyricSize, top = letter.yOffset * lyricSize)
+        scale(letter.scale, letter.scale, Offset(xPos + textWidth / 2f, top + textHeight / 2f))
+    }) {
+        if (paintPlan is LyricPaintPlan.InactiveShadow) {
+            drawInactiveText(wLayout.textLayoutResult, xPos, top, paintPlan, lineAnim.suppressShadows, cssPx(wLayout.textLayoutResult, lineAnim.isBackground))
+        } else {
+            val (position, band) = appleWipe(letter.gradientPosition, wLayout.fullWordWidth, lyricSize, text)
+            val (bright, dim) = appleAlphas(lineAnim)
+            drawWipeText(
+                layoutResult = wLayout.textLayoutResult,
+                xPos = xPos,
+                yPos = top,
+                fragmentWidth = textWidth,
+                fullWidth = wLayout.fullWordWidth,
+                startXOffset = wLayout.startXOffset,
+                gradientPositionPercent = position,
+                brightAlpha = bright,
+                dimAlpha = dim,
+                shadow = glow,
+                rtl = rtl,
+                gradientOffsetPercent = band,
+            )
+        }
+    }
+}
+
 /** Whole-line gradient sweep for [com.tx24.spicyplayer.lyrics.spicy.models.LyricsType.Line]. */
 internal fun DrawScope.drawLineModeLine(
     layout: LineLayout,
@@ -520,16 +634,17 @@ internal fun DrawScope.drawLineModeLine(
     dynamicY: Float,
     config: RenderConfig,
 ) {
-    val paintPlan = lyricPaintPlan(lineAnim.state, lineAnim.isBackground, lineAnim.opacity, lineAnim.blur, config, config.lineGradientAlphaDim)
+    val paintPlan = lyricPaintPlan(lineAnim.state, lineAnim.isBackground, lineAnim.opacity, lineAnim.blur, config, config.lineGradientAlphaDim, lineAnim.lit)
     // Reference gradient stops are fixed for the active state; inactive lines are shadow-only.
-    val dim = config.lineGradientAlphaDim * lineAnim.opacity
-    val bright = config.gradientAlphaBright * lineAnim.opacity
+    val dim = (if (config.isAppleMusic) AppleMusicMotion.DIM_ALPHA else config.lineGradientAlphaDim) * lineAnim.opacity
+    val bright = (if (config.isAppleMusic) AppleMusicMotion.BRIGHT_ALPHA else config.gradientAlphaBright) * lineAnim.opacity
 
     // Whole-line glow spring (reference Line-mode: shadow blur 4 + 8·glow, alpha glow·0.5),
     // layered with the inactive-line distance blur when present.
     val glowAlpha = (lineAnim.lineGlow * 0.5f).coerceIn(0f, 1f)
     val lineCssPx = layout.words.firstOrNull()?.let { cssPx(it.textLayoutResult, lineAnim.isBackground) } ?: 1f
     val shadow = when {
+        config.isAppleMusic -> null
         !lineAnim.suppressShadows && glowAlpha > 0.02f -> Shadow(
             color = Color.White.copy(alpha = glowAlpha * lineAnim.opacity),
             blurRadius = (4f + 8f * lineAnim.lineGlow) * lineCssPx,

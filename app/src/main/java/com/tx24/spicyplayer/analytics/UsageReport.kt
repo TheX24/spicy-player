@@ -63,6 +63,7 @@ fun dailyUsageData(counts: Map<String, Int>): Map<String, Any> {
 /** Which settings are in use, by name and value; never a typed-in value (font names, keys). */
 fun configSnapshot(settings: AppSettings): Map<String, Any> = with(settings) {
     mapOf(
+        "lyrics_style" to lyricsStyle.name,
         "simple_mode" to simpleLyricsMode,
         "simple_animation" to simpleAnimationStyle.name,
         "minimal_mode" to minimalLyricsMode,

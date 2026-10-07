@@ -8,6 +8,10 @@ data class LetterAnimState(
     val scale: Float,
     val yOffset: Float,
     val glow: Float,
+    /** Sideways offset in lyric font sizes; only the Apple Music style's held words spread apart. */
+    val xOffset: Float = 0f,
+    /** The Apple Music style's glow radius, in lyric font sizes. */
+    val glowRadius: Float = 0f,
 )
 
 /**
@@ -43,6 +47,12 @@ data class LineAnimState(
     /** Every glow halo is suppressed (low performance mode), not just distance blur. */
     val suppressShadows: Boolean = false,
     val state: ElementState = ElementState.NotSung,
+    /** The Apple Music style's background vocals: how far open (0 folded away and taking no room, 1 open). */
+    val presence: Float = 1f,
+    /** The Apple Music style: how lit an ended line still is, 1 just ended → 0 back to the unsung colour. */
+    val lit: Float = 0f,
+    /** Interlude dots: the whole group's breathing, about its middle, on top of [scale]. */
+    val groupScale: Float = 1f,
 )
 
 /**

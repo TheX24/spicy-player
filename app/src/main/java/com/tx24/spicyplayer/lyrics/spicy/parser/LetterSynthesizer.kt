@@ -94,6 +94,11 @@ object LetterSynthesizer {
     // held word (e.g. "I", "oh") gets the letter treatment if held long enough.
     private fun isLetterCapable(word: Word, config: RenderConfig, romanized: Boolean): Boolean {
         val display = display(word, romanized)
+        if (config.isAppleMusic) {
+            return config.lettersEnabled && com.tx24.spicyplayer.lyrics.spicy.animation.AppleMusicMotion.emphasizes(
+                display, GraphemeSegmenter.segment(display).size, word.duration,
+            )
+        }
         return config.lettersEnabled &&
             word.duration >= config.letterDurationThresholdMs &&
             GraphemeSegmenter.segment(display).size in 1..config.letterMaxLength &&
@@ -112,8 +117,13 @@ object LetterSynthesizer {
         // Reference (Emphasize.ts) Subtractions: the emphasized WORD's own window is shrunk too,
         // not just the letters — normal mode trims 250ms off the tail (the "breather"); simple
         // mode nudges the window by {Start:-21, End:-40} (i.e. +21ms/+40ms).
+        // The Apple Music style times its letters off the word's own window.
         val subStartMs = if (config.isSimple) -21L else 0L
-        val subEndMs = if (config.isSimple) -40L else 250L
+        val subEndMs = when {
+            config.isAppleMusic -> 0L
+            config.isSimple -> -40L
+            else -> 250L
+        }
         val windowStart = word.startMs - subStartMs
         val windowEnd = (word.endMs - subEndMs).coerceAtLeast(windowStart + 1L)
         val span = (windowEnd - windowStart).toFloat() / len

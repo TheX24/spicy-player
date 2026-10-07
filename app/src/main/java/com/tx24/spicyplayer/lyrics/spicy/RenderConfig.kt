@@ -30,6 +30,11 @@ data class RenderConfig(
     val simpleLyricsMode: Boolean,
     /** Already scoped to a fullscreen, non-compact surface by the caller. */
     val minimalLyricsMode: Boolean,
+    /**
+     * The Apple Music style (see `animation/AppleMusicMotion`): its own wipe, word rise, held-word
+     * letters, line fades and scroll. Simple and Minimal don't apply with it.
+     */
+    val appleMusic: Boolean = false,
     val simpleAnimationStyle: SimpleAnimationStyle = SimpleAnimationStyle.CALCULATE,
     /** Mixed.css `--gradient-alpha`: 1 under `.SimpleLyricsMode`. Background vocals keep 0.6. */
     val gradientAlphaBright: Float = if (simpleLyricsMode) 1f else 0.85f,
@@ -48,7 +53,12 @@ data class RenderConfig(
     /** Minimal is a line-visibility layer and does not disable word/letter motion. */
     val lettersEnabled: Boolean = true,
     val letterDurationThresholdMs: Long = if (simpleLyricsMode) 1050L else 1000L,
-    val letterMaxLength: Int = if (simpleLyricsMode) 12 else Int.MAX_VALUE,
+    val letterMaxLength: Int = when {
+        // The Apple Music style picks its held words itself (AppleMusicMotion.emphasizes).
+        appleMusic -> Int.MAX_VALUE
+        simpleLyricsMode -> 12
+        else -> Int.MAX_VALUE
+    },
     val syllableMerge: SyllableMerge = SyllableMerge.Off,
     /**
      * Multiplies how far sung words and letters grow (their scale away from 1) and lift
@@ -61,6 +71,7 @@ data class RenderConfig(
 ) {
     val isSimple: Boolean get() = simpleLyricsMode
     val isMinimal: Boolean get() = minimalLyricsMode
+    val isAppleMusic: Boolean get() = appleMusic
 
     companion object {
         val FULL = RenderConfig(false, false)

@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.animation.core.CubicBezierEasing
+import com.tx24.spicyplayer.lyrics.spicy.animation.AppleMusicMotion
 import com.tx24.spicyplayer.lyrics.spicy.animation.SpringSimulation
 import kotlin.math.abs
 import kotlin.math.sqrt
@@ -68,7 +69,18 @@ internal class ScrollManager(
             field = value
             settle(animScrollY)
         }
-    private val spring = SpringSimulation(0f, SMOOTH_SCROLL_FREQUENCY, SMOOTH_SCROLL_DAMPING)
+    /** The Apple Music style's scroll: its own spring, which overshoots a touch, whatever [smoothScrolling] says. */
+    var appleMusic = false
+        set(value) {
+            if (field == value) return
+            field = value
+            settle(animScrollY)
+            spring = newSpring()
+        }
+    private var spring = newSpring()
+    private fun newSpring() = if (appleMusic) {
+        SpringSimulation(0f, AppleMusicMotion.SCROLL_FREQUENCY_HZ, AppleMusicMotion.SCROLL_DAMPING)
+    } else SpringSimulation(0f, SMOOTH_SCROLL_FREQUENCY, SMOOTH_SCROLL_DAMPING)
     private var springActive = false
     private var springLast = 0f
 
@@ -202,7 +214,7 @@ internal class ScrollManager(
 
     /** Steps the glide toward [goal], starting a new one from [y] when the goal moves. */
     private fun glide(y: Float, goal: Float, dt: Float): Float {
-        if (smoothScrolling) return springGlide(y, goal, dt)
+        if (smoothScrolling || appleMusic) return springGlide(y, goal, dt)
         if (abs(goal - glideTo) > 0.5f) {
             glideFrom = y
             glideTo = goal

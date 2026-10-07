@@ -39,6 +39,7 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** Romanized lyrics where the song has them; the floating button, not a settings row. */
     var romanize by boolean("romanize", false)
 
+    var lyricsStyle by enum("lyricsStyle", LyricsStyle.Spicy)
     var simpleLyricsMode by boolean("simpleLyricsMode", false)
     var simpleAnimationStyle by enum("simpleAnimationStyle", SimpleAnimationStyle.CALCULATE)
     var minimalLyricsMode by boolean("minimalLyricsMode", false)
@@ -214,6 +215,12 @@ enum class ControlsHideDelay(val label: String, val millis: Long) {
 enum class PanelSide { Left, Right }
 
 enum class ReleaseYearPosition(val label: String) { Off("Off"), Left("Left"), Right("Right") }
+
+/** How the lyrics look and move: Spicy Lyrics' own, or like Apple Music's. */
+enum class LyricsStyle(val label: String) {
+    Spicy("Spicy Lyrics"),
+    AppleMusic("Apple Music"),
+}
 
 /** The lyric text size against the default, which follows the screen width. */
 enum class LyricsSize(val scale: Float, val label: String) {

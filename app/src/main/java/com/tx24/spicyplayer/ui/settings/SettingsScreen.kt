@@ -416,7 +416,7 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 1, cards = true)
             SettingsSkeleton(rows = 5)
         }
-        SettingsPage.Lyrics -> SettingsSkeleton(rows = 11)
+        SettingsPage.Lyrics -> SettingsSkeleton(rows = 12)
         SettingsPage.ScrollSync -> SettingsSkeleton(rows = 6)
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
@@ -443,12 +443,14 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
             SettingsPage.Lyrics.title,
             listOfNotNull(
                 when {
+                    settings.lyricsStyle == LyricsStyle.AppleMusic -> "Apple Music style"
                     settings.simpleLyricsMode && settings.minimalLyricsMode -> "Simple and Minimal"
                     settings.simpleLyricsMode -> "Simple"
                     settings.minimalLyricsMode -> "Minimal"
                     else -> null
                 },
-                if (settings.originalWordMotion) "Original word motion" else "Boosted word motion",
+                (if (settings.originalWordMotion) "Original word motion" else "Boosted word motion")
+                    .takeIf { settings.lyricsStyle == LyricsStyle.Spicy },
                 "${settings.lyricsSize.label.lowercase()} text".takeIf { settings.lyricsSize != LyricsSize.Default },
                 when (settings.lyricsFont) {
                     LyricsFont.Default -> null

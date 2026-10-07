@@ -6,6 +6,7 @@ import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
 import com.tx24.spicyplayer.lyrics.spicy.SimpleAnimationStyle
@@ -153,6 +154,15 @@ class LyricsAnimator(
         const val MINIMAL_NOT_SUNG_SCALE = 0.965f
         const val MINIMAL_NOT_SUNG_OPACITY = 0.5f
         const val MINIMAL_AFTER_ACTIVE_OPACITY = 0.45f
+        /** CSS `ease`. */
+        val CSS_EASE = CubicBezierEasing(0.25f, 0.1f, 0.25f, 1f)
+        /** The Apple Music style keeps a sung line's words moving this long after it ends (held-word letters settling). */
+        const val APPLE_SETTLE_MS = 15_000L
+        /**
+         * An em of CSS `blur()` deviation as the shadow radius the renderer takes, in desktop px:
+         * 56px to the em, and a shadow's radius is about √3 of its deviation.
+         */
+        const val APPLE_BLUR_CSS_PX_PER_EM = 56f * 1.73f
         const val DOT_GROUP_EXPANSION_MS = 300
         const val DOT_GROUP_COLLAPSE_MS = 400
 
@@ -216,6 +226,8 @@ class LyricsAnimator(
         cachedWordStates.clear()
         cachedLineGradient.clear()
         cachedLineGlow.clear()
+        appleFinalStates.clear()
+        appleOrdinalsFor = null
         blurringLastLine = -1
         blurAmounts = FloatArray(0)
     }
@@ -249,6 +261,7 @@ class LyricsAnimator(
         if (lines !== cachedFor) {
             cachedFor = lines
             cachedWordStates.clear()
+            appleFinalStates.clear()
             wordSpringsMap.clear()
             letterSpringsMap.clear()
             dotSpringsMap.clear()
@@ -260,6 +273,7 @@ class LyricsAnimator(
         if (blurAmounts.size != lines.size) blurAmounts = FloatArray(lines.size)
 
         val states = lines.map { elementState(processedPosition, it.startMs, it.endMs) }
+        if (config.isAppleMusic) return animateAppleMusic(lines, states, processedPosition, deltaTime, suppressBlur, lyricsType)
         // Minimal's `.LyricsContent:not(.HideLineBlur)` rules drop out while the user scrolls.
         val minimalLook = config.isMinimal && !suppressBlur
         // `.LyricsContent:not(:has(.line.Active)):not(:has(.line.NotSung))`: the song is over.
@@ -379,6 +393,230 @@ class LyricsAnimator(
         }
     }
 
+    // ── The Apple Music style ───────────────────────────────────────────────────────
+
+    /** The line the Apple Music style measures distances from: the last one sung, kept through gaps. */
+    private var appleActiveLine = -1
+    /** Each line's place among the lead lines (background vocals share their lead's). */
+    private var appleOrdinals = IntArray(0)
+    private var appleOrdinalsFor: List<Line>? = null
+    /** Each background line's lead line (same group), or -1. */
+    private var appleLeads = IntArray(0)
+    private val appleFinalStates = mutableMapOf<Int, List<WordAnimState>>()
+    private val presenceAnims = mutableMapOf<Int, Animatable<Float, AnimationVector1D>>()
+    private val blurAnims = mutableMapOf<Int, Animatable<Float, AnimationVector1D>>()
+    private val litAnims = mutableMapOf<Int, Animatable<Float, AnimationVector1D>>()
+
+    /**
+     * Every line in the Apple Music style. Its words are worked out from the time alone
+     * ([AppleMusicMotion]), so only the line fades and size changes are tweened.
+     */
+    private fun animateAppleMusic(
+        lines: List<Line>,
+        states: List<ElementState>,
+        t: Double,
+        deltaTime: Float,
+        userScrolling: Boolean,
+        lyricsType: LyricsType,
+    ): List<LineAnimState> {
+        if (appleOrdinalsFor !== lines) {
+            appleOrdinalsFor = lines
+            var ordinal = -1
+            appleOrdinals = IntArray(lines.size) { i ->
+                val line = lines[i]
+                if (!line.isBackground && !line.isInterlude) ordinal++
+                ordinal.coerceAtLeast(0)
+            }
+            appleLeads = IntArray(lines.size) { i ->
+                val line = lines[i]
+                if (!line.isBackground || line.groupId == null) -1
+                else lines.indices.firstOrNull { j ->
+                    lines[j].groupId == line.groupId && !lines[j].isBackground && !lines[j].isInterlude
+                } ?: -1
+            }
+            appleActiveLine = -1
+            presenceAnims.clear()
+            blurAnims.clear()
+            litAnims.clear()
+        }
+        // The last lead line being sung; through a gap, the one sung last.
+        lines.indices.lastOrNull { i ->
+            states[i] == ElementState.Active && !lines[i].isBackground && !lines[i].isInterlude && !lines[i].isSongwriter
+        }?.let { appleActiveLine = it }
+        val activeOrdinal = appleOrdinals.getOrElse(appleActiveLine) { -1 }
+
+        return lines.mapIndexed { lineIdx, line ->
+            val lineState = states[lineIdx]
+            val isActive = !line.isSongwriter && lineState == ElementState.Active
+            // Before any line has been sung, distances count from just above the first.
+            val signed = appleOrdinals[lineIdx] - activeOrdinal
+            val away = if (isActive) 0 else abs(signed).coerceAtLeast(1)
+
+            val opacityTarget = when {
+                line.isSongwriter -> 0.6f
+                line.isInterlude -> if (isActive) 1f else 0f
+                else -> AppleMusicMotion.lineOpacity(away, userScrolling)
+            }
+            val opacityAnim = lineOpacityAnims.getOrPut(lineIdx) { Animatable(opacityTarget) }
+            if (opacityAnim.targetValue != opacityTarget) {
+                val spec = if (line.isInterlude) tween<Float>(MUSICAL_LINE_TRANSITION_MS, easing = OPACITY_EASING)
+                    else tween(AppleMusicMotion.OPACITY_MS, easing = CSS_EASE)
+                coroutineScope.launch { opacityAnim.animateTo(opacityTarget, spec) }
+            }
+
+            val lineScale = when {
+                line.isInterlude -> animateInterludeScale(lineIdx, line, t, isActive)
+                line.isSongwriter -> 1f
+                else -> {
+                    val target = if (isActive) 1f else AppleMusicMotion.INACTIVE_SCALE
+                    val anim = lineScaleAnims.getOrPut(lineIdx) { Animatable(target) }
+                    if (anim.targetValue != target) {
+                        val ms = if (target == 1f) AppleMusicMotion.SCALE_IN_MS else AppleMusicMotion.SCALE_OUT_MS
+                        coroutineScope.launch { anim.animateTo(target, tween(ms, easing = CSS_EASE)) }
+                    }
+                    anim.value
+                }
+            }
+
+            // Background vocals open while they or their lead are sung.
+            val presenceTarget = if (!line.isBackground) 1f else {
+                val lead = appleLeads[lineIdx]
+                if (lineState == ElementState.Active || (lead >= 0 && states[lead] == ElementState.Active)) 1f else 0f
+            }
+            val presence = if (!line.isBackground) 1f else {
+                val anim = presenceAnims.getOrPut(lineIdx) { Animatable(presenceTarget) }
+                if (anim.targetValue != presenceTarget) {
+                    // Turning back mid-way keeps the spring's speed (Animatable carries it over).
+                    coroutineScope.launch {
+                        anim.animateTo(presenceTarget, spring(dampingRatio = 1f, stiffness = AppleMusicMotion.BACKGROUND_SPRING_STIFFNESS))
+                    }
+                }
+                anim.value
+            }
+
+            val wordStates = when {
+                lyricsType == LyricsType.Line && !line.isInterlude -> emptyList()
+                line.isSongwriter -> cachedWordStates.getOrPut(lineIdx) { line.words.map { songwriterWordState(it) } }
+                line.isInterlude -> appleDots(line, t)
+                // Not reached yet: at rest. Long done: risen and still.
+                t < line.startMs -> cachedWordStates.getOrPut(lineIdx) {
+                    line.words.mapIndexed { i, word -> appleWordState(word, i, line, Double.NEGATIVE_INFINITY) }
+                }
+                t > line.endMs + APPLE_SETTLE_MS -> appleFinalStates.getOrPut(lineIdx) {
+                    line.words.mapIndexed { i, word -> appleWordState(word, i, line, Double.POSITIVE_INFINITY) }
+                }
+                else -> line.words.mapIndexed { i, word -> appleWordState(word, i, line, t) }
+            }
+
+            // Background vocals stay sharp while their line is sung.
+            val blurTarget = when {
+                !config.distanceBlurEnabled || userScrolling || isActive || line.isInterlude -> 0f
+                line.isBackground && presenceTarget == 1f -> 0f
+                else -> AppleMusicMotion.blurEm(if (signed == 0) -1 else signed) * APPLE_BLUR_CSS_PX_PER_EM *
+                    (if (line.isBackground) AppleMusicMotion.BACKGROUND_BLUR_SHARE else 1f)
+            }
+            val blurAnim = blurAnims.getOrPut(lineIdx) { Animatable(blurTarget) }
+            if (blurAnim.targetValue != blurTarget) {
+                // A touch scroll clears it at once; otherwise lines soften and sharpen smoothly.
+                if (userScrolling) coroutineScope.launch { blurAnim.snapTo(blurTarget) }
+                else coroutineScope.launch { blurAnim.animateTo(blurTarget, tween(AppleMusicMotion.BLUR_FADE_MS, easing = CSS_EASE)) }
+            }
+            val blur = blurAnim.value
+
+            // Lit while sung; after, the words dim back over LINE_SETTLE_MS instead of at once.
+            val litTarget = if (lineState == ElementState.Active) 1f else 0f
+            val litAnim = litAnims.getOrPut(lineIdx) { Animatable(0f) }
+            if (litAnim.targetValue != litTarget) {
+                if (litTarget == 1f) coroutineScope.launch { litAnim.snapTo(1f) }
+                else coroutineScope.launch { litAnim.animateTo(0f, tween(AppleMusicMotion.LINE_SETTLE_MS, easing = CSS_EASE)) }
+            }
+
+            val folded = AppleMusicMotion.BACKGROUND_FOLDED_SCALE
+            LineAnimState(
+                opacity = opacityAnim.value * (if (line.isBackground) AppleMusicMotion.backgroundAlpha(presence) else 1f),
+                blur = blur,
+                scale = if (line.isBackground) lineScale * (folded + (1f - folded) * presence) else lineScale,
+                isActive = isActive,
+                wordStates = wordStates,
+                isBackground = line.isBackground,
+                isSongwriter = line.isSongwriter,
+                // Line-synced lyrics light up whole.
+                lineGradientPercent = if (lineState == ElementState.NotSung) -20f else 100f,
+                lineGlow = 0f,
+                suppressShadows = !config.glowEnabled,
+                state = lineState,
+                presence = presence,
+                lit = if (lineState == ElementState.Sung) litAnim.value else 0f,
+                groupScale = if (line.isInterlude) AppleMusicMotion.Dots(line.duration.toFloat()).scale((t - line.startMs).toFloat()) else 1f,
+            )
+        }
+    }
+
+    /**
+     * A word in the Apple Music style at [t]: its wipe as plain progress (0..100, the renderer adds
+     * the soft edge), its rise, and for a held word its letters' emphasis. Infinite [t] gives the
+     * resting and the finished pose.
+     */
+    private fun appleWordState(word: Word, index: Int, line: Line, t: Double): WordAnimState {
+        val state = elementState(t, word.startMs, word.endMs)
+        val progress = progress(t, word.startMs, word.endMs)
+        val lineEnd = if (t >= line.endMs) line.endMs else null
+        val lift = AppleMusicMotion.WORD_LIFT_EM * (if (line.isBackground) 2f else 1f) *
+            AppleMusicMotion.wordRise(t, word.startMs, word.endMs, lineEnd)
+        // The letter synthesizer only splits the words this style emphasizes.
+        if (word.isLetterGroup && word.letters.isNotEmpty()) {
+            val count = word.letters.size
+            val last = index == line.words.lastIndex
+            return WordAnimState(
+                scale = 1f, yOffset = -lift, glow = 0f,
+                gradientPosition = progress * 100f,
+                state = state,
+                isLetterGroup = true,
+                letterStates = List(count) { i ->
+                    val pose = AppleMusicMotion.emphasisLetter(t, word.startMs, word.endMs, i, count, last, line.isBackground)
+                    LetterAnimState(
+                        gradientPosition = progress * 100f,
+                        scale = pose.scale,
+                        yOffset = pose.yOffset - lift,
+                        glow = pose.glow,
+                        xOffset = pose.xOffset,
+                        glowRadius = pose.glowRadiusEm,
+                    )
+                },
+            )
+        }
+        return WordAnimState(
+            scale = 1f,
+            yOffset = -lift,
+            glow = 0f,
+            gradientPosition = progress * 100f,
+            state = state,
+            isLetterGroup = false,
+        )
+    }
+
+    /**
+     * An instrumental break's three dots in the Apple Music style: they light in turn, while the
+     * group breathes as one ([LineAnimState.groupScale]); the line's own scale opens its room.
+     */
+    private fun appleDots(line: Line, t: Double): List<WordAnimState> {
+        val dots = AppleMusicMotion.Dots(line.duration.toFloat())
+        val at = (t - line.startMs).toFloat()
+        val alpha = dots.alpha(at)
+        val state = elementState(t, line.startMs, line.endMs)
+        return List(3) { i ->
+            WordAnimState(
+                scale = 1f,
+                yOffset = 0f,
+                // 'glow' carries a dot's opacity for the interlude draw.
+                glow = alpha * dots.dotAlpha(i, at),
+                dotGlow = 0f,
+                gradientPosition = if (state == ElementState.Sung) 100f else 0f,
+                state = state,
+            )
+        }
+    }
+
     // ── Line-level pieces ───────────────────────────────────────────────────────────
 
     private fun animateLineOpacity(
@@ -441,7 +679,12 @@ class LyricsAnimator(
             // The collapse (1→0, at pre-hidden) uses a slower 0.4s dip-then-overshoot
             // curve; expansion (0→1, on activation) keeps the default line-transition tween.
             val duration = if (target == 0f) DOT_GROUP_COLLAPSE_MS else DOT_GROUP_EXPANSION_MS
-            val easing = if (target == 0f) DOT_GROUP_COLLAPSE_EASING else SCALE_EASING
+            // The Apple Music style's dots already swell before they go (AppleMusicMotion.Dots).
+            val easing = when {
+                config.isAppleMusic -> CSS_EASE
+                target == 0f -> DOT_GROUP_COLLAPSE_EASING
+                else -> SCALE_EASING
+            }
             coroutineScope.launch {
                 animatable.animateTo(target, tween(duration, easing = easing))
             }

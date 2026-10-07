@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixOff
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.Science
+import androidx.compose.material.icons.rounded.Style
 import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.HideImage
@@ -211,25 +212,40 @@ internal fun ThisSongContent(
 
 @Composable
 internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
+    SettingRow(
+        label = "Lyrics Style",
+        description = "How the lyrics look and move. Apple Music lifts words as they're sung, with a soft wipe, and has lines follow one after another.",
+        icon = Icons.Rounded.Style,
+    ) {
+        SpicySelect(
+            value = settings.lyricsStyle.name,
+            options = LyricsStyle.entries.map { it.name },
+            labels = LyricsStyle.entries.map { it.label },
+            onChange = { settings.lyricsStyle = LyricsStyle.valueOf(it) },
+        )
+    }
+    // Simple, Minimal and the word motion are the Spicy Lyrics style's own.
+    val spicyStyle = settings.lyricsStyle == LyricsStyle.Spicy
     ToggleRow(
         label = "Simple Lyrics Mode",
         checked = settings.simpleLyricsMode,
         onCheckedChange = { settings.simpleLyricsMode = it },
         description = "Remove extra visual effects from lyrics.",
         icon = Icons.Rounded.AutoFixOff,
+        enabled = spicyStyle,
     )
     SettingRow(
         label = "Simple Mode: Text Animation Style",
         description = "How lyrics text transitions are rendered in Simple Lyrics Mode.",
         icon = Icons.Rounded.Animation,
-        enabled = settings.simpleLyricsMode,
+        enabled = settings.simpleLyricsMode && spicyStyle,
     ) {
         SpicySelect(
             value = settings.simpleAnimationStyle.name,
             options = SimpleAnimationStyle.entries.map { it.name },
             labels = SimpleAnimationStyle.entries.map { it.name.lowercase() },
             onChange = { settings.simpleAnimationStyle = SimpleAnimationStyle.valueOf(it) },
-            enabled = settings.simpleLyricsMode,
+            enabled = settings.simpleLyricsMode && spicyStyle,
         )
     }
     ToggleRow(
@@ -238,6 +254,7 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
         onCheckedChange = { settings.minimalLyricsMode = it },
         description = "Hides sung lyrics lines.",
         icon = Icons.Rounded.VisibilityOff,
+        enabled = spicyStyle,
     )
     ToggleRow(
         label = "Original word motion",
@@ -245,6 +262,7 @@ internal fun LyricsContent(state: PlayerUiState, viewModel: ExternalPlaybackView
         onCheckedChange = { settings.originalWordMotion = it },
         description = "The desktop amount of grow and lift on sung words. Off: ${AppSettings.WORD_MOTION_BOOST}×, which reads better on a phone.",
         icon = Icons.Rounded.Height,
+        enabled = spicyStyle,
     )
     SettingRow(
         label = "Merge syllables",

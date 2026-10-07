@@ -155,6 +155,7 @@ import com.tx24.spicyplayer.playback.TrackExtrasWanted
 import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
 import androidx.compose.animation.core.spring
 import com.tx24.spicyplayer.ui.settings.AppSettings
+import com.tx24.spicyplayer.ui.settings.LyricsStyle
 import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutCalculator
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
@@ -400,9 +401,12 @@ private fun LyricsApp(
     // Elsewhere, where a touch leaves the controls alone: the cover's gestures, credit links.
     val revealGuard = remember { ControlsRevealGuard() }
     // Built fresh, not copied: the mode-dependent defaults are worked out in the constructor.
+    val appleMusicStyle = settings.lyricsStyle == LyricsStyle.AppleMusic
     val renderConfig = RenderConfig(
-        simpleLyricsMode = settings.simpleLyricsMode,
-        minimalLyricsMode = settings.minimalLyricsMode,
+        // Simple and Minimal are Spicy Lyrics' modes; the Apple Music style has its own look.
+        simpleLyricsMode = settings.simpleLyricsMode && !appleMusicStyle,
+        minimalLyricsMode = settings.minimalLyricsMode && !appleMusicStyle,
+        appleMusic = appleMusicStyle,
         simpleAnimationStyle = settings.simpleAnimationStyle,
         wordMotionBoost = settings.wordMotionBoost,
         wideDuetPadding = settings.duetLinePadding,

@@ -50,6 +50,7 @@ import com.tx24.spicyplayer.lyrics.spicy.RenderConfig
 import com.tx24.spicyplayer.lyrics.spicy.ScrollConfig
 import com.tx24.spicyplayer.lyrics.spicy.animation.LineAnimState
 import com.tx24.spicyplayer.lyrics.spicy.animation.LyricsAnimator
+import com.tx24.spicyplayer.lyrics.spicy.animation.AppleMusicMotion
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.lyrics.spicy.models.FooterLine
@@ -145,6 +146,12 @@ fun LyricsView(
     val density = LocalDensity.current
     val scrollManager = remember(shownId) { ScrollManager().also { it.reset() } }
     scrollManager.smoothScrolling = config.scroll.smooth
+    scrollManager.appleMusic = config.isAppleMusic
+    val appleMusicUpdated by rememberUpdatedState(config.isAppleMusic)
+    // The Apple Music style's staggered scroll: lines past the active one follow the view late.
+    val scrollTrail = remember(shownId) { ScrollTrail() }
+    // The frame time the late lines are drawn at while one is still behind; 0 once all have caught up.
+    var trailNow by remember(shownId) { mutableLongStateOf(0L) }
     // Wakes a resting frame loop at once (a drag or tap), rather than at its next look.
     val wake = remember(shownId) { Channel<Unit>(Channel.CONFLATED) }
     val context = LocalContext.current
@@ -212,6 +219,7 @@ fun LyricsView(
                     MeasuredLyrics(display, LyricsLayoutCalculator.calculateLineLayouts(
                         display, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanized, letterConfig.isSimple,
                         letterConfig.wideDuetPadding,
+                        if (letterConfig.isAppleMusic) AppleMusicMotion.BACKGROUND_SIZE else 0.75f,
                     ))
                 }.also { measuredCache[key] = it }
             }
@@ -286,6 +294,15 @@ fun LyricsView(
                         // Where an open interlude's dots sit below its start: the middle of the gap
                         // before it plus its row, i.e. halfway between the lines around it.
                         val interludeCentre = (rowHeightUpdated - lineGapUpdated) / 2f
+                        // The room a folded background line gives back: what's left between the line
+                        // above and the next one, past the usual gap (background lines sit tight
+                        // under their lead, without one of their own).
+                        fun slotOf(i: Int): Float {
+                            val layout = currentLayouts[i]
+                            val next = currentLayouts.getOrNull(i + 1)?.yOffset ?: (layout.yOffset + layout.height + lineGapUpdated)
+                            val above = currentLayouts.getOrNull(i - 1)?.let { it.yOffset + it.height + lineGapUpdated } ?: layout.yOffset
+                            return (next - above).coerceAtLeast(0f)
+                        }
                         for (i in currentLayouts.indices) {
                             val layout = currentLayouts[i]
                             val state = animStates.getOrNull(i)
@@ -298,6 +315,10 @@ fun LyricsView(
                                 settledY += rowHeightUpdated * open
                             } else {
                                 settledYScratch[i] = layout.yOffset + settledY
+                                // Folded background vocals (Apple Music style) give up their room.
+                                // As far as they've got, not where they're headed: the scroll then
+                                // follows the fold as it happens instead of jumping ahead of it.
+                                if (layout.isBackground) settledY -= slotOf(i) * (1f - (state?.presence ?: 1f))
                             }
 
                             if (layout.isInterlude) {
@@ -308,7 +329,11 @@ fun LyricsView(
                                 newDynamicYOffsets[i] = layout.yOffset + accumulatedY + interludeCentre * scale
                                 accumulatedY += rowHeightUpdated * scale
                             } else {
-                                newDynamicYOffsets[i] = layout.yOffset + accumulatedY
+                                val fold = if (layout.isBackground) 1f - (state?.presence ?: 1f) else 0f
+                                // Tucked up under their line as they fold.
+                                newDynamicYOffsets[i] = layout.yOffset + accumulatedY -
+                                    slotOf(i) * fold * AppleMusicMotion.BACKGROUND_FOLDED_SHIFT
+                                accumulatedY -= slotOf(i) * fold
                             }
                         }
                         // Publish only when the offsets actually changed (i.e. an interlude is
@@ -377,10 +402,17 @@ fun LyricsView(
                             snap = decision.motion == ScrollMotion.SNAP,
                             targetVisiblePx = targetVisiblePx,
                         )
+                        if (appleMusicUpdated) {
+                            targetIndex?.let { scrollTrail.reference = it }
+                            scrollTrail.record(frameTimeNanos, scrollManager.animScrollY)
+                            val behind = !scrollManager.hideLineBlur && scrollTrail.catchingUp(frameTimeNanos)
+                            val now = if (behind) frameTimeNanos else 0L
+                            if (trailNow != now) trailNow = now
+                        } else if (trailNow != 0L) trailNow = 0L
                     }
                     val still = !isPlayingUpdated && !scrollManager.isUserScrolling &&
                         animStates == previousStates && dynamicYOffsets === previousOffsets &&
-                        scrollManager.animScrollY == previousScroll
+                        scrollManager.animScrollY == previousScroll && trailNow == 0L
                     stillFrames = if (still) stillFrames + 1 else 0
                 }
             }
@@ -452,6 +484,8 @@ fun LyricsView(
                             val layoutDynamicY = dynamicYOffsets.getOrElse(i) { layout.yOffset }
                             if (adjustedTapY >= layoutDynamicY && adjustedTapY <= layoutDynamicY + layout.height) {
                                 if (layout.isInterlude || layout.isSongwriter) continue
+                                // Folded background vocals sit under the next line: that one takes the tap.
+                                if ((animStates.getOrNull(i)?.presence ?: 1f) < 0.5f) continue
                                 if (layout.line.words.isNotEmpty()) {
                                     // From the first sung word, which can come after the line's own start.
                                     val start = layout.line.words.first().startMs
@@ -470,9 +504,14 @@ fun LyricsView(
                     }
                 }
         ) {
-            val scrollOffset = centerY + scrollManager.animScrollY
+            val viewScrollOffset = centerY + scrollManager.animScrollY
+            // Where a line is drawn: with the view, or a little behind it while it catches up.
+            val trailTime = trailNow
+            fun scrollOffsetFor(index: Int) = if (trailTime == 0L) viewScrollOffset
+                else centerY + scrollTrail.at(trailTime - scrollTrail.delayNanos(index))
 
             lineLayouts.forEachIndexed { lineIdx, layout ->
+                val scrollOffset = scrollOffsetFor(lineIdx)
                 val lineAnim = animStates.getOrNull(lineIdx) ?: return@forEachIndexed
                 val dynamicY = dynamicYOffsets.getOrElse(lineIdx) { layout.yOffset }
 
@@ -503,7 +542,8 @@ fun LyricsView(
                 }
             }
 
-            drawFooterRows(footerLayouts, footerRowTops().map { it + scrollOffset }, footerSlot.startPx, avatars)
+            val footerScroll = scrollOffsetFor(lineLayouts.size)
+            drawFooterRows(footerLayouts, footerRowTops().map { it + footerScroll }, footerSlot.startPx, avatars)
         }
     }
 }

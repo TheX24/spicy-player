@@ -118,6 +118,8 @@ internal object LyricsLayoutCalculator {
         romanize: Boolean = false,
         simpleMode: Boolean = false,
         wideDuet: Boolean = true,
+        /** Background vocals' size against the lead's: 0.75, or the Apple Music style's own. */
+        backgroundScale: Float = 0.75f,
     ): List<LineLayout> {
 
         val layouts = mutableListOf<LineLayout>()
@@ -127,7 +129,7 @@ internal object LyricsLayoutCalculator {
         
         val hasDuet = lines.any { it.oppositeAligned }
         val baseFontSize = metrics.baseFontSizeSp.sp
-        val bgFontSize = baseFontSize * 0.75f
+        val bgFontSize = baseFontSize * backgroundScale
 
         for (line in lines) {
             val isInterlude = line.isInterlude
