@@ -2,6 +2,7 @@ package com.tx24.spicyplayer.network.data.providers
 
 import com.google.gson.Gson
 import com.google.gson.JsonObject
+import com.tx24.spicyplayer.network.data.LyricsAttribution
 import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
 import com.tx24.spicyplayer.network.data.RemoteLyricsQuality
@@ -29,6 +30,9 @@ class ProviderTextTest {
             .parse(Gson().fromJson(json, JsonObject::class.java)) as ProviderResult.Hit
         val words = parse("""{"lines":[{"text":"Hello there","start":1.5,"end":3.0,"words":[{"text":"Hello","start":1.5,"end":2.0},{"text":"there","start":2.0,"end":3.0}]}]}""")
         assertTrue(words.payload.ttmlLyrics!!.contains("itunes:timing=\"word\""))
+        assertEquals(null, words.payload.attribution?.originName)
+        val kugou = parse("""{"meta":{"source":{"id":"kugou","name":"KuGou"}},"lines":[{"text":"Hi","start":1.0,"end":2.0}]}""")
+        assertEquals(LyricsAttribution("LRCMux", originName = "KuGou"), kugou.payload.attribution)
         // A line-level answer (LRCMux relays LRCLIB's) has no words.
         val lines = parse("""{"lines":[{"text":"Hello there","start":1.5,"end":3.0}]}""")
         assertEquals(null, lines.payload.ttmlLyrics)

@@ -132,7 +132,7 @@ class RemoteLyricsSource @Inject constructor(
         } ?: RemoteLyricsQuality.NONE
         fun answered(id: String) = id in known || id in cooling
         // Relayed lyrics rank where they came from: Spicy Lyrics' Apple Music copy with Apple
-        // Music, RMM Revival's copy of a Spicy Lyrics sync with Spicy Lyrics.
+        // Music, RMM Revival's copy of a Spicy Lyrics sync with Spicy Lyrics, LRCMux's KuGou copy with Kugou.
         fun byOrigin() = rankByOrigin(ranked, known, policy.disabledSourceIds)
         fun startBlends() {
             for (blend in blends) {
@@ -177,7 +177,11 @@ class RemoteLyricsSource @Inject constructor(
         fun outstanding() = pending + waiting + toAsk.map { it.descriptor.id }.filter { it !in known }
         // A relay still out may yet bring a Spicy Lyrics sync, which ranks in that place, while
         // Spicy Lyrics itself has no real answer (e.g. no Spotify match; RMM Revival asks by Apple ID).
-        // lrc.red still out may yet bring Apple Music's lyrics.
+        // lrc.red still out may yet bring Apple Music's lyrics, LRCMux its best switched-on upstream's.
+        val lrcMuxBest = LRCMUX_ORIGINS.entries
+            .filter { (_, id) -> id !in policy.disabledSourceIds && ranked.any { it.id == id } }
+            .minByOrNull { (_, id) -> ranked.indexOfFirst { it.id == id } }
+            ?.let { (origin, _) -> ProviderResult.Hit(RemoteLyricsPayload(attribution = LyricsAttribution("", originName = origin))) }
         fun bestCase(): List<LyricsSourceDescriptor> {
             val out = outstanding()
             val standIns = buildMap {
@@ -185,6 +189,7 @@ class RemoteLyricsSource @Inject constructor(
                     (out intersect SPICY_RELAY_IDS).forEach { put(it, SPICY_SYNC) }
                 }
                 if (LRC_RED_ID in out) put(LRC_RED_ID, APPLE_LYRICS)
+                if (LRCMUX_ID in out && lrcMuxBest != null) put(LRCMUX_ID, lrcMuxBest)
             }
             return rankByOrigin(ranked, known + standIns, policy.disabledSourceIds)
         }
@@ -415,8 +420,10 @@ class RemoteLyricsSource @Inject constructor(
          * Spicy Lyrics syncs rank in Spicy Lyrics' place, Apple Music lyrics in the Apple Music
          * slot's, Spotify's in the Spotify slot's; after every source while that
          * place is in [disabled]. Any other relayed
-         * catalogue after every source. Answers from one place keep the user's order between
-         * them. A relay with no answer yet, or no origin, keeps its own place.
+         * catalogue after every source. LRCMux's answers rank in the place of the source it found
+         * them at ([LRCMUX_ORIGINS]), or its own for one it doesn't name. Answers from one place
+         * keep the user's order between them. A relay with no answer yet, or no origin, keeps its
+         * own place.
          */
         fun rankByOrigin(
             ranked: List<LyricsSourceDescriptor>,
@@ -428,7 +435,9 @@ class RemoteLyricsSource @Inject constructor(
             fun place(id: String): Int {
                 val at = own.getValue(id)
                 if (id !in RELAY_IDS) return at
-                return when ((known[id] as? ProviderResult.Hit)?.payload?.attribution?.originName ?: return at) {
+                val origin = (known[id] as? ProviderResult.Hit)?.payload?.attribution?.originName ?: return at
+                if (id == LRCMUX_ID) return LRCMUX_ORIGINS[origin]?.let(::slot) ?: at
+                return when (origin) {
                     in SPICY_OWN_ORIGINS -> own[SPICY_ID] ?: at
                     "Apple Music" -> slot(APPLE_MUSIC_ID)
                     "Spotify" -> slot(SPOTIFY_ID)
@@ -444,8 +453,16 @@ class RemoteLyricsSource @Inject constructor(
         const val LRC_RED_ID = "lrc_red"
         /** Relays of Spicy Lyrics' API (RMM Revival relays it by Apple Music ID). */
         private val SPICY_RELAY_IDS = setOf(SPICY_ID, "rmm_revival")
+        const val LRCMUX_ID = "lrcmux"
+        /** LRCMux's upstreams, by the name its answers give, and the sources they rank as. */
+        val LRCMUX_ORIGINS = mapOf(
+            "KuGou" to "kugou",
+            "LRCLIB" to LRCLIB_ID,
+            "Genius" to "genius",
+            "YouTube Music" to "youtube_transcript",
+        )
         /** Sources that pass on lyrics from elsewhere and say where from. */
-        val RELAY_IDS = SPICY_RELAY_IDS + LRC_RED_ID
+        val RELAY_IDS = SPICY_RELAY_IDS + LRC_RED_ID + LRCMUX_ID
         /** Stand in for a relay's answer that isn't in yet, at the highest place it could take. */
         private val SPICY_SYNC = ProviderResult.Hit(RemoteLyricsPayload(attribution = LyricsAttribution("", originName = "Spicy Lyrics")))
         private val APPLE_LYRICS = ProviderResult.Hit(RemoteLyricsPayload(attribution = LyricsAttribution("", originName = "Apple Music")))

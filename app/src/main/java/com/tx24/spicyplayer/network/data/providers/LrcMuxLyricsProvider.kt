@@ -45,8 +45,11 @@ class LrcMuxLyricsProvider @Inject constructor(
 
     internal fun parse(root: JsonObject): ProviderResult {
         val lines = root.getAsJsonArray("lines") ?: return ProviderResult.Miss
+        // Where LRCMux found them (KuGou, LRCLIB, Genius, YouTube Music): ranked in that source's place.
+        val attribution = LyricsAttribution("LRCMux", originName = root.getAsJsonObject("meta")?.getAsJsonObject("source")
+            ?.get("name")?.takeIf { it.isJsonPrimitive }?.asString?.takeIf(String::isNotBlank))
         val ttml = wordTtml(lines)
-        if (ttml != null) return ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics = ttml))
+        if (ttml != null) return ProviderResult.Hit(RemoteLyricsPayload(ttmlLyrics = ttml, attribution = attribution))
         val synced = lines.mapNotNull { element ->
             val line = element.asJsonObject
             val text = line.get("text")?.asString?.takeIf(String::isNotBlank) ?: return@mapNotNull null
@@ -54,7 +57,7 @@ class LrcMuxLyricsProvider @Inject constructor(
             "[${clock(start)}]$text"
         }.joinToString("\n").takeIf(String::isNotBlank)
         val plain = lines.mapNotNull { it.asJsonObject.get("text")?.asString }.joinToString("\n").takeIf(String::isNotBlank)
-        return if (synced != null || plain != null) ProviderResult.Hit(RemoteLyricsPayload(plain, synced)) else ProviderResult.Miss
+        return if (synced != null || plain != null) ProviderResult.Hit(RemoteLyricsPayload(plain, synced, attribution = attribution)) else ProviderResult.Miss
     }
 
     private fun wordTtml(lines: JsonArray): String? {

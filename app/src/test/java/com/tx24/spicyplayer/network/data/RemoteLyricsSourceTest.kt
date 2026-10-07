@@ -74,6 +74,47 @@ class RemoteLyricsSourceTest {
     }
 
     @Test
+    fun `LRCMux relaying KuGou ranks in Kugou's place`() = runBlocking {
+        val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("LRCMux", originName = "KuGou"))
+        val source = source(
+            provider("kugou", 1, result = ProviderResult.Miss),
+            provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
+            provider("lrcmux", 3, result = ProviderResult.Hit(relayed)),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("lrcmux", result.selection.source.id)
+    }
+
+    @Test
+    fun `LRCMux relaying a switched-off source ranks after every source`() = runBlocking {
+        val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("LRCMux", originName = "KuGou"))
+        val source = source(
+            provider("lrcmux", 1, result = ProviderResult.Hit(relayed)),
+            provider("kugou", 2, result = ProviderResult.Miss),
+            provider("amll_ttml_db", 3, result = ProviderResult.Hit(wordTtml("amll"))),
+        )
+
+        val result = source.resolveLyrics(request, RemoteLyricsPolicy(disabledSourceIds = setOf("kugou"))) as RemoteLyricsResolution.Found
+
+        assertEquals("amll_ttml_db", result.selection.source.id)
+    }
+
+    @Test
+    fun `LRCMux relaying a source it doesn't name keeps its own place`() = runBlocking {
+        val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("LRCMux", originName = "Somewhere new"))
+        val source = source(
+            provider("lrcmux", 1, result = ProviderResult.Hit(relayed)),
+            provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("lrcmux", result.selection.source.id)
+    }
+
+    @Test
     fun `a slot is never asked and stays out of the attempts`() = runBlocking {
         val source = source(
             slot("apple_music", 1),
