@@ -342,7 +342,6 @@ private fun lookupSnapshot(state: PlayerUiState): Map<String, Any> = buildMap {
     put("sources_off", state.disabledSourceIds.size)
     put("blends_on", state.enabledBlendIds.size)
     put("human_romanizations", state.humanRomanizations)
-    put("ignore_mxm_word_sync", state.ignoreMusixmatchWordSync)
     put("own_key", state.ownKeyHint != null)
     put("custom_sources", state.customSources.size)
 }

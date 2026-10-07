@@ -151,7 +151,6 @@ data class PlayerUiState(
     val providerAttempts: List<ProviderAttempt> = emptyList(),
     val lookupStatus: String? = null,
     val humanRomanizations: Boolean = false,
-    val ignoreMusixmatchWordSync: Boolean = true,
     /** What a source the user is switching on would send, waiting for their OK. */
     val sourceDisclosure: SourceDisclosure? = null,
     /** What this update switched off (source IDs, [SourceDisclosures.GENIUS_ROMANIZATION_ID], Musixmatch); said once. */
@@ -220,7 +219,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         blendDescriptors = lyricsBackend.blendDescriptors,
         enabledBlendIds = lyricsBackend.policy().enabledBlendIds,
         humanRomanizations = lyricsBackend.humanRomanizations,
-        ignoreMusixmatchWordSync = lyricsBackend.ignoreMusixmatchWordSync,
         switchedOffSources = lyricsBackend.switchedOffSources,
         ownKeyHint = runtimeApiKey.takeIf { it.isNotBlank() }?.let(SpicyLyricsKey::hint),
     ))
@@ -845,13 +843,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         mutableState.value = mutableState.value.copy(switchedOffSources = emptySet())
     }
 
-    fun setIgnoreMusixmatchWordSync(enabled: Boolean) {
-        lyricsBackend.ignoreMusixmatchWordSync = enabled
-        mutableState.value = mutableState.value.copy(ignoreMusixmatchWordSync = enabled)
-        lookupCache.clear()  // LRCMux answers differently
-        loadLyrics()
-    }
-
     fun setBlendEnabled(id: String, enabled: Boolean) {
         lyricsBackend.setBlendEnabled(id, enabled)
         refreshSourcePolicy()
@@ -878,7 +869,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             lyricDelayMs = outputProfiles.delayMs(outputRoute),
             songDelayMs = songDelays.delayMs(mutableState.value.localLyricsKey),
             humanRomanizations = lyricsBackend.humanRomanizations,
-            ignoreMusixmatchWordSync = lyricsBackend.ignoreMusixmatchWordSync,
             switchedOffSources = lyricsBackend.switchedOffSources,
         )
         // The playing song's Spotify link may have come or gone: look it up again if so.
@@ -1321,7 +1311,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             mutableState.value = PlayerUiState(
                 accessGranted = kept.accessGranted,
                 humanRomanizations = kept.humanRomanizations,
-                ignoreMusixmatchWordSync = kept.ignoreMusixmatchWordSync,
                 sourceDisclosure = kept.sourceDisclosure,
                 switchedOffSources = kept.switchedOffSources,
                 ownKeyHint = kept.ownKeyHint,

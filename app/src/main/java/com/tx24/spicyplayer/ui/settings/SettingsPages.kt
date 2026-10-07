@@ -770,15 +770,6 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
         }
     }
     CustomSourcesSection(state, viewModel)
-    SettingsSection("LRCMux") {
-        ToggleRow(
-            label = "Ignore LRCMux word sync",
-            checked = state.ignoreMusixmatchWordSync,
-            onCheckedChange = viewModel::setIgnoreMusixmatchWordSync,
-            description = "Use LRCMux's line timing instead of its word timing, which is often off.",
-            icon = Icons.Rounded.Sync,
-        )
-    }
     SettingsSection("Romanization") {
         ToggleRow(
             label = "Human romanizations",

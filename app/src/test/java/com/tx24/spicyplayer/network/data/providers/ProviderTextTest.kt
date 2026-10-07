@@ -24,14 +24,13 @@ class ProviderTextTest {
         assertFalse(RemoteLyricsPayload(syncedLyrics = song).isNoWordsNote())
     }
 
-    @Test fun lrcMuxServesLinesWhenWordSyncIsIgnored() {
-        val json = Gson().fromJson(
-            """{"lines":[{"text":"Hello there","start":1.5,"end":3.0,"words":[{"text":"Hello","start":1.5,"end":2.0},{"text":"there","start":2.0,"end":3.0}]}]}""",
-            JsonObject::class.java,
-        )
-        val words = LrcMuxLyricsProvider(okhttp3.OkHttpClient(), Gson()).parse(json) as ProviderResult.Hit
+    @Test fun lrcMuxServesWordTimingAndFallsBackToLines() {
+        fun parse(json: String) = LrcMuxLyricsProvider(okhttp3.OkHttpClient(), Gson())
+            .parse(Gson().fromJson(json, JsonObject::class.java)) as ProviderResult.Hit
+        val words = parse("""{"lines":[{"text":"Hello there","start":1.5,"end":3.0,"words":[{"text":"Hello","start":1.5,"end":2.0},{"text":"there","start":2.0,"end":3.0}]}]}""")
         assertTrue(words.payload.ttmlLyrics!!.contains("itunes:timing=\"word\""))
-        val lines = LrcMuxLyricsProvider(okhttp3.OkHttpClient(), Gson()) { true }.parse(json) as ProviderResult.Hit
+        // A line-level answer (LRCMux relays LRCLIB's) has no words.
+        val lines = parse("""{"lines":[{"text":"Hello there","start":1.5,"end":3.0}]}""")
         assertEquals(null, lines.payload.ttmlLyrics)
         assertEquals("[00:01.50]Hello there", lines.payload.syncedLyrics)
     }

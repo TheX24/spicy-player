@@ -35,7 +35,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     /** Header values of custom sources: kept out of [preferences], which backups copy. */
     private val customHeaders = context.getSharedPreferences("custom_source_headers", Context.MODE_PRIVATE)
     private val builtIn: Set<RemoteLyricsProvider> =
-        createProviders(client, gson, clientKey, SharedSpotify.resolver) { ignoreMusixmatchWordSync }
+        createProviders(client, gson, clientKey, SharedSpotify.resolver)
     private val cooldowns = ProviderCooldownTracker()
     // Custom sources come and go, so these are rebuilt with them ([rebuild]).
     @Volatile private var providers: Set<RemoteLyricsProvider> = builtIn
@@ -125,11 +125,9 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         diskCache.deleteRecursively()
     }
 
-    /** Also keyed on the LRCMux word-sync switch, which changes what it answers. */
     private fun enabledOrder(): List<String> = policy().let { p ->
         val revisions = providers.mapNotNull { (it as? CustomLyricsProvider)?.source }.associate { it.id to it.revision }
-        p.sourceOrder.filter { it !in p.disabledSourceIds }.map { id -> revisions[id]?.let { "$id@$it" } ?: id } + p.enabledBlendIds.sorted() +
-            listOfNotNull(MUSIXMATCH_LINES_ONLY.takeIf { ignoreMusixmatchWordSync })
+        p.sourceOrder.filter { it !in p.disabledSourceIds }.map { id -> revisions[id]?.let { "$id@$it" } ?: id } + p.enabledBlendIds.sorted()
     }
 
     private fun cacheFile(request: LyricsLookupRequest): File {
@@ -217,6 +215,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
                 if (preferences.getBoolean("humanRomanizations", true)) switchedOff += SourceDisclosures.GENIUS_ROMANIZATION_ID
                 edit.putStringSet("disabled", disabled + NOW_OPT_IN)
                     .remove("humanRomanizations")
+                    // The Musixmatch word-sync switch, gone with Musixmatch.
+                    .remove("ignoreMusixmatchWordSync")
                     .putStringSet(SWITCHED_OFF, switchedOff)
             }
             edit.apply()
@@ -228,7 +228,6 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
             gson: Gson,
             clientKey: String,
             spotifyResolver: SpotifyTrackResolver = SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(client, gson)),
-            ignoreMusixmatchWordSync: () -> Boolean = { false },
         ): Set<RemoteLyricsProvider> {
             val lrclib = Retrofit.Builder()
                 .baseUrl(LyricsService.BASE_URL)
@@ -254,7 +253,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
                 NetEaseLyricsProvider(client, gson),
                 LyricsSource(lrclib),
                 RelayedOriginSlot.SPOTIFY,
-                LrcMuxLyricsProvider(client, gson, ignoreMusixmatchWordSync),
+                LrcMuxLyricsProvider(client, gson),
                 GeniusLyricsProvider(client, gson),
                 YouTubeTranscriptLyricsProvider(client, gson),
             )
@@ -263,7 +262,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         private val ORIGIN = Regex("^[a-zA-Z][a-zA-Z0-9+.-]*://[^/?#]*")
 
         /** Bump when payload conversion changes, so stale conversions are refetched. */
-        private const val CACHE_VERSION = 19
+        private const val CACHE_VERSION = 20
         /** Outcomes that are no answer at all: a later lookup may get one. */
         private val UNANSWERED = setOf(
             ProviderAttemptOutcome.UNAVAILABLE,
@@ -281,7 +280,6 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         private const val CACHE_DAYS = 3
         /** Custom sources start after every built-in one. */
         private const val CUSTOM_PRIORITY = 1_000
-        private const val MUSIXMATCH_LINES_ONLY = "musixmatch-lines-only"
         internal const val SWITCHED_OFF = "switchedOff"
         private const val DISCLOSED = "disclosed"
     }
@@ -327,11 +325,6 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     var humanRomanizations: Boolean
         get() = preferences.getBoolean("humanRomanizations", false)
         set(value) = preferences.edit().putBoolean("humanRomanizations", value).apply()
-
-    /** Line timing over word timing from LRCMux (on by default: its word syncs are poor). */
-    var ignoreMusixmatchWordSync: Boolean
-        get() = preferences.getBoolean("ignoreMusixmatchWordSync", true)
-        set(value) = preferences.edit().putBoolean("ignoreMusixmatchWordSync", value).apply()
 
     private val geniusRomanization = GeniusRomanizationSource(client, gson)
     private val romanCache = File(context.cacheDir, "genius-roman")
