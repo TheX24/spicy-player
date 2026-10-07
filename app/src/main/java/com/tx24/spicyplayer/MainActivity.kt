@@ -160,6 +160,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalView
 import com.tx24.spicyplayer.ui.settings.SettingsScreen
+import com.tx24.spicyplayer.ui.intro.IntroScreen
 import com.tx24.spicyplayer.ui.theme.SpicyColors
 import com.tx24.spicyplayer.ui.theme.SpicyMotion
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
@@ -327,6 +328,18 @@ private fun LyricsApp(
     }
     // Shared with the lyrics: the scroll-to-active button and the pinned credits.
     val lyricsViewState = remember { LyricsViewState() }
+    // New installs and cleared apps only: someone updating already knows their way around.
+    val freshStart = remember {
+        settings.startedEmpty || runCatching { context.packageManager.getPackageInfo(context.packageName, 0) }
+            .getOrNull()?.let { it.firstInstallTime == it.lastUpdateTime } == true
+    }
+    val showIntro = (freshStart || settings.introReplay) && !settings.introDone
+    val answerUsageStats: (Boolean) -> Unit = { keep ->
+        settings.usageStats = keep
+        settings.usageStatsAsked = true
+        UsageStats.onSettingChanged(context, keep)
+        UsageStats.appOpened(context) { lookupSnapshot(viewModel.state.value) }
+    }
     val pinnedFooter = settings.pinnedFooter
     // Awake while the music plays, so the lyrics can be followed without touching the phone.
     val view = LocalView.current
@@ -820,7 +833,7 @@ private fun LyricsApp(
 
         // Coming back from the system's settings refreshes the grant (onResume), which closes it.
         SpicyModal(
-            visible = !state.accessGranted,
+            visible = !state.accessGranted && !showIntro,
             onDismissRequest = null,
             backdrop = backdrop,
         ) {
@@ -829,16 +842,11 @@ private fun LyricsApp(
 
         // Once, after access is sorted, for new installs and updates alike; nothing is sent before it's answered.
         SpicyModal(
-            visible = state.accessGranted && UsageStats.available && !settings.usageStatsAsked,
+            visible = state.accessGranted && UsageStats.available && !settings.usageStatsAsked && !showIntro,
             onDismissRequest = null,
             backdrop = backdrop,
         ) {
-            UsageStatsMessage { keep ->
-                settings.usageStats = keep
-                settings.usageStatsAsked = true
-                UsageStats.onSettingChanged(context, keep)
-                UsageStats.appOpened(context) { lookupSnapshot(viewModel.state.value) }
-            }
+            UsageStatsMessage(answerUsageStats)
         }
 
         QuickSettingsModal(
@@ -910,6 +918,22 @@ private fun LyricsApp(
 
         // Over settings, so a check from there answers in place.
         UpdatePopup(update, updater, backdrop)
+
+        // Asked for from Settings: it goes, so the intro ends on the lyrics.
+        LaunchedEffect(showIntro) { if (showIntro) showSettings = false }
+        if (showIntro) {
+            IntroScreen(
+                settings = settings,
+                accessGranted = state.accessGranted,
+                askUsageStats = UsageStats.available && !settings.usageStatsAsked,
+                openNotificationAccess = openNotificationAccess,
+                onUsageStats = { keep -> answerUsageStats(keep) },
+                onDone = {
+                    settings.introDone = true
+                    settings.introReplay = false
+                },
+            )
+        }
 
         SpicyToastHost(viewModel.messages, Modifier.padding(padding).padding(top = SpicySpacing.S4))
     }

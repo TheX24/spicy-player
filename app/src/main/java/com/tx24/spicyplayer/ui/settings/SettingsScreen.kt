@@ -424,7 +424,7 @@ private fun PageSkeleton(page: SettingsPage) {
         SettingsPage.Theme -> SettingsSkeleton(rows = 3)
         SettingsPage.Sources -> SettingsSkeleton(rows = 13, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 7)
-        SettingsPage.Advanced -> SettingsSkeleton(rows = 11)
+        SettingsPage.Advanced -> SettingsSkeleton(rows = 12)
     }
 }
 

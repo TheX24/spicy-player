@@ -37,6 +37,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AutoFixOff
 import androidx.compose.material.icons.rounded.Animation
 import androidx.compose.material.icons.rounded.Science
+import androidx.compose.material.icons.rounded.School
 import androidx.compose.material.icons.rounded.VisibilityOff
 import androidx.compose.material.icons.rounded.HideImage
 import androidx.compose.material.icons.rounded.Height
@@ -893,6 +894,18 @@ internal fun AdvancedContent(state: PlayerUiState, viewModel: ExternalPlaybackVi
     }
     SettingsSection("Backup") {
         SettingsBackupRows(viewModel, settings)
+    }
+    SettingsSection("Help") {
+        SettingRow(
+            label = "Show the Introduction",
+            description = "Walk through the first-run screens again, gestures included.",
+            icon = Icons.Rounded.School,
+        ) {
+            SpicyButton("Show", onClick = {
+                settings.introDone = false
+                settings.introReplay = true
+            })
+        }
     }
     if (updater.enabled) {
         SettingsSection("Updates") {

@@ -23,6 +23,9 @@ import kotlin.reflect.KProperty
  * Lookup, source and sync settings live in the view model instead (see `docs/settings.md`).
  */
 class AppSettings(private val prefs: SharedPreferences) {
+    /** Nothing was saved yet when this was made: a new install, or one whose data was cleared. */
+    val startedEmpty = prefs.all.isEmpty()
+
     /** Every setting below, so [reload] can re-read them; first, so it exists when they register. */
     private val all = mutableListOf<Setting<*>>()
     private val types = mutableMapOf<String, KClass<*>>()
@@ -127,6 +130,10 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** Anonymous usage stats (`UsageStats`); nothing is sent until the notice has been answered. */
     var usageStats by boolean(UsageStats.KEY_ENABLED, true)
     var usageStatsAsked by boolean(UsageStats.KEY_ASKED, false)
+    /** The first-run introduction has been gone through (it only shows on a new install). */
+    var introDone by boolean("introDone", false)
+    /** Asked for again from Settings, on an install that wouldn't show it by itself. Not saved. */
+    var introReplay by mutableStateOf(false)
 
     /** Pre-releases offered as updates. On by default while the app itself is one (0.x). */
     var includePrereleases by boolean("includePrereleases", BuildConfig.VERSION_NAME.startsWith("0."))
