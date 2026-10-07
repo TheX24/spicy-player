@@ -92,11 +92,10 @@ class AppSettings(private val prefs: SharedPreferences) {
     /** Leaving the app with a song playing shrinks the lyrics into a small floating window. */
     var autoPip by boolean("autoPip", true)
     /**
-     * A floating button that shrinks the lyrics into that window by hand. On by default only where
-     * Android enters the window on its own (12+); before that the button is the way in, so it's
-     * left for whoever wants it.
+     * A floating button that shrinks the lyrics into that window by hand. Off by default where
+     * Android 12+ enters the window on its own; before that the button is the easy way in.
      */
-    var pipButton by boolean("pipButton", Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
+    var pipButton by boolean("pipButton", Build.VERSION.SDK_INT < Build.VERSION_CODES.S)
     /** No song header: the lyrics fill the page and scroll with the active line near the centre. */
     var hideHeader by boolean("hideHeader", false)
     var headerSize by enum("headerSize", HeaderSize.Large)
