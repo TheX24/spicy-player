@@ -1268,9 +1268,9 @@ private fun UsageStatsMessage(onAnswer: (keepOn: Boolean) -> Unit) {
 private fun SourcesResetMessage(onDismiss: () -> Unit, onOpenSettings: () -> Unit) {
     SpicyModalMessage(
         title = "Lyrics sources were reset",
-        description = "Spicy Player now asks only Spicy Lyrics for lyrics unless you choose more. Other sources are " +
-            "run by other people, so each one now says what it sends before you switch it on. Musixmatch is gone. " +
-            "You can switch the rest back on in Settings → Sources.",
+        description = "Spicy Player now asks Spicy Lyrics, LRCLIB and AMLL TTML DB for lyrics unless you choose more. " +
+            "The other sources haven't said apps may use them, so each one now says what it sends before you switch it on. " +
+            "Musixmatch is gone. You can switch the rest back on in Settings → Sources.",
         icon = { Icon(Icons.Rounded.Info, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary) },
     )
     SpicyModalActions {

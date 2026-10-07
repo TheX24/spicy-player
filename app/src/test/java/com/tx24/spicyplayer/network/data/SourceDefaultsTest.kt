@@ -15,10 +15,10 @@ class SourceDefaultsTest {
         .map(RemoteLyricsProvider::descriptor)
 
     @Test
-    fun `a fresh install asks Spicy Lyrics alone`() {
+    fun `a fresh install asks Spicy Lyrics and the open databases that invite apps`() {
         val prefs = LyricsSourcePreferenceNormalizer.normalize(null, emptySet(), descriptors)
-        val asked = descriptors.filter { !it.rankOnly && it.id !in prefs.disabledSourceIds }.map { it.id }
-        assertEquals(listOf(RemoteLyricsSource.SPICY_ID), asked)
+        val asked = descriptors.filter { !it.rankOnly && it.id !in prefs.disabledSourceIds }.map { it.id }.toSet()
+        assertEquals(DEFAULT_ON, asked)
     }
 
     @Test
@@ -34,7 +34,7 @@ class SourceDefaultsTest {
 
     @Test
     fun `every other source says what it sends before it's switched on`() {
-        for (source in descriptors.filter { !it.rankOnly && it.id != RemoteLyricsSource.SPICY_ID }) {
+        for (source in descriptors.filter { !it.rankOnly && it.id !in DEFAULT_ON }) {
             // A named entry, not the generic fallback.
             assertNotNull(source.id, SourceDisclosures.forId(source.id))
             assertEquals(source.id, SourceDisclosures.forSource(source)?.id)
@@ -42,8 +42,8 @@ class SourceDefaultsTest {
     }
 
     @Test
-    fun `Spicy Lyrics and the rank-only slots need no disclosure`() {
-        for (source in descriptors.filter { it.rankOnly || it.id == RemoteLyricsSource.SPICY_ID }) {
+    fun `default sources and the rank-only slots need no disclosure`() {
+        for (source in descriptors.filter { it.rankOnly || it.id in DEFAULT_ON }) {
             assertNull(source.id, SourceDisclosures.forSource(source))
         }
     }
@@ -56,9 +56,14 @@ class SourceDefaultsTest {
 
     @Test
     fun `a disclosure names where the song goes and what's sent`() {
-        val text = SourceDisclosures.forId("lrclib")!!.description
-        assertTrue(text, text.contains("lrclib.net"))
-        assertTrue(text, text.contains("title, artist, album and length"))
+        val text = SourceDisclosures.forId("kugou")!!.description
+        assertTrue(text, text.contains("Kugou's servers in China"))
+        assertTrue(text, text.contains("title, artist and length"))
         assertFalse(text, text.contains("  "))
+    }
+
+    private companion object {
+        /** Spicy Lyrics, and the databases whose public APIs say any app may use them. */
+        val DEFAULT_ON = setOf(RemoteLyricsSource.SPICY_ID, "lrclib", "amll_ttml_db")
     }
 }

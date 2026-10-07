@@ -1,8 +1,9 @@
 package com.tx24.spicyplayer.network.data
 
 /**
- * What switching a source on shares, said once before it's switched on. Spicy Lyrics is the only
- * source on out of the box; every other one asks first.
+ * What switching a source on shares, said once before it's switched on. Out of the box only
+ * Spicy Lyrics and the open databases that invite apps to use them (LRCLIB, AMLL TTML DB) are on;
+ * every other source asks first.
  */
 data class SourceDisclosure(
     /** The source or setting it's for. */
@@ -32,9 +33,6 @@ object SourceDisclosures {
     const val GENIUS_ROMANIZATION_ID = "genius_romanization"
 
     private val byId = listOf(
-        SourceDisclosure("lrclib", "LRCLIB", "LRCLIB (lrclib.net), an open community lyrics database",
-            "the song's title, artist, album and length"),
-        SourceDisclosure("amll_ttml_db", "AMLL TTML DB", "the AMLL TTML database (api.amll.dev), an open community project"),
         SourceDisclosure("unison", "Unison", "Unison (unison.boidu.dev), a community lyrics service"),
         SourceDisclosure("rmm_revival", "RMM Revival", "Apple's iTunes search and RMM Revival (rmmreviv.al)"),
         SourceDisclosure("lrc_red", "lrc.red", "lrc.red, which relays Apple Music lyrics"),
@@ -51,11 +49,11 @@ object SourceDisclosures {
     ).associateBy(SourceDisclosure::id)
 
     /**
-     * The disclosure for [descriptor], or null when it shares nothing new: Spicy Lyrics itself,
-     * rank-only slots that are never asked, and the user's own sources, whose address they typed.
+     * The disclosure for [descriptor], or null when it needs none: sources on by default, rank-only
+     * slots that are never asked, and the user's own sources, whose address they typed.
      */
     fun forSource(descriptor: LyricsSourceDescriptor): SourceDisclosure? = when {
-        descriptor.rankOnly || descriptor.id == RemoteLyricsSource.SPICY_ID || descriptor.upstreamFamily == "custom" -> null
+        descriptor.defaultEnabled || descriptor.rankOnly || descriptor.upstreamFamily == "custom" -> null
         else -> byId[descriptor.id] ?: SourceDisclosure(descriptor.id, descriptor.displayName, descriptor.displayName)
     }
 

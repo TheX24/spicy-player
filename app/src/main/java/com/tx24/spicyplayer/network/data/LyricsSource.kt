@@ -28,7 +28,6 @@ class LyricsSource @Inject constructor(
         ),
         upstreamFamily = "lrclib",
         releaseChannel = SourceReleaseChannel.RECOMMENDED,
-        defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {

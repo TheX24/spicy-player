@@ -747,8 +747,8 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
     Searchable("Sources", "Priority", "Order", *state.sourceOrder.mapNotNull { id -> state.sourceDescriptors.firstOrNull { it.id == id }?.displayName }.toTypedArray()) {
         Text(
             "Higher sources are asked first. Switched-off sources are skipped. Spicy Lyrics stands here for its community syncs; " +
-                "the Apple Music and Spotify lyrics it serves rank as Apple Music and Spotify. Only Spicy Lyrics is on to start: " +
-                "the others are run by other people, so each says what it sends before it's switched on.",
+                "the Apple Music and Spotify lyrics it serves rank as Apple Music and Spotify. Spicy Lyrics, LRCLIB and AMLL TTML DB are on " +
+                "to start; the others haven't said apps may use them, so each says what it sends before it's switched on.",
             style = DescriptionStyle,
             modifier = Modifier.padding(start = 2.dp, end = 2.dp, bottom = SpicySpacing.S3),
         )

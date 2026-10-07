@@ -259,7 +259,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         )
         /**
          * Bump when the default source order or on/off set changes, to reset saved choices once.
-         * 2: Spicy Lyrics alone is on; every other source asks first ([SourceDisclosures]).
+         * 2: Spicy Lyrics, LRCLIB and AMLL TTML DB are on; every other source asks first ([SourceDisclosures]).
          */
         internal const val SOURCE_DEFAULTS_VERSION = 2
         private val APP_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
