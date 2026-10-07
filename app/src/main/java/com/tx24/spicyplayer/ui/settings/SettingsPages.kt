@@ -63,6 +63,7 @@ import androidx.compose.material.icons.rounded.GraphicEq
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.MotionPhotosPaused
 import androidx.compose.material.icons.rounded.Album
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.StayCurrentPortrait
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Link
@@ -95,6 +96,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
+import com.tx24.spicyplayer.PictureInPicture
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -629,6 +631,14 @@ internal fun ControlsContent(settings: AppSettings) {
             icon = Icons.Rounded.Tune,
         )
         ToggleRow(
+            label = "Floating lyrics button",
+            checked = settings.pipButton,
+            onCheckedChange = { settings.pipButton = it },
+            description = "Show the button that shrinks the lyrics into a small floating window, over other apps.",
+            icon = Icons.Rounded.PictureInPictureAlt,
+            enabled = PictureInPicture.supported(LocalContext.current),
+        )
+        ToggleRow(
             label = "Lyrics Manager button",
             checked = settings.lyricsManagerButton,
             onCheckedChange = { settings.lyricsManagerButton = it },
@@ -695,6 +705,14 @@ internal fun DeviceContent(settings: AppSettings) {
         onCheckedChange = { settings.keepScreenOn = it },
         description = "Stop the screen from turning off while music plays.",
         icon = Icons.Rounded.StayCurrentPortrait,
+    )
+    ToggleRow(
+        label = "Floating lyrics",
+        checked = settings.autoPip,
+        onCheckedChange = { settings.autoPip = it },
+        description = "Leave the app while a song plays and the lyrics shrink into a small floating window.",
+        icon = Icons.Rounded.PictureInPictureAlt,
+        enabled = PictureInPicture.supported(LocalContext.current),
     )
     SettingsSection("Performance") {
         ToggleRow(

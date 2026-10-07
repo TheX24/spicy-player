@@ -26,6 +26,7 @@
         <activity
             android:name="com.tx24.spicyplayer.LyricsActivity"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden"
+            android:supportsPictureInPicture="true"
             android:exported="true" />
 
         <!--

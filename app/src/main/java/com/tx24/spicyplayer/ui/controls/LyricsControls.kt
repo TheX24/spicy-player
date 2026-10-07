@@ -11,6 +11,7 @@ import androidx.compose.animation.core.snap
 
 import androidx.compose.animation.core.FastOutSlowInEasing
 
+import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.Icons
 import androidx.compose.animation.core.Animatable
@@ -146,6 +147,8 @@ fun LyricsControls(
     onOpenQueue: (() -> Unit)? = null,
     /** Shows the quick settings button when set. */
     onOpenQuickSettings: (() -> Unit)? = null,
+    /** Shows the picture-in-picture button when set. */
+    onEnterPip: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
     expanded: Boolean = false,
     onToggleExpanded: () -> Unit = {},
@@ -203,9 +206,9 @@ fun LyricsControls(
             contentAlignment = Alignment.TopCenter,
         ) {
             if (wide) {
-                ControlsBar(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, shown, showResync, showExpand, onOpenQueue = onOpenQueue)
+                ControlsBar(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, shown, showResync, showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip)
             } else {
-                ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, shown, showResync, showExpand, onOpenQueue = onOpenQueue)
+                ControlsColumn(controls, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, shown, showResync, showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip)
             }
             // Hidden controls swallow touches too: a touch there only brings them back, rather
             // than pressing a button nobody can see.
@@ -243,6 +246,7 @@ private fun ControlsColumn(
     showResync: Boolean,
     showExpand: Boolean,
     onOpenQueue: (() -> Unit)? = null,
+    onEnterPip: (() -> Unit)? = null,
 ) {
     val shuffle = controls.customActions.firstOrNull { it.kind == ActionKind.Shuffle }
     val repeat = controls.customActions.firstOrNull { it.kind == ActionKind.Repeat }
@@ -262,11 +266,11 @@ private fun ControlsColumn(
         PlaybackRow(controls, shuffle, repeat, Modifier.padding(horizontal = SIDE_MARGIN - SpicySpacing.S2))
         Spacer(Modifier.height(ROW_GAP))
         // The gap shrinks when a player adds enough buttons that the usual one runs off the screen.
-        val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, showResync, showExpand).count { it } + others.size + 1
+        val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, onEnterPip != null, showResync, showExpand).count { it } + others.size + 1
         BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S2), contentAlignment = Alignment.Center) {
             val fits = (maxWidth - FLOATING_SIZE * buttons) / (buttons - 1).coerceAtLeast(1)
             FloatingButtons(fits.coerceIn(4.dp, SpicySpacing.S4)) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = FLOATING_SIZE, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue)
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = FLOATING_SIZE, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip)
             }
         }
     }
@@ -292,6 +296,7 @@ private fun ControlsBar(
     showResync: Boolean,
     showExpand: Boolean,
     onOpenQueue: (() -> Unit)? = null,
+    onEnterPip: (() -> Unit)? = null,
 ) {
     val shuffle = controls.customActions.firstOrNull { it.kind == ActionKind.Shuffle }
     val repeat = controls.customActions.firstOrNull { it.kind == ActionKind.Repeat }
@@ -308,11 +313,11 @@ private fun ControlsBar(
             Timeline(controls, shown, Modifier)
         }
         BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, showResync, showExpand).count { it } + others.size + 1
+            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, onEnterPip != null, showResync, showExpand).count { it } + others.size + 1
             val room = maxWidth - SpicySpacing.S4
             val size = ((room - COVER_BUTTON_GAP * (buttons - 1)) / buttons).coerceIn(COVER_BUTTON_MIN, COVER_BUTTON_MAX)
             FloatingButtons(COVER_BUTTON_GAP) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = size, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue)
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = size, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip)
             }
         }
     }
@@ -341,6 +346,7 @@ private fun FloatingButtonsContent(
     showResync: Boolean,
     showExpand: Boolean,
     onOpenQueue: (() -> Unit)? = null,
+    onEnterPip: (() -> Unit)? = null,
 ) {
     // Icons keep their size against the button's (drawn for a 48dp one).
     fun icon(dp: Float) = size * (dp / FLOATING_SIZE.value)
@@ -384,6 +390,11 @@ private fun FloatingButtonsContent(
             Image(rememberVectorPainter(Icons.Rounded.Tune), null, Modifier.size(icon(24f)), colorFilter = ColorFilter.tint(Color.White))
         }
     }
+    if (onEnterPip != null) {
+        GlassButton(onClick = onEnterPip, contentDescription = "Picture-in-picture", size = size) {
+            Image(rememberVectorPainter(Icons.Rounded.PictureInPictureAlt), null, Modifier.size(icon(23f)), colorFilter = ColorFilter.tint(Color.White))
+        }
+    }
     if (onOpenQueue != null) {
         GlassButton(onClick = onOpenQueue, contentDescription = "Queue", size = size) {
             Image(rememberVectorPainter(Icons.AutoMirrored.Rounded.QueueMusic), null, Modifier.size(icon(23f)), colorFilter = ColorFilter.tint(Color.White))
@@ -421,6 +432,7 @@ fun CoverControls(
     onSwapSide: (() -> Unit)?,
     shown: () -> Float,
     modifier: Modifier = Modifier,
+    onEnterPip: (() -> Unit)? = null,
     showResync: Boolean = true,
     showExpand: Boolean = true,
 ) {
@@ -446,12 +458,12 @@ fun CoverControls(
                 .padding(horizontal = side * 0.06f, vertical = side * 0.06f),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, onSwapSide != null, showResync, showExpand).count { it } + others.size + 1
+            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, onEnterPip != null, onSwapSide != null, showResync, showExpand).count { it } + others.size + 1
             val room = side * 0.88f
             val size = ((room - COVER_BUTTON_GAP * (buttons - 1)) / buttons).coerceIn(COVER_BUTTON_MIN, COVER_BUTTON_MAX)
             val gap = ((room - size * buttons) / (buttons - 1).coerceAtLeast(1)).coerceIn(2.dp, SpicySpacing.S3)
             FloatingButtons(gap) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide, size, showResync, showExpand, onOpenQueue = onOpenQueue)
+                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide, size, showResync, showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip)
             }
             Spacer(Modifier.weight(1f))
             PlaybackRow(controls, shuffle, repeat, Modifier, skipWidth = side * 0.15f, fillSlots = true)

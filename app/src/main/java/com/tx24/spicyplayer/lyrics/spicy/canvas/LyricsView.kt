@@ -105,6 +105,8 @@ fun LyricsView(
     pinnedFooter: PinnedFooterMode = PinnedFooterMode.Off,
     /** How far up from the bottom the lyrics are covered (pinned credits); they fade out above it. */
     maskBottomPx: () -> Float = { 0f },
+    /** Scales the top and bottom edge fade; under 1 for a window too small for the full one. */
+    maskScale: Float = 1f,
 ) {
     val textMeasurer = rememberTextMeasurer()
     // What is on screen: lines and their layouts, swapped together once new layouts are measured.
@@ -421,7 +423,7 @@ fun LyricsView(
         // The sole renderer mask: transparent through 16dp, ramping to opaque at 64dp, with a
         // symmetric bottom edge. Pinned credits lift the bottom edge above them: the lyrics fade
         // out over the 48dp just above.
-        val maskStops = lyricsMaskStops(canvasHeight, density.density)
+        val maskStops = lyricsMaskStops(canvasHeight, density.density * maskScale)
         val fadeBrush = remember(maskStops) { maskBrush(maskStops) }
         val pinnedFadePx = PINNED_FADE_DP * density.density
 

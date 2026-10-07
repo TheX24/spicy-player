@@ -90,6 +90,8 @@ fun configSnapshot(settings: AppSettings): Map<String, Any> = with(settings) {
         "animated_cover" to animatedCover,
         "animated_background" to animatedBackground,
         "keep_screen_on" to keepScreenOn,
+        "auto_pip" to autoPip,
+        "pip_button" to pipButton,
         "hide_header" to hideHeader,
         "header_size" to headerSize.name,
         "panel_side" to panelSide.name,

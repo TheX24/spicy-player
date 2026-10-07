@@ -176,6 +176,13 @@ import kotlin.math.roundToInt
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -195,11 +202,47 @@ class LyricsActivity : ComponentActivity() {
     private val playbackViewModel: ExternalPlaybackViewModel by viewModels()
     private val updateViewModel: UpdateViewModel by viewModels()
 
+    /** In the small floating window: the lyrics screen then shows the lyrics and nothing else. */
+    private var inPip by mutableStateOf(false)
+    /** Whether the screen in front is one it's fine to shrink (not settings, a pop-up, the intro). */
+    private val pipAllowed = MutableStateFlow(false)
+    private var pipAutoEnter = false
+    private val pipSupported by lazy { PictureInPicture.supported(this) }
+
+    // The window's own buttons come back as broadcasts.
+    private val pipReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            when (intent.action) {
+                PictureInPicture.ACTION_PREVIOUS -> playbackViewModel.skipPrevious()
+                PictureInPicture.ACTION_PLAY_PAUSE -> playbackViewModel.playPause()
+                PictureInPicture.ACTION_NEXT -> playbackViewModel.skipNext()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         UsageStats.init(this)
         enableEdgeToEdge()
         hideSystemBars()
+        if (pipSupported) {
+            addOnPictureInPictureModeChangedListener { inPip = it.isInPictureInPictureMode }
+            // Keeps the window's play/pause icon right, and whether leaving the app enters it.
+            lifecycleScope.launch {
+                repeatOnLifecycle(Lifecycle.State.STARTED) {
+                    combine(
+                        pipAllowed,
+                        playbackViewModel.state.map { it.isPlaying to (it.sourcePackage != null) }.distinctUntilChanged(),
+                    ) { allowed, (playing, hasSession) -> playing to (allowed && hasSession) }
+                        .collect { (playing, autoEnter) ->
+                            pipAutoEnter = autoEnter
+                            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                runCatching { setPictureInPictureParams(PictureInPicture.params(this@LyricsActivity, playing, autoEnter)) }
+                            }
+                        }
+                }
+            }
+        }
         setContent {
             val settings = remember { AppSettings(getSharedPreferences("ui", Context.MODE_PRIVATE)) }
             MaterialTheme(colorScheme = darkColorScheme()) {
@@ -216,6 +259,9 @@ class LyricsActivity : ComponentActivity() {
                         openNotificationAccess = {
                             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                         },
+                        inPip = inPip,
+                        onEnterPip = ::enterPip.takeIf { pipSupported },
+                        onPipAllowed = { pipAllowed.value = it && pipSupported },
                     )
                     }
                 }
@@ -223,8 +269,27 @@ class LyricsActivity : ComponentActivity() {
         }
     }
 
+    /** Shrinks the lyrics into the floating window (the button's way in). */
+    private fun enterPip() {
+        if (!pipSupported || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
+        val playing = playbackViewModel.state.value.isPlaying
+        runCatching { enterPictureInPictureMode(PictureInPicture.params(this, playing, pipAutoEnter)) }
+    }
+
+    // Android 12+ enters the window on its own (see PictureInPicture.params); before that, here.
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (pipAutoEnter && Build.VERSION.SDK_INT in Build.VERSION_CODES.O until Build.VERSION_CODES.S) enterPip()
+    }
+
     override fun onStart() {
         super.onStart()
+        if (pipSupported) {
+            ContextCompat.registerReceiver(
+                this, pipReceiver, IntentFilter().apply { PictureInPicture.actions.forEach(::addAction) },
+                ContextCompat.RECEIVER_NOT_EXPORTED,
+            )
+        }
         playbackViewModel.setUiStarted(true)
         UsageStats.appOpened(this) { lookupSnapshot(playbackViewModel.state.value) }
     }
@@ -235,6 +300,7 @@ class LyricsActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        if (pipSupported) runCatching { unregisterReceiver(pipReceiver) }
         playbackViewModel.setUiStarted(false)
         // Switching the launcher icon disables the alias this screen was opened through, and
         // Android closes it then: so the switch waits until the app is left. Also picks up a
@@ -305,6 +371,10 @@ private fun LyricsApp(
     viewModel: ExternalPlaybackViewModel,
     updater: UpdateViewModel,
     settings: AppSettings,
+    inPip: Boolean,
+    /** Shrinks the lyrics into the floating window; null where the phone has none. */
+    onEnterPip: (() -> Unit)?,
+    onPipAllowed: (Boolean) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     val context = LocalContext.current
@@ -424,6 +494,10 @@ private fun LyricsApp(
     var showQuickSettings by remember { mutableStateOf(false) }
     var quickOnQueue by remember { mutableStateOf(false) }
     var showSpotifySearch by remember { mutableStateOf(false) }
+    // Leaving the app only shrinks the lyrics when nothing else is half done in front of them.
+    val pipAllowed = settings.autoPip && state.accessGranted && !showIntro && !showSettings && !showLyricsManager &&
+        !showQuickSettings && !showSpotifySearch && state.limitNotice == null && lyricsViewState.profileRequest == null
+    LaunchedEffect(pipAllowed) { onPipAllowed(pipAllowed) }
     CountUsage(
         state,
         showSettings to UsageCounter.SETTINGS,
@@ -490,6 +564,11 @@ private fun LyricsApp(
 
     // The bars are hidden, so this is only the camera cutout (and the keyboard in settings).
     Scaffold(contentWindowInsets = WindowInsets.safeDrawing) { padding ->
+        // The floating window has room for the lyrics and nothing else.
+        if (inPip) {
+            PipLyrics(state, viewModel, settings, renderConfig, lyricsViewState, romanize, lowPerformance)
+            return@Scaffold
+        }
         CompositionLocalProvider(LocalControlsRevealGuard provides revealGuard) {
         Box(
             Modifier
@@ -629,6 +708,7 @@ private fun LyricsApp(
                     },
                     onResync = viewModel::resync,
                 )
+                val onEnterPipButton = onEnterPip.takeIf { settings.pipButton }
                 val onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null
                 val onOpenQuickSettings = if (settings.quickSettingsButton) ({ quickOnQueue = false; showQuickSettings = true }) else null
                 // The queue's own button opens quick settings on its queue screen.
@@ -753,6 +833,7 @@ private fun LyricsApp(
                                     onOpenLyricsManager = onOpenLyricsManager,
                                     onOpenQueue = onOpenQueue,
                                     onOpenQuickSettings = onOpenQuickSettings,
+                                    onEnterPip = onEnterPipButton,
                                     expanded = headerExpanded,
                                     onToggleExpanded = expandButtonTapped,
                                     // Only beside the lyrics: the big cover sits in the middle.
@@ -786,6 +867,7 @@ private fun LyricsApp(
                         onOpenLyricsManager = onOpenLyricsManager,
                         onOpenQueue = onOpenQueue,
                         onOpenQuickSettings = onOpenQuickSettings,
+                        onEnterPip = onEnterPipButton,
                         expanded = headerExpanded,
                         onToggleExpanded = expandButtonTapped,
                         interactive = controlsVisible && !controlsOnCover,
@@ -940,6 +1022,58 @@ private fun LyricsApp(
         }
 
         SpicyToastHost(viewModel.messages, Modifier.padding(padding).padding(top = SpicySpacing.S4))
+    }
+}
+
+/**
+ * The lyrics in the floating window: the background and the lyrics, centred, with the text sized
+ * to the window (the 29.6sp minimum at 300x190dp, shrinking with it) so a few rows still fit.
+ */
+@Composable
+private fun PipLyrics(
+    state: PlayerUiState,
+    viewModel: ExternalPlaybackViewModel,
+    settings: AppSettings,
+    config: RenderConfig,
+    viewState: LyricsViewState,
+    romanize: Boolean,
+    lowPerformance: Boolean,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        // A short window fits few rows, so the height limits the text as much as the width does.
+        val windowScale = minOf(maxWidth.value / 300f, maxHeight.value / 190f).coerceIn(0.4f, 1f)
+        val fontScale = windowScale * settings.lyricsSize.scale
+        SpicySessionBackground(
+            artwork = state.artwork,
+            artworkUri = state.artworkUri,
+            isPlaying = state.isPlaying,
+            hasSession = state.sourcePackage != null,
+            modifier = Modifier.fillMaxSize(),
+            type = settings.backgroundType,
+            animate = !lowPerformance && !settings.staticBackground,
+            blurDp = settings.backgroundBlur,
+            artistHeaderUrl = state.artistHeaderUrl,
+            artistHeaderPending = state.artistHeaderPending,
+        )
+        LyricsPanel(
+            lyrics = state.lyrics,
+            currentTimeMs = viewModel::currentLyricPositionMs,
+            onSeek = {},
+            romanize = romanize,
+            isPlaying = state.isPlaying,
+            activeLineTopPx = null,
+            centredLiftPx = 0f,
+            noticeBottomPx = { 0f },
+            viewState = viewState,
+            pinnedFooter = PinnedFooterMode.Off,
+            maskBottomPx = { 0f },
+            config = config,
+            fontSizeScale = fontScale,
+            onSearchSpotify = {},
+            modifier = Modifier.fillMaxSize(),
+            // The page's edge fade is 64dp deep: all of a window this small.
+            maskScale = 0.25f,
+        )
     }
 }
 
@@ -1219,6 +1353,7 @@ private fun LyricsPanel(
     fontSizeScale: Float,
     onSearchSpotify: () -> Unit,
     modifier: Modifier = Modifier,
+    maskScale: Float = 1f,
 ) {
     // The loading skeleton: up as soon as the lookup starts, over whatever the panel
     // shows, fading in over 0.2s and out over 0.25s (ease-out).
@@ -1226,6 +1361,7 @@ private fun LyricsPanel(
         LyricsPanelContent(
             lyrics, currentTimeMs, onSeek, romanize, isPlaying, activeLineTopPx, centredLiftPx, noticeBottomPx,
             viewState, pinnedFooter, maskBottomPx, config, fontSizeScale, onSearchSpotify, Modifier.fillMaxSize(),
+            maskScale = maskScale,
         )
         AnimatedVisibility(
             visible = lyrics == LyricsState.Loading,
@@ -1264,6 +1400,7 @@ private fun LyricsPanelContent(
     fontSizeScale: Float,
     onSearchSpotify: () -> Unit,
     modifier: Modifier = Modifier,
+    maskScale: Float = 1f,
 ) {
     when (lyrics) {
         LyricsState.Idle -> LyricsNotice("Waiting for a song", null, noticeBottomPx, modifier)
@@ -1309,6 +1446,7 @@ private fun LyricsPanelContent(
                 viewState = viewState,
                 pinnedFooter = pinnedFooter,
                 maskBottomPx = maskBottomPx,
+                maskScale = maskScale,
                 footer = remember(lyrics) {
                     LyricsFooter(
                         songwriters = lyrics.songwriters,

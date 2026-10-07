@@ -1,6 +1,7 @@
 package com.tx24.spicyplayer.ui.settings
 
 import android.content.SharedPreferences
+import android.os.Build
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -88,6 +89,14 @@ class AppSettings(private val prefs: SharedPreferences) {
     var animatedBackground by boolean("animatedBackground", false)
 
     var keepScreenOn by boolean("keepScreenOn", true)
+    /** Leaving the app with a song playing shrinks the lyrics into a small floating window. */
+    var autoPip by boolean("autoPip", true)
+    /**
+     * A floating button that shrinks the lyrics into that window by hand. On by default only where
+     * Android enters the window on its own (12+); before that the button is the way in, so it's
+     * left for whoever wants it.
+     */
+    var pipButton by boolean("pipButton", Build.VERSION.SDK_INT >= Build.VERSION_CODES.S)
     /** No song header: the lyrics fill the page and scroll with the active line near the centre. */
     var hideHeader by boolean("hideHeader", false)
     var headerSize by enum("headerSize", HeaderSize.Large)

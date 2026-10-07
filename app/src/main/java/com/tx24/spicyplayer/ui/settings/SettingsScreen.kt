@@ -420,10 +420,10 @@ private fun PageSkeleton(page: SettingsPage) {
         SettingsPage.ScrollSync -> SettingsSkeleton(rows = 6)
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
-        SettingsPage.Controls -> SettingsSkeleton(rows = 10)
+        SettingsPage.Controls -> SettingsSkeleton(rows = 11)
         SettingsPage.Theme -> SettingsSkeleton(rows = 3)
         SettingsPage.Sources -> SettingsSkeleton(rows = 13, cards = true)
-        SettingsPage.Device -> SettingsSkeleton(rows = 7)
+        SettingsPage.Device -> SettingsSkeleton(rows = 8)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 12)
     }
 }
@@ -500,7 +500,7 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
             SettingsPage.Controls.title,
             listOf(
                 if (settings.autoHideControls) "Hide after ${settings.controlsHideDelay.label}" else "Always shown",
-                "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.quickSettingsButton, settings.lyricsManagerButton, settings.queueButton).count { it }} of 7 extra buttons",
+                "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.quickSettingsButton, settings.pipButton, settings.lyricsManagerButton, settings.queueButton).count { it }} of 8 extra buttons",
             ).joinToString(),
         ) { onOpen(SettingsPage.Controls) }
         GroupDivider()
