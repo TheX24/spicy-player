@@ -1596,6 +1596,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         } else outputProfiles.currentRoute()
         if (route.key != outputRoute.key) {
             outputRoute = route
+            SyncTrace.add(SystemClock.elapsedRealtime(), "output: ${route.label}")
             mutableState.value = mutableState.value.copy(
                 outputLabel = route.label,
                 lyricDelayMs = outputProfiles.delayMs(route),
@@ -1619,6 +1620,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             // Seeding the clock from it jumps the new lyrics ahead and forces a scroll, so the
             // song starts from 0 until the player reports.
             Log.d(SYNC_TAG, "track changed before its report; clock starts at 0")
+            SyncTrace.add(now, "new song, no report yet: clock at 0")
             clock.startTrack(now, playback.playbackSpeed, playing)
             awaitingTrackReport = true
             return
@@ -1636,6 +1638,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             "report ${controller?.packageName} state=${playback.state} pos=${playback.position} " +
                 "age=${now - playback.lastPositionUpdateTime}ms speed=${playback.playbackSpeed} " +
                 "drift=${outcome.driftMs}ms applied=${outcome.appliedMs}ms bias=${outcome.biasMs}ms force=$force snap=${snap || resync || firstOfTrack} relayed=$relayed",
+        )
+        SyncTrace.add(
+            now,
+            (if (trackChanged) "new song: " else "") +
+                "state=${playback.state} pos=${playback.position} age=${now - playback.lastPositionUpdateTime} " +
+                "speed=${playback.playbackSpeed} drift=${outcome.driftMs} moved=${outcome.appliedMs} bias=${outcome.biasMs}" +
+                (if (snap || resync || firstOfTrack) " snap" else "") + (if (relayed) " relayed" else ""),
         )
         mutableState.value = mutableState.value.copy(clockDriftMs = outcome.driftMs)
     }

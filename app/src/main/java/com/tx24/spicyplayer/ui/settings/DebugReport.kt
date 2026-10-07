@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
 import android.os.Build
+import android.os.SystemClock
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.ContentCopy
 import androidx.compose.runtime.Composable
@@ -15,6 +16,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.playback.PlayerUiState
+import com.tx24.spicyplayer.playback.SyncTrace
 import com.tx24.spicyplayer.ui.components.SettingRow
 import com.tx24.spicyplayer.ui.components.SpicyButton
 import kotlinx.coroutines.delay
@@ -46,6 +48,12 @@ internal fun debugReport(context: Context, state: PlayerUiState): String {
         state.providerAttempts.forEach { attempt ->
             val detail = attemptDetail(attempt) { time.format(it) }
             appendLine("  ${attemptSourceName(attempt, state)}: ${attempt.outcome.label()}" + if (detail.isNotEmpty()) " ($detail)" else "")
+        }
+        val sync = SyncTrace.lines(SystemClock.elapsedRealtime())
+        if (sync.isNotEmpty()) {
+            appendLine()
+            appendLine("Sync (newest last):")
+            sync.forEach { appendLine("  $it") }
         }
     }
     return redactSecrets(report).trimEnd()
