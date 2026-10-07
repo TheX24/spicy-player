@@ -368,7 +368,11 @@ class LyricsAnimator(
                         states
                     }
                     else -> {
-                        // Frozen: NotSung lines and long-finished Sung lines are never touched.
+                        // Frozen: NotSung lines and long-finished Sung lines are never touched. A seek
+                        // back leaves lines that were sung ahead of the song again, so they start over.
+                        if (lineState == ElementState.NotSung && cachedWordStates[lineIdx]?.any { it.state != ElementState.NotSung } == true) {
+                            forgetLine(lineIdx)
+                        }
                         cachedWordStates.getOrPut(lineIdx) { line.words.map { restingWordState(it) } }
                     }
                 }
@@ -1040,6 +1044,17 @@ class LyricsAnimator(
     )
 
     // ── Spring lookup ───────────────────────────────────────────────────────────────
+
+    /** Drops what a line remembers of being sung, so it animates from the start the next time. */
+    private fun forgetLine(lineIdx: Int) {
+        cachedWordStates.remove(lineIdx)
+        cachedLineGradient.remove(lineIdx)
+        cachedLineGlow.remove(lineIdx)
+        lineGlowSprings.remove(lineIdx)
+        wordSpringsMap.keys.removeAll { it / 100000L == lineIdx.toLong() }
+        letterSpringsMap.keys.removeAll { it / 1000000L == lineIdx.toLong() }
+        dotSpringsMap.keys.removeAll { it / 3L == lineIdx.toLong() }
+    }
 
     private fun wordSprings(lineIndex: Int, wordIndex: Int): WordSprings =
         wordSpringsMap.getOrPut(lineIndex.toLong() * 100000L + wordIndex.toLong()) { WordSprings() }
