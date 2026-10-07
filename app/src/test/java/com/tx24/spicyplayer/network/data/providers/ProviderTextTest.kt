@@ -1,7 +1,6 @@
 package com.tx24.spicyplayer.network.data.providers
 
 import com.google.gson.Gson
-import com.google.gson.JsonArray
 import com.google.gson.JsonObject
 import com.tx24.spicyplayer.network.data.ProviderResult
 import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
@@ -23,15 +22,6 @@ class ProviderTextTest {
     @Test fun realLyricsMentioningTheWordsAreKept() {
         val song = (1..6).joinToString("\n") { "[00:0$it.00]line $it" } + "\n[00:07.00]纯音乐"
         assertFalse(RemoteLyricsPayload(syncedLyrics = song).isNoWordsNote())
-    }
-
-    @Test fun richsyncSpacesSeparateWordsAndEndThem() {
-        val rows = Gson().fromJson(
-            """[{"ts":10.0,"te":12.0,"l":[{"c":"Hel","o":0.0},{"c":"lo","o":0.3},{"c":" ","o":0.6},{"c":"there","o":1.0}]}]""",
-            JsonArray::class.java,
-        )
-        val ttml = RichSyncToTtml.convert(rows)!!
-        assertTrue(ttml, ttml.contains("""<span begin="10.000s" end="10.300s">Hel</span><span begin="10.300s" end="10.600s">lo</span> <span begin="11.000s" end="12.000s">there</span>"""))
     }
 
     @Test fun lrcMuxServesLinesWhenWordSyncIsIgnored() {

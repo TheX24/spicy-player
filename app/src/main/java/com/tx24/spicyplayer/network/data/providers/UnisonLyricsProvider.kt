@@ -37,6 +37,7 @@ class UnisonLyricsProvider @Inject constructor(
             LyricsCapability.PLAIN_TEXT,
         ),
         releaseChannel = SourceReleaseChannel.EXTENDED,
+        defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = try {

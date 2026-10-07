@@ -24,7 +24,7 @@ class LrcMuxLyricsProvider @Inject constructor(
     override val descriptor = LyricsSourceDescriptor(
         id = "lrcmux", displayName = "LRCMux", defaultPriority = 120,
         capabilities = setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
-        upstreamFamily = "musixmatch", releaseChannel = SourceReleaseChannel.EXTENDED,
+        upstreamFamily = "musixmatch", releaseChannel = SourceReleaseChannel.EXTENDED, defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = try {

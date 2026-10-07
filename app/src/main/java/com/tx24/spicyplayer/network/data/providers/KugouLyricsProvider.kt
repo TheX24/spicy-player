@@ -21,6 +21,7 @@ class KugouLyricsProvider @Inject constructor(private val client: OkHttpClient, 
     override val descriptor = LyricsSourceDescriptor(
         "kugou", "Kugou", 70, setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC),
         releaseChannel = SourceReleaseChannel.EXTENDED,
+        defaultEnabled = false,
     )
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult {
         return try {

@@ -23,6 +23,7 @@ class NetEaseLyricsProvider @Inject constructor(private val client: OkHttpClient
         "netease", "NetEase", 90,
         setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.TRANSLITERATION),
         releaseChannel = SourceReleaseChannel.EXTENDED,
+        defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = try {

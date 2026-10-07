@@ -746,7 +746,9 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
     var clientKey by remember { mutableStateOf("") }
     Searchable("Sources", "Priority", "Order", *state.sourceOrder.mapNotNull { id -> state.sourceDescriptors.firstOrNull { it.id == id }?.displayName }.toTypedArray()) {
         Text(
-            "Higher sources are asked first. Switched-off sources are skipped. Spicy Lyrics stands here for its community syncs; the Apple Music lyrics it serves rank as Apple Music.",
+            "Higher sources are asked first. Switched-off sources are skipped. Spicy Lyrics stands here for its community syncs; " +
+                "the Apple Music and Spotify lyrics it serves rank as Apple Music and Spotify. Only Spicy Lyrics is on to start: " +
+                "the others are run by other people, so each says what it sends before it's switched on.",
             style = DescriptionStyle,
             modifier = Modifier.padding(start = 2.dp, end = 2.dp, bottom = SpicySpacing.S3),
         )
@@ -768,12 +770,12 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
         }
     }
     CustomSourcesSection(state, viewModel)
-    SettingsSection("Musixmatch") {
+    SettingsSection("LRCMux") {
         ToggleRow(
-            label = "Ignore Musixmatch word sync",
+            label = "Ignore LRCMux word sync",
             checked = state.ignoreMusixmatchWordSync,
             onCheckedChange = viewModel::setIgnoreMusixmatchWordSync,
-            description = "Use Musixmatch's line timing instead of its word timing, which is often off. LRCMux follows it too.",
+            description = "Use LRCMux's line timing instead of its word timing, which comes from Musixmatch and is often off.",
             icon = Icons.Rounded.Sync,
         )
     }
@@ -782,7 +784,7 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
             label = "Human romanizations",
             checked = state.humanRomanizations,
             onCheckedChange = viewModel::setHumanRomanizations,
-            description = "Use a romanization written by people on Genius where it lines up with the lyrics, for readings no romanizer can guess.",
+            description = "Use a romanization written by people on Genius where it lines up with the lyrics, for readings no romanizer can guess. Asks Genius.",
             icon = Icons.Rounded.Translate,
         )
     }

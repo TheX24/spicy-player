@@ -50,6 +50,7 @@ class SettingsBackupStore(private val context: Context) {
                 "defaults" to Int::class, "order" to String::class, "custom" to String::class,
                 "disabled" to Set::class, "blends" to Set::class,
                 "humanRomanizations" to Boolean::class, "ignoreMusixmatchWordSync" to Boolean::class,
+                "disclosed" to Set::class, "sourcesResetNotice" to Boolean::class,
             )
             else -> emptyMap()
         }

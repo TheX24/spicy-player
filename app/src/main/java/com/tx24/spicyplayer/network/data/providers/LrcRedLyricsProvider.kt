@@ -22,7 +22,7 @@ class LrcRedLyricsProvider @Inject constructor(private val client: OkHttpClient,
     override val descriptor = LyricsSourceDescriptor(
         RemoteLyricsSource.LRC_RED_ID, "lrc.red", 45,
         setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT, LyricsCapability.TRANSLITERATION),
-        upstreamFamily = "apple_music", releaseChannel = SourceReleaseChannel.EXTENDED,
+        upstreamFamily = "apple_music", releaseChannel = SourceReleaseChannel.EXTENDED, defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = guarded {

@@ -62,7 +62,7 @@ class BiniLyricsProvider @Inject constructor(private val client: OkHttpClient, p
     override val descriptor = LyricsSourceDescriptor(
         "bini_lyrics", "BiniLyrics", 50,
         setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC, LyricsCapability.PLAIN_TEXT),
-        upstreamFamily = "apple_music", releaseChannel = SourceReleaseChannel.EXTENDED,
+        upstreamFamily = "apple_music", releaseChannel = SourceReleaseChannel.EXTENDED, defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = guarded {

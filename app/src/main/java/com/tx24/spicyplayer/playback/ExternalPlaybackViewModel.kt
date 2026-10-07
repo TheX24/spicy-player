@@ -45,6 +45,8 @@ import com.tx24.spicyplayer.network.data.RemoteLyricsSource
 import com.tx24.spicyplayer.network.data.LyricsCapability
 import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
 import com.tx24.spicyplayer.network.data.measuredQuality
+import com.tx24.spicyplayer.network.data.SourceDisclosure
+import com.tx24.spicyplayer.network.data.SourceDisclosures
 import java.io.File
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -148,8 +150,12 @@ data class PlayerUiState(
     val enabledBlendIds: Set<String> = emptySet(),
     val providerAttempts: List<ProviderAttempt> = emptyList(),
     val lookupStatus: String? = null,
-    val humanRomanizations: Boolean = true,
+    val humanRomanizations: Boolean = false,
     val ignoreMusixmatchWordSync: Boolean = true,
+    /** What a source the user is switching on would send, waiting for their OK. */
+    val sourceDisclosure: SourceDisclosure? = null,
+    /** This update reset the saved source choices; said once. */
+    val sourcesResetNotice: Boolean = false,
     /** The person's own Spicy Lyrics key, shortened ([SpicyLyricsKey.hint]); null while on the built-in one. */
     val ownKeyHint: String? = null,
     /** A Spotify Free limit to explain, until dismissed. */
@@ -215,6 +221,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         enabledBlendIds = lyricsBackend.policy().enabledBlendIds,
         humanRomanizations = lyricsBackend.humanRomanizations,
         ignoreMusixmatchWordSync = lyricsBackend.ignoreMusixmatchWordSync,
+        sourcesResetNotice = lyricsBackend.sourcesResetPending,
         ownKeyHint = runtimeApiKey.takeIf { it.isNotBlank() }?.let(SpicyLyricsKey::hint),
     ))
     /** The "get your own key" hint is shown once per run, the first time the shared key is rate-limited. */
@@ -805,11 +812,37 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     fun setSourceEnabled(id: String, enabled: Boolean) {
+        if (enabled && askFirst(mutableState.value.sourceDescriptors.firstOrNull { it.id == id }?.let(SourceDisclosures::forSource))) return
         val disabled = mutableState.value.disabledSourceIds.toMutableSet()
         if (enabled) disabled.remove(id) else disabled.add(id)
         lyricsBackend.setPolicy(mutableState.value.sourceOrder, disabled)
         refreshSourcePolicy()
         loadLyrics()
+    }
+
+    /** Holds [disclosure] for the user's OK when it's not been agreed to yet; true while it waits. */
+    private fun askFirst(disclosure: SourceDisclosure?): Boolean {
+        if (disclosure == null || lyricsBackend.isDisclosed(disclosure.id)) return false
+        mutableState.value = mutableState.value.copy(sourceDisclosure = disclosure)
+        return true
+    }
+
+    /** The user agreed to what [SourceDisclosure] sends: switch it on. */
+    fun acceptSourceDisclosure() {
+        val disclosure = mutableState.value.sourceDisclosure ?: return
+        lyricsBackend.markDisclosed(disclosure.id)
+        mutableState.value = mutableState.value.copy(sourceDisclosure = null)
+        if (disclosure.id == SourceDisclosures.GENIUS_ROMANIZATION_ID) setHumanRomanizations(true)
+        else setSourceEnabled(disclosure.id, true)
+    }
+
+    fun dismissSourceDisclosure() {
+        mutableState.value = mutableState.value.copy(sourceDisclosure = null)
+    }
+
+    fun dismissSourcesReset() {
+        lyricsBackend.dismissSourcesReset()
+        mutableState.value = mutableState.value.copy(sourcesResetNotice = false)
     }
 
     fun setIgnoreMusixmatchWordSync(enabled: Boolean) {
@@ -846,6 +879,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             songDelayMs = songDelays.delayMs(mutableState.value.localLyricsKey),
             humanRomanizations = lyricsBackend.humanRomanizations,
             ignoreMusixmatchWordSync = lyricsBackend.ignoreMusixmatchWordSync,
+            sourcesResetNotice = lyricsBackend.sourcesResetPending,
         )
         // The playing song's Spotify link may have come or gone: look it up again if so.
         val restoredId = controller?.metadata.overrideKey()?.let { overrideStore.getString(it, null) }
@@ -1199,6 +1233,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     fun setHumanRomanizations(enabled: Boolean) {
+        if (enabled && askFirst(SourceDisclosures.forId(SourceDisclosures.GENIUS_ROMANIZATION_ID))) return
         lyricsBackend.humanRomanizations = enabled
         mutableState.value = mutableState.value.copy(humanRomanizations = enabled)
         val selection = shownSelection ?: return
@@ -1287,6 +1322,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 accessGranted = kept.accessGranted,
                 humanRomanizations = kept.humanRomanizations,
                 ignoreMusixmatchWordSync = kept.ignoreMusixmatchWordSync,
+                sourceDisclosure = kept.sourceDisclosure,
+                sourcesResetNotice = kept.sourcesResetNotice,
                 ownKeyHint = kept.ownKeyHint,
                 localLyrics = kept.localLyrics,
                 customSources = kept.customSources,

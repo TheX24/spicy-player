@@ -1,6 +1,7 @@
 package com.tx24.spicyplayer.lyrics
 
 import android.content.Context
+import android.content.SharedPreferences
 import com.google.gson.Gson
 import com.google.gson.JsonParser
 import com.google.gson.JsonObject
@@ -34,7 +35,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
     /** Header values of custom sources: kept out of [preferences], which backups copy. */
     private val customHeaders = context.getSharedPreferences("custom_source_headers", Context.MODE_PRIVATE)
     private val builtIn: Set<RemoteLyricsProvider> =
-        createProviders(client, gson, clientKey, context.cacheDir, SharedSpotify.resolver) { ignoreMusixmatchWordSync }
+        createProviders(client, gson, clientKey, SharedSpotify.resolver) { ignoreMusixmatchWordSync }
     private val cooldowns = ProviderCooldownTracker()
     // Custom sources come and go, so these are rebuilt with them ([rebuild]).
     @Volatile private var providers: Set<RemoteLyricsProvider> = builtIn
@@ -44,6 +45,8 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     init {
         rebuild()
+        // Left by the Musixmatch source, which is gone.
+        File(context.cacheDir, "musixmatch-token.txt").delete()
     }
     /** Blends are switched on and off apart from the ordered sources; their rank follows their donors. */
     val blendDescriptors: List<LyricsSourceDescriptor> = LyricsBlends.ALL.map(LyricsBlendDefinition::descriptor)
@@ -189,12 +192,27 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
             }
         }
 
+        /**
+         * A new default order and set of sources replaces what was saved against the old one, once,
+         * along with the Genius romanization switch, which asks Genius too. Saved by an older
+         * version, the reset is flagged ([RESET_NOTICE]) so the user is told why.
+         */
+        internal fun migrateSourceDefaults(preferences: SharedPreferences) {
+            val savedDefaults = preferences.getInt("defaults", 0)
+            if (savedDefaults >= SOURCE_DEFAULTS_VERSION) return
+            preferences.edit()
+                .remove("order").remove("disabled").remove("humanRomanizations")
+                .putInt("defaults", SOURCE_DEFAULTS_VERSION)
+                // Fresh installs have nothing to be told about.
+                .putBoolean(RESET_NOTICE, savedDefaults > 0)
+                .apply()
+        }
+
         /** Every source the app asks, built on [client]. Also used by the live source check test. */
         fun createProviders(
             client: OkHttpClient,
             gson: Gson,
             clientKey: String,
-            cacheDir: File? = null,
             spotifyResolver: SpotifyTrackResolver = SpotifyTrackResolver(AnonymousSpotifyCatalogSearch(client, gson)),
             ignoreMusixmatchWordSync: () -> Boolean = { false },
         ): Set<RemoteLyricsProvider> {
@@ -221,7 +239,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
                 KuwoLyricsProvider(client),
                 NetEaseLyricsProvider(client, gson),
                 LyricsSource(lrclib),
-                MusixmatchLyricsProvider(client, gson, cacheDir?.let { File(it, "musixmatch-token.txt") }, ignoreMusixmatchWordSync),
+                RelayedOriginSlot.SPOTIFY,
                 LrcMuxLyricsProvider(client, gson, ignoreMusixmatchWordSync),
                 GeniusLyricsProvider(client, gson),
                 YouTubeTranscriptLyricsProvider(client, gson),
@@ -239,20 +257,25 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
             ProviderAttemptOutcome.QUEUED,
             ProviderAttemptOutcome.PENDING,
         )
-        /** Bump when the default source order or on/off set changes, to reset saved choices once. */
-        private const val SOURCE_DEFAULTS_VERSION = 1
+        /**
+         * Bump when the default source order or on/off set changes, to reset saved choices once.
+         * 2: Spicy Lyrics alone is on; every other source asks first ([SourceDisclosures]).
+         */
+        internal const val SOURCE_DEFAULTS_VERSION = 2
         private val APP_USER_AGENT = "Spicy Player ${BuildConfig.VERSION_NAME} (${BuildConfig.APPLICATION_ID})"
         private const val CACHE_DAYS = 3
         /** Custom sources start after every built-in one. */
         private const val CUSTOM_PRIORITY = 1_000
         private const val MUSIXMATCH_LINES_ONLY = "musixmatch-lines-only"
+        internal const val RESET_NOTICE = "sourcesResetNotice"
+        private const val DISCLOSED = "disclosed"
     }
 
+    /** Run on every read, so a restored old backup can't switch the old sources back on either. */
+    private fun migrateDefaults() = migrateSourceDefaults(preferences)
+
     fun policy(): RemoteLyricsPolicy {
-        // A new default order and set of sources replaces what was saved against the old one, once.
-        if (preferences.getInt("defaults", 0) < SOURCE_DEFAULTS_VERSION) {
-            preferences.edit().remove("order").remove("disabled").putInt("defaults", SOURCE_DEFAULTS_VERSION).apply()
-        }
+        migrateDefaults()
         val order = preferences.getString("order", null)?.split(',')?.filter(String::isNotBlank)
         val disabled = preferences.getStringSet("disabled", emptySet()).orEmpty()
         val normalized = LyricsSourcePreferenceNormalizer.normalize(order, disabled, descriptors)
@@ -267,9 +290,27 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         preferences.edit().putStringSet("blends", blends).apply()
     }
 
-    /** Human-written romanizations from Genius over the on-device ones (on by default). */
+    /** Whether what [id] sends ([SourceDisclosures]) has been shown and agreed to. */
+    fun isDisclosed(id: String): Boolean = id in preferences.getStringSet(DISCLOSED, emptySet()).orEmpty()
+
+    fun markDisclosed(id: String) {
+        preferences.edit().putStringSet(DISCLOSED, preferences.getStringSet(DISCLOSED, emptySet()).orEmpty() + id).apply()
+    }
+
+    /** Saved source choices were reset to the new defaults ([SOURCE_DEFAULTS_VERSION]) and that's not been said yet. */
+    val sourcesResetPending: Boolean
+        get() {
+            migrateDefaults()
+            return preferences.getBoolean(RESET_NOTICE, false)
+        }
+
+    fun dismissSourcesReset() {
+        preferences.edit().putBoolean(RESET_NOTICE, false).apply()
+    }
+
+    /** Human-written romanizations from Genius over the on-device ones (off until asked for: it asks Genius). */
     var humanRomanizations: Boolean
-        get() = preferences.getBoolean("humanRomanizations", true)
+        get() = preferences.getBoolean("humanRomanizations", false)
         set(value) = preferences.edit().putBoolean("humanRomanizations", value).apply()
 
     /** Line timing over word timing from the Musixmatch sources (on by default: their word syncs are poor). */

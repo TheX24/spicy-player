@@ -413,7 +413,7 @@ class RemoteLyricsSource @Inject constructor(
         /**
          * [ranked] with the relays' answers ([RELAY_IDS]) moved to where their lyrics came from:
          * Spicy Lyrics syncs rank in Spicy Lyrics' place, Apple Music lyrics in the Apple Music
-         * slot's, Spotify's (which are Musixmatch's) in Musixmatch's; after every source while that
+         * slot's, Spotify's in the Spotify slot's; after every source while that
          * place is in [disabled]. Any other relayed
          * catalogue after every source. Answers from one place keep the user's order between
          * them. A relay with no answer yet, or no origin, keeps its own place.
@@ -431,7 +431,7 @@ class RemoteLyricsSource @Inject constructor(
                 return when ((known[id] as? ProviderResult.Hit)?.payload?.attribution?.originName ?: return at) {
                     in SPICY_OWN_ORIGINS -> own[SPICY_ID] ?: at
                     "Apple Music" -> slot(APPLE_MUSIC_ID)
-                    "Spotify" -> slot(MUSIXMATCH_ID)
+                    "Spotify" -> slot(SPOTIFY_ID)
                     else -> Int.MAX_VALUE
                 }
             }
@@ -440,7 +440,7 @@ class RemoteLyricsSource @Inject constructor(
 
         const val SPICY_ID = "spicy_lyrics"
         const val APPLE_MUSIC_ID = "apple_music"
-        const val MUSIXMATCH_ID = "musixmatch"
+        const val SPOTIFY_ID = "spotify"
         const val LRC_RED_ID = "lrc_red"
         /** Relays of Spicy Lyrics' API (RMM Revival relays it by Apple Music ID). */
         private val SPICY_RELAY_IDS = setOf(SPICY_ID, "rmm_revival")

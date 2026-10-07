@@ -41,6 +41,14 @@ Your numbers will differ with your phone, the brightness and the background you 
 
 ## Privacy
 
+### Lyrics lookups
+
+Out of the box, Spicy Player asks only [Spicy Lyrics](https://spicylyrics.org) for lyrics. To find a song there, it first matches it to a Spotify track: it searches Spotify, without an account, for the song's title, artist, album and length. On Android 13 and newer, the moving background also asks Spotify for the track's beats (Settings → Background → Move with the Music turns that off).
+
+Every other lyrics source (LRCLIB, AMLL TTML DB, Unison, QQ Music, NetEase, Kugou, Kuwo, LRCMux, BiniLyrics, lrc.red, RMM Revival, Genius, YouTube transcripts) is off until you switch it on in Settings → Sources. Before one is switched on for the first time, the app says who it asks and what it sends: the song's title and artist, and for some, its album or length. The same goes for human romanizations, which ask Genius. No account or device details go to any of them. Release year and animated covers, which ask Spotify and Apple's iTunes search, are off by default too.
+
+### Usage stats
+
 Release builds send anonymous usage stats to the project's own [Umami](https://umami.is) server, so we can see how many people use the app and which features are worth working on. The app asks once when it first opens (new installs and updates alike). Nothing is sent before you answer, and you can turn it off any time in Settings → Advanced → Privacy. Debug builds, and builds made without the project's `UMAMI_WEBSITE_ID`, never send anything.
 
 **Never sent:** what you listen to (song titles, artists, albums, lyrics), anything else from the music app's notification, text you type, keys, account details, Android ID or advertising ID.
@@ -49,7 +57,7 @@ Release builds send anonymous usage stats to the project's own [Umami](https://u
 
 - **With every report:** a random ID made when the app is installed, used only to count installs; the app version; Android version; phone model; language; screen size in dp; phone or tablet. Umami works out your country from your IP address and does not store the address.
 - **When the app opens** (at most every 6 hours): whether you get pre-release updates.
-- **Once a day, the settings you use:** each appearance, scroll, background, header, controls, theme (settings, pop-ups, app icon) and haptics setting, as its option name or on/off. For a custom font, only "Custom" is sent, never the font's name. From the lookup settings: which source comes first, how many sources are off, how many blends are on, the romanization and Musixmatch word-sync switches, whether you use your own Spicy Lyrics key (yes or no, never the key), and how many custom sources you have (never their names, addresses or headers).
+- **Once a day, the settings you use:** each appearance, scroll, background, header, controls, theme (settings, pop-ups, app icon) and haptics setting, as its option name or on/off. For a custom font, only "Custom" is sent, never the font's name. From the lookup settings: which source comes first, how many sources are off, how many blends are on, the romanization and LRCMux word-sync switches, whether you use your own Spicy Lyrics key (yes or no, never the key), and how many custom sources you have (never their names, addresses or headers).
 - **Counts since the last report** (sent with app opens, at most every 6 hours): how many songs were looked up and how many got word-synced, line-synced, plain or no lyrics; which lyrics source and which music app (by package name, e.g. `com.spotify.music`) were used most, with counts for the top sources (a custom source counts as "Custom"); how often settings, each settings page, quick settings, the queue, the Lyrics Manager and Spotify search were opened; how often romanization was toggled, the expand button and the player's own buttons were tapped, lyrics were resynced, delay calibration was started, and settings were backed up or restored.
 
 The counts are kept on your phone until the next report. Turning the setting off deletes the install ID and any counts not yet sent; turning it back on starts with a new ID. The answer stays on the device: it is not part of a settings backup.

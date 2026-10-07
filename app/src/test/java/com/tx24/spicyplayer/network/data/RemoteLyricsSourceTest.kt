@@ -46,17 +46,31 @@ class RemoteLyricsSourceTest {
     }
 
     @Test
-    fun `Spicy Lyrics relaying Spotify ranks in Musixmatch's place`() = runBlocking {
+    fun `Spicy Lyrics relaying Spotify ranks in the Spotify slot's place`() = runBlocking {
         val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("Spicy Lyrics", originName = "Spotify"))
         val source = source(
             provider("spicy_lyrics", 1, result = ProviderResult.Hit(relayed)),
             provider("amll_ttml_db", 2, result = ProviderResult.Hit(wordTtml("amll"))),
-            provider("musixmatch", 3, result = ProviderResult.Miss),
+            slot("spotify", 3),
         )
 
         val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
 
         assertEquals("amll_ttml_db", result.selection.source.id)
+    }
+
+    @Test
+    fun `relayed Spotify lyrics beat a source ranked below the Spotify slot`() = runBlocking {
+        val relayed = wordTtml("relayed").copy(attribution = LyricsAttribution("Spicy Lyrics", originName = "Spotify"))
+        val source = source(
+            provider("spicy_lyrics", 1, result = ProviderResult.Hit(relayed)),
+            slot("spotify", 2),
+            provider("amll_ttml_db", 3, result = ProviderResult.Hit(wordTtml("amll"))),
+        )
+
+        val result = source.resolveLyrics(request) as RemoteLyricsResolution.Found
+
+        assertEquals("spicy_lyrics", result.selection.source.id)
     }
 
     @Test

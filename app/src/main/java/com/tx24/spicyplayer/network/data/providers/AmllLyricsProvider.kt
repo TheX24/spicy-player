@@ -39,6 +39,7 @@ class AmllLyricsProvider @Inject constructor(
             LyricsCapability.CONTRIBUTOR_CREDITS,
         ),
         releaseChannel = SourceReleaseChannel.RECOMMENDED,
+        defaultEnabled = false,
     )
 
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = try {

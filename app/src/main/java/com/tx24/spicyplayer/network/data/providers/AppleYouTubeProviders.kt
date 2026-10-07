@@ -18,8 +18,8 @@ import okhttp3.RequestBody.Companion.toRequestBody
 
 /**
  * A place in the order for lyrics another source relays: Spicy Lyrics (and RMM Revival, which
- * relays its API) pass on Apple Music's own lyrics, which nothing else offers, so this is never
- * asked; [RemoteLyricsSource.rankByOrigin] puts relayed answers here.
+ * relays its API) pass on Apple Music's and Spotify's own lyrics, which nothing else offers, so
+ * these are never asked; [RemoteLyricsSource.rankByOrigin] puts relayed answers here.
  */
 class RelayedOriginSlot(override val descriptor: LyricsSourceDescriptor) : RemoteLyricsProvider {
     override suspend fun fetch(request: LyricsLookupRequest): ProviderResult = ProviderResult.Miss
@@ -27,6 +27,12 @@ class RelayedOriginSlot(override val descriptor: LyricsSourceDescriptor) : Remot
     companion object {
         val APPLE_MUSIC = RelayedOriginSlot(LyricsSourceDescriptor(
             RemoteLyricsSource.APPLE_MUSIC_ID, "Apple Music", 40,
+            setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC),
+            releaseChannel = SourceReleaseChannel.EXTENDED,
+            rankOnly = true,
+        ))
+        val SPOTIFY = RelayedOriginSlot(LyricsSourceDescriptor(
+            RemoteLyricsSource.SPOTIFY_ID, "Spotify", 110,
             setOf(LyricsCapability.WORD_SYNC, LyricsCapability.LINE_SYNC),
             releaseChannel = SourceReleaseChannel.EXTENDED,
             rankOnly = true,

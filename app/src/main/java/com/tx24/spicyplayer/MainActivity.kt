@@ -14,6 +14,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Insights
+import androidx.compose.material.icons.rounded.Public
+import com.tx24.spicyplayer.network.data.SourceDisclosure
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -938,6 +940,19 @@ private fun LyricsApp(
             UsageStatsMessage(answerUsageStats)
         }
 
+        // Once, after the update that switched every source but Spicy Lyrics off; after the stats question.
+        SpicyModal(
+            visible = state.accessGranted && state.sourcesResetNotice && !showIntro &&
+                (!UsageStats.available || settings.usageStatsAsked),
+            onDismissRequest = viewModel::dismissSourcesReset,
+            backdrop = backdrop,
+        ) {
+            SourcesResetMessage(
+                onDismiss = viewModel::dismissSourcesReset,
+                onOpenSettings = { viewModel.dismissSourcesReset(); showSettings = true },
+            )
+        }
+
         QuickSettingsModal(
             visible = showQuickSettings,
             state = state,
@@ -1004,6 +1019,17 @@ private fun LyricsApp(
             backdrop = backdrop,
             onDismissRequest = { showSpotifySearch = false },
         )
+
+        // Over settings, where sources are switched on. Kept through the closing animation.
+        var lastDisclosure by remember { mutableStateOf<SourceDisclosure?>(null) }
+        state.sourceDisclosure?.let { lastDisclosure = it }
+        SpicyModal(
+            visible = state.sourceDisclosure != null,
+            onDismissRequest = viewModel::dismissSourceDisclosure,
+            backdrop = backdrop,
+        ) {
+            lastDisclosure?.let { SourceDisclosureMessage(it, viewModel::acceptSourceDisclosure, viewModel::dismissSourceDisclosure) }
+        }
 
         // Over settings, so a check from there answers in place.
         UpdatePopup(update, updater, backdrop)
@@ -1235,6 +1261,34 @@ private fun UsageStatsMessage(onAnswer: (keepOn: Boolean) -> Unit) {
     SpicyModalActions {
         SpicyModalButton("Turn off", { onAnswer(false) })
         SpicyModalButton("Keep on", { onAnswer(true) }, style = SpicyButtonStyle.Primary)
+    }
+}
+
+@Composable
+private fun SourcesResetMessage(onDismiss: () -> Unit, onOpenSettings: () -> Unit) {
+    SpicyModalMessage(
+        title = "Lyrics sources were reset",
+        description = "Spicy Player now asks only Spicy Lyrics for lyrics unless you choose more. Other sources are " +
+            "run by other people, so each one now says what it sends before you switch it on. Musixmatch is gone. " +
+            "You can switch the rest back on in Settings → Sources.",
+        icon = { Icon(Icons.Rounded.Info, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary) },
+    )
+    SpicyModalActions {
+        SpicyModalButton("Open settings", onOpenSettings)
+        SpicyModalButton("Got it", onDismiss, style = SpicyButtonStyle.Primary)
+    }
+}
+
+@Composable
+private fun SourceDisclosureMessage(disclosure: SourceDisclosure, onAccept: () -> Unit, onCancel: () -> Unit) {
+    SpicyModalMessage(
+        title = "Turn on ${disclosure.name}?",
+        description = disclosure.description,
+        icon = { Icon(Icons.Rounded.Public, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary) },
+    )
+    SpicyModalActions {
+        SpicyModalButton("Cancel", onCancel)
+        SpicyModalButton("Turn on", onAccept, style = SpicyButtonStyle.Primary)
     }
 }
 
