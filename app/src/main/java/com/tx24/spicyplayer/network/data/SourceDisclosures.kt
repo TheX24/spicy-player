@@ -33,7 +33,6 @@ object SourceDisclosures {
     const val GENIUS_ROMANIZATION_ID = "genius_romanization"
 
     private val byId = listOf(
-        SourceDisclosure("unison", "Unison", "Unison (unison.boidu.dev), a community lyrics service"),
         SourceDisclosure("rmm_revival", "RMM Revival", "Apple's iTunes search and RMM Revival (rmmreviv.al)"),
         SourceDisclosure("kugou", "Kugou", "Kugou's servers in China", WITH_LENGTH),
         SourceDisclosure("qq_music", "QQ Music", "Tencent's QQ Music servers in China"),

@@ -64,6 +64,6 @@ class SourceDefaultsTest {
 
     private companion object {
         /** Spicy Lyrics, and the lyrics APIs that say any app may use them. */
-        val DEFAULT_ON = setOf(RemoteLyricsSource.SPICY_ID, "lrclib", "amll_ttml_db", "lrcmux", "lrc_red", "bini_lyrics")
+        val DEFAULT_ON = setOf(RemoteLyricsSource.SPICY_ID, "lrclib", "amll_ttml_db", "unison", "lrcmux", "lrc_red", "bini_lyrics")
     }
 }
