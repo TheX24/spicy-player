@@ -25,6 +25,8 @@ Playback controls depend on what the music app exposes through Android MediaSess
 
 Found a bug or have an idea? [Report a bug or suggest a feature](https://github.com/TheX24/Spicy-Player/issues/new/choose), or post in the [Spicy Player thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j) (join first, then the thread link works). Both are linked from the version card in Settings. Include your app version, phone/Android version, music app, and steps to reproduce a bug; screenshots and song links help.
 
+If Spicy Player is useful to you, a star on the [repository](https://github.com/TheX24/spicy-player) helps other people find it. The "Star on GitHub" button in Settings opens it.
+
 See [CONTRIBUTING.md](CONTRIBUTING.md) for reports and pull requests, and [SECURITY.md](SECURITY.md) for private vulnerability reporting. Remove keys and private information before sharing diagnostics.
 
 ## Battery and performance
