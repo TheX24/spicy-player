@@ -54,4 +54,31 @@ object SourceDisclosures {
     }
 
     fun forId(id: String): SourceDisclosure? = byId[id]
+
+    /**
+     * The title and text telling a user what an update switched off ([ids]: sources, the Genius
+     * romanization switch and Musixmatch, which is gone), or null when it switched off nothing.
+     */
+    fun switchedOffNotice(ids: Set<String>): Pair<String, String>? {
+        val names = ids.filter { it != MUSIXMATCH_ID }.map { byId[it]?.name ?: it }.sorted()
+        val gone = MUSIXMATCH_ID in ids
+        if (names.isEmpty() && !gone) return null
+        val text = buildString {
+            if (names.isNotEmpty()) {
+                append("This update switched off ${names.joinWords()}. ")
+                append(if (names.size == 1) "It's" else "They're")
+                append(" run by services that haven't said apps may use them, so each now says what it sends ")
+                append("before you switch it back on in Settings → Sources. Your other sources and their order are as you left them.")
+            }
+            if (gone) {
+                if (isNotEmpty()) append(" ")
+                append("Musixmatch is gone: the app could only reach it by posing as Musixmatch's own app.")
+            }
+        }
+        return (if (names.isEmpty()) "Musixmatch is gone" else "Some lyrics sources were switched off") to text
+    }
+
+    private fun List<String>.joinWords() = if (size <= 1) joinToString() else dropLast(1).joinToString() + " and " + last()
+
+    private const val MUSIXMATCH_ID = "musixmatch"
 }

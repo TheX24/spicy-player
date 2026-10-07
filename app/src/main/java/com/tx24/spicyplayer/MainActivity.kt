@@ -16,6 +16,7 @@ import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.Insights
 import androidx.compose.material.icons.rounded.Public
 import com.tx24.spicyplayer.network.data.SourceDisclosure
+import com.tx24.spicyplayer.network.data.SourceDisclosures
 import androidx.compose.material.icons.rounded.NotificationsActive
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
@@ -940,17 +941,24 @@ private fun LyricsApp(
             UsageStatsMessage(answerUsageStats)
         }
 
-        // Once, after the update that switched every source but Spicy Lyrics off; after the stats question.
+        // Once, after the update that switched sources off; after the stats question. Kept through
+        // the closing animation.
+        val switchedOff = SourceDisclosures.switchedOffNotice(state.switchedOffSources)
+        var lastSwitchedOff by remember { mutableStateOf<Pair<String, String>?>(null) }
+        switchedOff?.let { lastSwitchedOff = it }
         SpicyModal(
-            visible = state.accessGranted && state.sourcesResetNotice && !showIntro &&
+            visible = state.accessGranted && switchedOff != null && !showIntro &&
                 (!UsageStats.available || settings.usageStatsAsked),
-            onDismissRequest = viewModel::dismissSourcesReset,
+            onDismissRequest = viewModel::dismissSwitchedOff,
             backdrop = backdrop,
         ) {
-            SourcesResetMessage(
-                onDismiss = viewModel::dismissSourcesReset,
-                onOpenSettings = { viewModel.dismissSourcesReset(); showSettings = true },
-            )
+            lastSwitchedOff?.let { (title, text) ->
+                SwitchedOffMessage(
+                    title, text,
+                    onDismiss = viewModel::dismissSwitchedOff,
+                    onOpenSettings = { viewModel.dismissSwitchedOff(); showSettings = true },
+                )
+            }
         }
 
         QuickSettingsModal(
@@ -1265,12 +1273,10 @@ private fun UsageStatsMessage(onAnswer: (keepOn: Boolean) -> Unit) {
 }
 
 @Composable
-private fun SourcesResetMessage(onDismiss: () -> Unit, onOpenSettings: () -> Unit) {
+private fun SwitchedOffMessage(title: String, text: String, onDismiss: () -> Unit, onOpenSettings: () -> Unit) {
     SpicyModalMessage(
-        title = "Lyrics sources were reset",
-        description = "Spicy Player now asks Spicy Lyrics and the lyrics services that say any app may use them " +
-            "(LRCLIB, AMLL TTML DB, Unison, LRCMux, lrc.red, BiniLyrics). The others haven't said so, so each one now says what it " +
-            "sends before you switch it on. Musixmatch is gone. You can switch the rest back on in Settings → Sources.",
+        title = title,
+        description = text,
         icon = { Icon(Icons.Rounded.Info, null, Modifier.size(24.dp), tint = SpicyColors.TextPrimary) },
     )
     SpicyModalActions {

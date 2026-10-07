@@ -1,72 +1,109 @@
 package com.tx24.spicyplayer.lyrics
 
 import android.content.SharedPreferences
+import com.tx24.spicyplayer.network.data.SourceDisclosures
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SourceDefaultsMigrationTest {
     private val version = NextLyricsBackend.SOURCE_DEFAULTS_VERSION
-    private val notice = NextLyricsBackend.RESET_NOTICE
+    private val switchedOff = NextLyricsBackend.SWITCHED_OFF
+    private val nowOptIn = NextLyricsBackend.NOW_OPT_IN
 
     @Test
-    fun `an older install's choices are reset and the user is told`() {
+    fun `an older install keeps its order and choices but the now opt-in sources go off`() {
         val prefs = MemoryPrefs(mutableMapOf(
             "defaults" to 1,
-            "order" to "spicy_lyrics,musixmatch,lrclib",
-            "disabled" to setOf("kugou"),
+            "order" to "lrclib,spicy_lyrics,musixmatch,kugou,qq_music",
+            "disabled" to setOf("qq_music", "unison"),
             "humanRomanizations" to true,
             "blends" to setOf("blend_a"),
-            "custom" to "[]",
         ))
 
         NextLyricsBackend.migrateSourceDefaults(prefs)
 
-        assertNull(prefs.values["order"])
-        assertNull(prefs.values["disabled"])
+        assertEquals("lrclib,spicy_lyrics,musixmatch,kugou,qq_music", prefs.values["order"])
+        assertEquals(setOf("qq_music", "unison") + nowOptIn, prefs.values["disabled"])
         assertNull(prefs.values["humanRomanizations"])
-        assertEquals(version, prefs.values["defaults"])
-        assertEquals(true, prefs.values[notice])
-        // Not source choices: left alone.
         assertEquals(setOf("blend_a"), prefs.values["blends"])
-        assertEquals("[]", prefs.values["custom"])
+        assertEquals(version, prefs.values["defaults"])
+        // QQ Music was already off: nothing to tell about it.
+        assertEquals(
+            setOf("kugou", "netease", "kuwo", "genius", "musixmatch", SourceDisclosures.GENIUS_ROMANIZATION_ID),
+            prefs.values[switchedOff],
+        )
     }
 
     @Test
-    fun `a fresh install isn't told about a reset it never had`() {
+    fun `an install that never touched its sources had the old defaults on`() {
+        val prefs = MemoryPrefs(mutableMapOf("defaults" to 1))
+
+        NextLyricsBackend.migrateSourceDefaults(prefs)
+
+        assertEquals(nowOptIn, prefs.values["disabled"])
+        assertEquals(nowOptIn + "musixmatch" + SourceDisclosures.GENIUS_ROMANIZATION_ID, prefs.values[switchedOff])
+    }
+
+    @Test
+    fun `romanizations switched off by hand aren't reported`() {
+        val prefs = MemoryPrefs(mutableMapOf("defaults" to 1, "disabled" to nowOptIn + "musixmatch", "humanRomanizations" to false))
+
+        NextLyricsBackend.migrateSourceDefaults(prefs)
+
+        assertEquals(emptySet<String>(), prefs.values[switchedOff])
+    }
+
+    @Test
+    fun `a fresh install has nothing switched off or to tell`() {
         val prefs = MemoryPrefs(mutableMapOf())
 
         NextLyricsBackend.migrateSourceDefaults(prefs)
 
         assertEquals(version, prefs.values["defaults"])
-        assertEquals(false, prefs.values[notice])
+        assertNull(prefs.values["disabled"])
+        assertNull(prefs.values[switchedOff])
     }
 
     @Test
     fun `runs once`() {
         val prefs = MemoryPrefs(mutableMapOf("defaults" to 1))
         NextLyricsBackend.migrateSourceDefaults(prefs)
-        prefs.edit().putString("order", "spicy_lyrics,lrclib").putBoolean(notice, false).apply()
+        // The user switches Kugou back on and dismisses the notice.
+        prefs.edit().putStringSet("disabled", nowOptIn - "kugou").remove(switchedOff).apply()
 
         NextLyricsBackend.migrateSourceDefaults(prefs)
 
-        assertEquals("spicy_lyrics,lrclib", prefs.values["order"])
-        assertFalse(prefs.values[notice] as Boolean)
+        assertEquals(nowOptIn - "kugou", prefs.values["disabled"])
+        assertNull(prefs.values[switchedOff])
     }
 
     @Test
-    fun `a restored older backup is reset again`() {
-        val prefs = MemoryPrefs(mutableMapOf("defaults" to version, "order" to "spicy_lyrics"))
-        // What a restore of a backup from before the change writes.
+    fun `a restored older backup is brought up to date too`() {
+        val prefs = MemoryPrefs(mutableMapOf("defaults" to version))
+        // What restoring a backup from before the change writes.
         prefs.values.clear()
-        prefs.values += mapOf("defaults" to 1, "order" to "musixmatch,spicy_lyrics", "disabled" to emptySet<String>())
+        prefs.values += mapOf("defaults" to 1, "order" to "spicy_lyrics,netease", "disabled" to emptySet<String>())
 
         NextLyricsBackend.migrateSourceDefaults(prefs)
 
-        assertNull(prefs.values["order"])
-        assertTrue(prefs.values[notice] as Boolean)
+        assertEquals("spicy_lyrics,netease", prefs.values["order"])
+        assertTrue("netease" in (prefs.values["disabled"] as Set<*>))
+    }
+
+    @Test
+    fun `the notice names what went off`() {
+        val (title, text) = SourceDisclosures.switchedOffNotice(setOf("kugou", "genius", "musixmatch"))!!
+        assertEquals("Some lyrics sources were switched off", title)
+        assertTrue(text, text.startsWith("This update switched off Genius and Kugou. They're "))
+        assertTrue(text, text.endsWith("Musixmatch is gone: the app could only reach it by posing as Musixmatch's own app."))
+    }
+
+    @Test
+    fun `Musixmatch alone gets its own notice, and nothing gets none`() {
+        assertEquals("Musixmatch is gone", SourceDisclosures.switchedOffNotice(setOf("musixmatch"))!!.first)
+        assertNull(SourceDisclosures.switchedOffNotice(emptySet()))
     }
 
     /** Just enough of [SharedPreferences] for the migration. */

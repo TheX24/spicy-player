@@ -193,19 +193,33 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         }
 
         /**
-         * A new default order and set of sources replaces what was saved against the old one, once,
-         * along with the Genius romanization switch, which asks Genius too. Saved by an older
-         * version, the reset is flagged ([RESET_NOTICE]) so the user is told why.
+         * Sources on by default before [SOURCE_DEFAULTS_VERSION] 2 that now ask first: switched off
+         * once for installs that had them on, so they're only asked after their disclosure.
+         */
+        internal val NOW_OPT_IN = setOf("kugou", "netease", "qq_music", "kuwo", "genius")
+        internal const val MUSIXMATCH_ID = "musixmatch"
+
+        /**
+         * Brings choices saved by an older version up to date, once. The order and every other
+         * choice stay; [NOW_OPT_IN] sources and the Genius romanization switch, which asks Genius,
+         * go off. What was on and went off, Musixmatch included, is kept in [SWITCHED_OFF] for the
+         * user to be told. Runs on every read, so a restored older backup is brought up too.
          */
         internal fun migrateSourceDefaults(preferences: SharedPreferences) {
             val savedDefaults = preferences.getInt("defaults", 0)
             if (savedDefaults >= SOURCE_DEFAULTS_VERSION) return
-            preferences.edit()
-                .remove("order").remove("disabled").remove("humanRomanizations")
-                .putInt("defaults", SOURCE_DEFAULTS_VERSION)
-                // Fresh installs have nothing to be told about.
-                .putBoolean(RESET_NOTICE, savedDefaults > 0)
-                .apply()
+            val edit = preferences.edit().putInt("defaults", SOURCE_DEFAULTS_VERSION)
+            // Fresh installs start on the new defaults: nothing to switch off or tell.
+            if (savedDefaults > 0) {
+                val disabled = preferences.getStringSet("disabled", emptySet()).orEmpty()
+                val switchedOff = (NOW_OPT_IN + MUSIXMATCH_ID).filterTo(mutableSetOf()) { it !in disabled }
+                // On by default before.
+                if (preferences.getBoolean("humanRomanizations", true)) switchedOff += SourceDisclosures.GENIUS_ROMANIZATION_ID
+                edit.putStringSet("disabled", disabled + NOW_OPT_IN)
+                    .remove("humanRomanizations")
+                    .putStringSet(SWITCHED_OFF, switchedOff)
+            }
+            edit.apply()
         }
 
         /** Every source the app asks, built on [client]. Also used by the live source check test. */
@@ -268,7 +282,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         /** Custom sources start after every built-in one. */
         private const val CUSTOM_PRIORITY = 1_000
         private const val MUSIXMATCH_LINES_ONLY = "musixmatch-lines-only"
-        internal const val RESET_NOTICE = "sourcesResetNotice"
+        internal const val SWITCHED_OFF = "switchedOff"
         private const val DISCLOSED = "disclosed"
     }
 
@@ -298,15 +312,15 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
         preferences.edit().putStringSet(DISCLOSED, preferences.getStringSet(DISCLOSED, emptySet()).orEmpty() + id).apply()
     }
 
-    /** Saved source choices were reset to the new defaults ([SOURCE_DEFAULTS_VERSION]) and that's not been said yet. */
-    val sourcesResetPending: Boolean
+    /** What the update to [SOURCE_DEFAULTS_VERSION] switched off ([migrateSourceDefaults]), until the user's been told. */
+    val switchedOffSources: Set<String>
         get() {
             migrateDefaults()
-            return preferences.getBoolean(RESET_NOTICE, false)
+            return preferences.getStringSet(SWITCHED_OFF, emptySet()).orEmpty()
         }
 
-    fun dismissSourcesReset() {
-        preferences.edit().putBoolean(RESET_NOTICE, false).apply()
+    fun dismissSwitchedOff() {
+        preferences.edit().remove(SWITCHED_OFF).apply()
     }
 
     /** Human-written romanizations from Genius over the on-device ones (off until asked for: it asks Genius). */
