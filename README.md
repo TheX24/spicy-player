@@ -23,7 +23,7 @@
 
 An Android lyrics screen for music playing in *another* app. It follows the active media session, fetches timed lyrics from online sources, and draws them with a port of [Spicy Lyrics](https://github.com/Spikerko/spicy-lyrics)' word-synced renderer and animated backgrounds. No library, no playback service, no WebView; just the lyrics. Called Spicy Player until 0.9.1.
 
-|  |  |
+| Feature | What you get |
 | --- | --- |
 | **Word-synced** | TTML timing is kept all the way to the screen, never flattened to line-synced LRC. |
 | **Many sources** | Spicy Lyrics, LRCLIB, AMLL TTML DB, Unison, LRCMux, lrc.red and BiniLyrics on by default; more are opt-in. |
@@ -49,7 +49,7 @@ Playback controls depend on what the music app exposes through MediaSession; som
 
 Measured on a Pixel 7 with the power rails built into the phone:
 
-| | |
+| Measure | Result |
 | --- | --- |
 | **In the background** | under 1% of one CPU core |
 | **Showing lyrics** | about 0.34 W more than the home screen (roughly 2% battery per hour) |
