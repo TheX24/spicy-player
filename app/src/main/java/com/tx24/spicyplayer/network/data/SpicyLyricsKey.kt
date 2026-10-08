@@ -2,8 +2,8 @@ package com.tx24.spicyplayer.network.data
 
 /**
  * The person's own Spicy Lyrics key. Spicy Lyrics Mobile is an app template on the developer site:
- * adding it there gives each person their own application, with its own rate limit, and a
- * client key to paste here. Without one the app uses the built-in key, which everyone shares.
+ * adding it there gives each person their own application and a client key to paste here.
+ * Without one the app uses the built-in key. Rate limits are per IP address, not per key.
  */
 object SpicyLyricsKey {
     /** Spicy Lyrics Mobile's page in the developer site's catalog, where Add hands out the key. */

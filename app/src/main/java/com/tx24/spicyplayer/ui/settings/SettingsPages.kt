@@ -803,10 +803,9 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
         SettingRow(
             label = "Get your own key",
             description = if (ownKey == null) {
-                "The built-in key is shared by everyone, so it runs out when many people use the app. Your own key is free " +
-                    "and has its own limit: sign in, tap Add, and paste the client key below."
+                "The built-in key works for everyone. If you want your own, sign in, tap Add, and paste the client key below."
             } else {
-                "You're using your own key, $ownKey, with its own limit. Its page on the developer site can pause or replace it."
+                "You're using your own key, $ownKey. Its page on the developer site can pause or replace it."
             },
             icon = Icons.Rounded.Key,
         ) {

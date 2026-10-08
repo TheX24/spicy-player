@@ -222,8 +222,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         switchedOffSources = lyricsBackend.switchedOffSources,
         ownKeyHint = runtimeApiKey.takeIf { it.isNotBlank() }?.let(SpicyLyricsKey::hint),
     ))
-    /** The "get your own key" hint is shown once per run, the first time the shared key is rate-limited. */
-    private var ownKeyNudged = false
     val state: StateFlow<PlayerUiState> = mutableState.asStateFlow()
     private val mutableMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** Short notes on what an action did ("Removed from Local DB."), shown as toasts. */
@@ -594,18 +592,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         forgetShown(request)
         loadLyrics()
         mutableMessages.tryEmit("Lyrics for the current song have been removed from memory.")
-    }
-
-    /** On the shared key, a Spicy Lyrics rate limit is most likely everyone's window running out; your own key has its own. */
-    private fun nudgeOwnKey(attempts: List<ProviderAttempt>) {
-        if (ownKeyNudged || runtimeApiKey.isNotBlank()) return
-        val limited = attempts.any {
-            it.sourceId == RemoteLyricsSource.SPICY_ID && it.outcome == ProviderAttemptOutcome.COOLING_DOWN &&
-                it.message.orEmpty().contains("HTTP 429")
-        }
-        if (!limited) return
-        ownKeyNudged = true
-        showMessage("Spicy Lyrics is busy on the shared key. Get your own free key in Settings → Sources.")
     }
 
     /** Shows [message] as a toast. */
@@ -1168,7 +1154,6 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val names = pending.joinToString { attempt ->
             lyricsBackend.descriptors.firstOrNull { it.id == attempt.sourceId }?.displayName ?: attempt.sourceId
         }
-        nudgeOwnKey(resolution.attempts)
         if (final) Log.d("LyricsProviders", resolution.attempts.joinToString { "${it.sourceId}:${it.outcome}:${it.failureCategory ?: ""}:${it.message ?: ""}" })
         mutableState.value = mutableState.value.copy(
             providerAttempts = resolution.attempts,
