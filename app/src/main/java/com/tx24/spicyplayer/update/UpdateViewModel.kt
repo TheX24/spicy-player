@@ -212,7 +212,7 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
 
     private companion object {
         const val TAG = "SpicyUpdate"
-        const val RELEASES_URL = "https://api.github.com/repos/TheX24/spicy-player/releases?per_page=20"
+        const val RELEASES_URL = "https://api.github.com/repos/spicylyrics/mobile/releases?per_page=20"
         const val KEY_LAST_CHECK = "lastCheckMs"
         const val KEY_SKIPPED = "skippedTag"
         const val AUTO_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000L

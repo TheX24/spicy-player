@@ -2,9 +2,9 @@
 
 ## Report a vulnerability privately
 
-Use [GitHub private vulnerability reporting](https://github.com/TheX24/Spicy-Player/security/advisories/new). Don't publish exploit details in a public issue or Discord thread.
+Use [GitHub private vulnerability reporting](https://github.com/spicylyrics/mobile/security/advisories/new). Don't publish exploit details in a public issue or Discord thread.
 
-Include the affected version, steps to reproduce, expected impact, and any minimal proof of concept. Remove real credentials and other people's data. For ordinary bugs and feature ideas, use [GitHub Issues](https://github.com/TheX24/Spicy-Player/issues/new/choose).
+Include the affected version, steps to reproduce, expected impact, and any minimal proof of concept. Remove real credentials and other people's data. For ordinary bugs and feature ideas, use [GitHub Issues](https://github.com/spicylyrics/mobile/issues/new/choose).
 
 Spicy Lyrics Mobile is in early development. Reports should identify whether the problem also affects the latest prerelease; older builds may remain vulnerable until updated. There is no guaranteed response or fix timeline.
 

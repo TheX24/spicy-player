@@ -742,7 +742,7 @@ private const val HOME_PARALLAX = 0.15f
 /** How far a back gesture pulls a group's page toward the first page before letting go. */
 private const val PAGE_PEEK = 0.5f
 
-private const val PROJECT_URL = "https://github.com/TheX24/spicy-player"
+private const val PROJECT_URL = "https://github.com/spicylyrics/mobile"
 // Keeps the prefilled form link well under the length GitHub accepts.
 private const val MAX_PREFILLED_DEBUG = 3000
 

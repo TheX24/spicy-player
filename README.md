@@ -11,9 +11,9 @@ An Android lyrics screen for music playing in another app. It follows the active
 
 ## Try it
 
-1. Install an APK from [Releases](https://github.com/TheX24/spicy-player/releases), or build one below. After that, the app offers new versions itself when you open it; "Check for updates" at the bottom of Settings looks right away.
+1. Install an APK from [Releases](https://github.com/spicylyrics/mobile/releases), or build one below. After that, the app offers new versions itself when you open it; "Check for updates" at the bottom of Settings looks right away.
 
-   Google Play Protect may block the APK when you open it from a browser or file manager, because the app asks for notification access. Installing through [Obtainium](https://obtainium.imranr.dev/) is an alternative ([add Spicy Lyrics Mobile to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.tx24.spicyplayer.next%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FTheX24%2Fspicy-player%22%2C%22author%22%3A%22TheX24%22%2C%22name%22%3A%22Spicy%20Lyrics%20Mobile%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3A%20true%7D%22%7D)). It installs the same signed APK from Releases and handles updates.
+   Google Play Protect may block the APK when you open it from a browser or file manager, because the app asks for notification access. Installing through [Obtainium](https://obtainium.imranr.dev/) is an alternative ([add Spicy Lyrics Mobile to Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.tx24.spicyplayer.next%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fspicylyrics%2Fmobile%22%2C%22author%22%3A%22TheX24%22%2C%22name%22%3A%22Spicy%20Lyrics%20Mobile%22%2C%22preferredApkIndex%22%3A0%2C%22additionalSettings%22%3A%22%7B%5C%22includePrereleases%5C%22%3A%20true%7D%22%7D)). It installs the same signed APK from Releases and handles updates.
 2. Open the app and grant notification access when prompted. Android uses this permission to let the app discover active media sessions. You can revoke it in system settings.
 3. Start music in another app, then return to the lyrics app. It should follow the active player and look up lyrics.
 4. Use Settings to adjust lyric sources, timing, or an optional Spicy Lyrics client key. Settings → Advanced → Last lookup shows what each source returned for the current song.
@@ -23,9 +23,9 @@ Playback controls depend on what the music app exposes through Android MediaSess
 
 ## Bugs, ideas, and contributions
 
-Found a bug or have an idea? [Report a bug or suggest a feature](https://github.com/TheX24/Spicy-Player/issues/new/choose), or post in the [Spicy Lyrics Mobile thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j) (join first, then the thread link works). Both are linked from the version card in Settings. Include your app version, phone/Android version, music app, and steps to reproduce a bug; screenshots and song links help.
+Found a bug or have an idea? [Report a bug or suggest a feature](https://github.com/spicylyrics/mobile/issues/new/choose), or post in the [Spicy Lyrics Mobile thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j) (join first, then the thread link works). Both are linked from the version card in Settings. Include your app version, phone/Android version, music app, and steps to reproduce a bug; screenshots and song links help.
 
-If Spicy Lyrics Mobile is useful to you, a star on the [repository](https://github.com/TheX24/spicy-player) helps other people find it. The "Star on GitHub" button in Settings opens it.
+If Spicy Lyrics Mobile is useful to you, a star on the [repository](https://github.com/spicylyrics/mobile) helps other people find it. The "Star on GitHub" button in Settings opens it.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for reports and pull requests, and [SECURITY.md](SECURITY.md) for private vulnerability reporting. Remove keys and private information before sharing diagnostics.
 

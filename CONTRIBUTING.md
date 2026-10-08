@@ -4,7 +4,7 @@ Bug reports, feature ideas, documentation fixes, and code contributions are welc
 
 ## Bugs and ideas
 
-Search [existing issues](https://github.com/TheX24/Spicy-Player/issues) first, then [report a bug or suggest a feature](https://github.com/TheX24/Spicy-Player/issues/new/choose). You don't need to write code to help.
+Search [existing issues](https://github.com/spicylyrics/mobile/issues) first, then [report a bug or suggest a feature](https://github.com/spicylyrics/mobile/issues/new/choose). You don't need to write code to help.
 
 For bugs, include the app version from Settings, phone and Android version, music app, what happened, and steps to reproduce it. For lyrics problems, a song link helps. "Report a bug" in the app's Settings fills in your versions and debug info for you; on Discord, use Copy in Settings → Advanced → Debug info. Screenshots or short recordings are useful, but optional. Remove keys, account details, and private information before sharing diagnostics.
 
