@@ -7,11 +7,34 @@ import java.util.Locale
 
 data class GeniusTranslationPair(val originals: List<String>, val translations: List<String>, val sourceLanguage: String?) {
     companion object {
+        /**
+         * The lines of [original] and [translation] that pair up. Translators often merge two
+         * sung lines into one, so the pages rarely match as a whole, but they keep the same
+         * sections: each section whose line counts match pairs line for line, and the others are
+         * left out. Pages without the same sections pair only when they match as a whole.
+         */
         fun fromText(original: String, translation: String, sourceLanguage: String? = null): GeniusTranslationPair? {
-            val originals = HumanRomanization.cleanLines(original)
-            val translations = HumanRomanization.cleanLines(translation)
-            return if (originals.isNotEmpty() && originals.size == translations.size)
-                GeniusTranslationPair(originals, translations, languageCode(sourceLanguage)) else null
+            val ours = sections(original)
+            val theirs = sections(translation)
+            val pairs = if (ours.size == theirs.size) {
+                ours.zip(theirs).filter { (a, b) -> a.size == b.size }.flatMap { (a, b) -> a.zip(b) }
+            } else {
+                val a = HumanRomanization.cleanLines(original)
+                val b = HumanRomanization.cleanLines(translation)
+                if (a.size == b.size) a.zip(b) else emptyList()
+            }
+            return if (pairs.isEmpty()) null
+            else GeniusTranslationPair(pairs.map { it.first }, pairs.map { it.second }, languageCode(sourceLanguage))
+        }
+
+        /** A page's lyric lines, cut at its section headers ("[Chorus]"); sections with no lines are dropped. */
+        private fun sections(text: String): List<List<String>> {
+            val out = mutableListOf<MutableList<String>>(mutableListOf())
+            for (line in text.lines()) {
+                if (line.trim().let { it.startsWith("[") && it.endsWith("]") }) out += mutableListOf<String>()
+                else out.last() += line
+            }
+            return out.map { HumanRomanization.cleanLines(it.joinToString("\n")) }.filter { it.isNotEmpty() }
         }
     }
 }

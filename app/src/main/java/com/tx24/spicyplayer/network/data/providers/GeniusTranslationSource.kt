@@ -17,10 +17,15 @@ internal class GeniusTranslationSource(client: OkHttpClient, gson: Gson) {
         for (hit in hits) {
             if (pages.isRomanization(hit) || !pages.ours(hit, title, artist)) continue
             val song = pages.record(hit.get("id")?.asLong ?: continue) ?: continue
-            val linked = linkedTranslation(song, target) ?: continue
-            val original = pages.linesAt(song.get("url")?.asString.orEmpty(), minimum = 1) ?: continue
-            val translated = pages.linesAt(linked.get("url")?.asString.orEmpty(), minimum = 1) ?: continue
-            found = GeniusTranslationPair.fromText(original.joinToString("\n"), translated.joinToString("\n"), song.get("language")?.asString)
+            val linked = linkedTranslations(song, target).takeIf { it.isNotEmpty() } ?: continue
+            val original = pages.textAt(song.get("url")?.asString.orEmpty()) ?: continue
+            // The first page that pairs with the original; a sung cover in the same language has
+            // its own lines and pairs with little or nothing.
+            for (page in linked) {
+                val translated = pages.textAt(page.get("url")?.asString.orEmpty()) ?: continue
+                found = GeniusTranslationPair.fromText(original, translated, song.get("language")?.asString)
+                if (found != null) break
+            }
             if (found != null) break
         }
         found
@@ -31,11 +36,19 @@ internal class GeniusTranslationSource(client: OkHttpClient, gson: Gson) {
     }
 }
 
-/** Only the linked page's language field selects a translation, never a title hint. */
-internal fun linkedTranslation(song: JsonObject, target: String): JsonObject? =
-    song.getAsJsonArray("translation_songs")?.mapNotNull { it.takeIf { value -> value.isJsonObject }?.asJsonObject }
-        ?.firstOrNull { linked ->
+/**
+ * The pages linked to [song] in the [target] language. Their language field decides which are in
+ * it; ones titled as a translation go first, and a sung "official English version" or cover, which
+ * has lyrics of its own rather than a translation, is left out.
+ */
+internal fun linkedTranslations(song: JsonObject, target: String): List<JsonObject> =
+    song.getAsJsonArray("translation_songs")?.mapNotNull { it.takeIf { value -> value.isJsonObject }?.asJsonObject }.orEmpty()
+        .filterNot { linked -> linked.get("title")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty().contains(COVER) }
+        .filter { linked ->
             val language = linked.get("language")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty()
             val code = TranslationLanguages.common.entries.firstOrNull { it.value.equals(language, ignoreCase = true) }?.key ?: languageCode(language)
             code != null && code == languageCode(target)
         }
+        .sortedByDescending { linked -> linked.get("title")?.takeIf { it.isJsonPrimitive }?.asString.orEmpty().contains("translat", ignoreCase = true) }
+
+private val COVER = Regex("""\b(version|cover)\b""", RegexOption.IGNORE_CASE)

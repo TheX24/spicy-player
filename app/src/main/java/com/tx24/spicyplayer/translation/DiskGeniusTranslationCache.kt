@@ -31,6 +31,10 @@ class DiskGeniusTranslationCache(private val directory: File, private val now: (
         return pair
     }
 
+    fun clear() {
+        directory.deleteRecursively()
+    }
+
     fun forget(title: String, artist: String) {
         directory.listFiles()?.filter { it.name.startsWith(songKey(title, artist) + "-") }?.forEach(File::delete)
     }

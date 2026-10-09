@@ -76,14 +76,21 @@ internal class GeniusSongPages(private val client: OkHttpClient, private val gso
         return ours in theirs || theirs in ours
     }
 
-    /** Whether a search hit is the song that was asked for: same artist, and one title holds the other. */
+    /**
+     * Whether a search hit is the song that was asked for. One title holds the other, whole or
+     * with their bracketed parts (featured credits, alternate titles) set aside. Any one of our
+     * credited artists in Genius's credits, featured ones included, is enough: a producer can be
+     * filed under another name (the player's "32ki" is Genius's "サツキ (Satsuki)").
+     */
     fun ours(hit: JsonObject, title: String, artist: String): Boolean {
+        fun holds(a: String, b: String) = a.isNotEmpty() && b.isNotEmpty() && (a == b || a in b || b in a)
+        val theirTitle = hit.str("title")
+        if (!holds(norm(theirTitle), norm(title)) && !holds(norm(theirTitle.replace(BRACKETED, "")), norm(title.replace(BRACKETED, "")))) return false
         val who = norm(artistOf(hit))
         val asked = norm(artist)
-        if (asked.isNotEmpty() && who.isNotEmpty() && asked !in who && who !in asked) return false
-        val a = norm(hit.str("title"))
-        val b = norm(title)
-        return a.isNotEmpty() && b.isNotEmpty() && (a == b || a in b || b in a)
+        if (asked.isEmpty() || who.isEmpty() || asked in who || who in asked) return true
+        val credits = norm(hit.str("artist_names").ifEmpty { artistOf(hit) })
+        return artist.split(ARTIST_SEPARATOR).map(::norm).any { it.length >= 2 && it in credits }
     }
 
     /** The romanization Genius files against a song (`translation_songs`), if any. */
@@ -99,12 +106,16 @@ internal class GeniusSongPages(private val client: OkHttpClient, private val gso
     }
 
     /** A Genius song page's lyric lines, cleaned; short or unavailable pages have no result. */
-    suspend fun linesAt(url: String, minimum: Int = 4): List<String>? {
+    suspend fun linesAt(url: String, minimum: Int = 4): List<String>? =
+        textAt(url)?.let(HumanRomanization::cleanLines)?.takeIf { it.size >= minimum }
+
+    /** A page's lyrics as text, section headers ("[Chorus]") kept. */
+    suspend fun textAt(url: String): String? {
         if (url.isBlank()) return null
         return try {
             val html = client.newCall(Request.Builder().url(url).header("User-Agent", BROWSER_UA).get().build())
                 .awaitResponse().use { if (it.isSuccessful) it.body?.string().orEmpty() else "" }
-            HumanRomanization.cleanLines(geniusLyricsText(html)).takeIf { it.size >= minimum }
+            geniusLyricsText(html).takeIf(String::isNotBlank)
         } catch (c: CancellationException) {
             throw c
         } catch (_: Exception) {
@@ -128,6 +139,8 @@ internal class GeniusSongPages(private val client: OkHttpClient, private val gso
         val ROMAN_HINT = Regex("romani[sz]ed|romani[sz]ation|\\bromaji\\b", RegexOption.IGNORE_CASE)
         val ROMAN_LANGUAGES = setOf("romanization", "romanized")
         val BRACKETED = Regex("[(\\[{].*?[)\\]}]")
+        /** Between the names in a player's artist credit: "32ki, Hatsune Miku & 重音テト". */
+        val ARTIST_SEPARATOR = Regex("""\s*(?:,|&|、|/|×|\bfeat\.?|\bft\.?|\bx\b)\s*""", RegexOption.IGNORE_CASE)
         const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Mobile Safari/537.36"
     }
 }

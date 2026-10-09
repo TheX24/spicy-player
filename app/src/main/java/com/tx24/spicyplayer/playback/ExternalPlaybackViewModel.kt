@@ -223,7 +223,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val songDelays = SongDelays(application)
     private val translationStore = TranslationSettingsStore(application)
     // The song's language comes from the provider's answer, kept in the translation cache.
-    private val translationEngine = TranslationEngine(SongLanguageDetector { null }, DiskTranslationCache(File(application.cacheDir, "translations")))
+    private val translationCache = DiskTranslationCache(File(application.cacheDir, "translations"))
+    private val translationEngine = TranslationEngine(SongLanguageDetector { null }, translationCache)
     private val translationSession = TranslationSession()
     private val translationClient = okhttp3.OkHttpClient.Builder().callTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
@@ -764,6 +765,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     /** Forgets this song's lyrics everywhere they are kept (bar the Lyrics Manager) and asks the sources again. */
     fun clearCurrentSongCaches() {
         val request = currentRequest() ?: return noTrack()
+        translationDocument()?.hash?.let(translationCache::forget)
+        // Forgotten too, so the reloaded lyrics are translated afresh.
+        clearTranslation()
         forgetShown(request)
         lyricsBackend.forgetRomanization(request.title, request.artist)
         loadLyrics(force = true)
@@ -775,7 +779,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val backend = lyricsBackend
         viewModelScope.launch(Dispatchers.IO) {
             backend.clearCache()
-            mutableMessages.tryEmit("The lyrics cache has been cleared.")
+            translationCache.clear()
+            mutableMessages.tryEmit("The lyrics and translation caches have been cleared.")
         }
     }
 

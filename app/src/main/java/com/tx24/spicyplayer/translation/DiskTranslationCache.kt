@@ -16,6 +16,18 @@ class DiskTranslationCache(private val directory: File) : TranslationCache {
         }
     }.getOrNull()
 
+    /** Drops every translation made from the lyrics with [lyricsHash], in any language or provider. */
+    fun forget(lyricsHash: String) {
+        directory.listFiles()?.filter { it.extension == "json" }?.forEach { file ->
+            val entry = runCatching { gson.fromJson(file.readText(), Entry::class.java) }.getOrNull()
+            if (entry == null || entry.result.key.lyricsHash == lyricsHash) file.delete()
+        }
+    }
+
+    fun clear() {
+        directory.deleteRecursively()
+    }
+
     override fun write(result: TranslationResult) {
         runCatching {
             directory.mkdirs()

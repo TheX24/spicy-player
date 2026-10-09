@@ -10,7 +10,8 @@ import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
 import com.tx24.spicyplayer.network.data.SourceDisclosures
 import com.tx24.spicyplayer.network.data.providers.geniusLyricsText
-import com.tx24.spicyplayer.network.data.providers.linkedTranslation
+import com.tx24.spicyplayer.network.data.providers.linkedTranslations
+import com.tx24.spicyplayer.network.data.providers.GeniusSongPages
 import kotlinx.coroutines.runBlocking
 import okhttp3.FormBody
 import okhttp3.OkHttpClient
@@ -117,6 +118,14 @@ class TranslationSourcesTest {
         assertFalse(SourceDisclosures.translation(TranslationProvider.Google, false).description.contains("Genius"))
     }
 
+    @Test fun `Genius pages pair section by section where translators merged lines`() {
+        val original = "[Verse 1]\nどんなに今日を生き抜いても\n報われぬ every day\n[Chorus]\n夜が来る\n星が光る\n[Bridge]\n声が響く"
+        val translation = "[Verse 1]\nHowever you survive today, it's unrewarding every day\n[Chorus]\nNight comes\nStars shine\n[Bridge]\nVoices echo"
+        val pair = GeniusTranslationPair.fromText(original, translation, "ja")!!
+        assertEquals(listOf("夜が来る", "星が光る", "声が響く"), pair.originals)
+        assertEquals(listOf("Night comes", "Stars shine", "Voices echo"), pair.translations)
+    }
+
     @Test fun `Genius page pairs strip headers equally and refuse unequal counts`() {
         val original = geniusLyricsText("""<div data-lyrics-container="true">[Verse 1]<br/>夜が来る<br/><br/>星が光る</div>""")
         val translated = geniusLyricsText("""<div data-lyrics-container="true">[Verse]<br/>Night comes<br/>Stars shine<br/>Extra line</div>""")
@@ -130,9 +139,28 @@ class TranslationSourcesTest {
         val song = JsonParser.parseString("""{"translation_songs":[
             {"language":"romanization","url":"roman"},{"language":"it","url":"italian"},
             {"language":"en","url":"english"},{"title":"English Translation","url":"no-language"}]}""").asJsonObject
-        assertEquals("english", linkedTranslation(song, "en-US")?.get("url")?.asString)
-        assertEquals("italian", linkedTranslation(song, "it")?.get("url")?.asString)
-        assertNull(linkedTranslation(song, "fr"))
+        assertEquals(listOf("english"), linkedTranslations(song, "en-US").map { it.get("url").asString })
+        assertEquals(listOf("italian"), linkedTranslations(song, "it").map { it.get("url").asString })
+        assertTrue(linkedTranslations(song, "fr").isEmpty())
+    }
+
+    @Test fun `a sung cover in the same language is never taken for the translation`() {
+        val song = JsonParser.parseString("""{"translation_songs":[
+            {"language":"en","title":"Mesmerizer (Official English Version)","url":"cover"},
+            {"language":"en","title":"サツキ (Satsuki) - メズマライザー (Mesmerizer) (English Translation)","url":"translation"}]}""").asJsonObject
+        assertEquals(listOf("translation"), linkedTranslations(song, "en").map { it.get("url").asString })
+    }
+
+    @Test fun `a Genius song matches through a featured artist and a bracketed title`() {
+        val pages = GeniusSongPages(okhttp3.OkHttpClient(), com.google.gson.Gson())
+        val hit = JsonParser.parseString("""{"title":"メズマライザー (Mesmerizer)",
+            "primary_artist":{"name":"サツキ (Satsuki)"},
+            "artist_names":"サツキ (Satsuki) (Ft. 初音ミク (Hatsune Miku) & 重音テト (Kasane Teto))"}""").asJsonObject
+        assertTrue(pages.ours(hit, "メズマライザー (feat. 初音ミク&重音テト)", "32ki, Hatsune Miku, 重音テト"))
+        val cover = JsonParser.parseString("""{"title":"【MESMERIZER/メズマライザー】(by 32ki) ENGLISH COVER",
+            "primary_artist":{"name":"Artsythesecond"}, "artist_names":"Artsythesecond (Ft. Razaplays)"}""").asJsonObject
+        assertFalse(pages.ours(cover, "メズマライザー (feat. 初音ミク&重音テト)", "32ki, Hatsune Miku, 重音テト"))
+        assertFalse(pages.ours(hit, "メズマライザー", "Someone Else"))
     }
 
     @Test fun `original-script alignment survives skips and a collapsed repeated chorus`() {

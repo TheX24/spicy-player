@@ -216,7 +216,7 @@ class TranslationTest {
         assertNotEquals(key.fileName(), key.copy(provider = TranslationProvider.DeepL).fileName())
         assertNotEquals(key.fileName(), key.copy(sourceLanguage = "ru").fileName())
         assertNotEquals(key.fileName(), key.fileName(TRANSLATION_CACHE_VERSION + 1))
-        assertEquals(2, TRANSLATION_CACHE_VERSION)
+        assertEquals(3, TRANSLATION_CACHE_VERSION)
     }
 
     @Test fun `wrong cache version and malformed entries are ignored`() {
@@ -225,7 +225,7 @@ class TranslationTest {
         val cache = DiskTranslationCache(directory)
         cache.write(TranslationResult(key, listOf("one"), "it"))
         val file = java.io.File(directory, key.fileName())
-        file.writeText(file.readText().replace("\"version\":2", "\"version\":999"))
+        file.writeText(file.readText().replace("\"version\":$TRANSLATION_CACHE_VERSION", "\"version\":999"))
         assertNull(cache.read(key, 1))
         file.writeText("{broken")
         assertNull(cache.read(key, 1))
