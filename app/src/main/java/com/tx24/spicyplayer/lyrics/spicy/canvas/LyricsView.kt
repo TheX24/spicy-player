@@ -126,10 +126,13 @@ fun LyricsView(
     val desired = measuredCache[desiredKey]
     val original = measuredCache[desiredKey.copy(translation = null)]
     // Translation variants never keep a previous song or an off-toggle's translated layout up.
-    // The original variant is measured first and retained, so turning off switches immediately.
+    // While a new translation measures, what's up for this song stays up (the machine translation
+    // a human one is replacing, or the plain lyrics), so the view never blanks in between.
     val shown = if (translation != null || measuredShown?.translation != null) {
-        (desired ?: original)?.let { ShownLyrics(documentId, it.lines, it.layouts, lyricsType, footer,
-            translation.takeIf { desired != null }, it.romanizationLines) }
+        val current = measuredShown?.takeIf { translation != null && it.documentId == documentId }
+        desired?.let { ShownLyrics(documentId, it.lines, it.layouts, lyricsType, footer, translation, it.romanizationLines) }
+            ?: current
+            ?: original?.let { ShownLyrics(documentId, it.lines, it.layouts, lyricsType, footer, null, it.romanizationLines) }
     } else measuredShown
     val shownId = shown?.documentId
     val lineLayouts = shown?.layouts.orEmpty()
