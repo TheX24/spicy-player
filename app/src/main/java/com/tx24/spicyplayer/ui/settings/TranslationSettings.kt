@@ -31,18 +31,23 @@ import com.tx24.spicyplayer.ui.theme.SpicySpacing
 
 @Composable
 internal fun RomanizationTranslationContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
-    ToggleRow("Romanize button", settings.romanizeButton, { settings.romanizeButton = it },
-        description = "Show the romanize button.", icon = Icons.Rounded.Translate,
-        searchDescription = "Show the button that romanizes lyrics, on songs that have them.")
-    SettingRow("Romanization", description = "Replace lyrics or show romanization below.", icon = Icons.Rounded.ViewAgenda,
-        searchDescription = "Replace the synced lyric words or show romanization below each line.") {
-        SpicySelect(settings.romanizationMode.name, RomanizationMode.entries.map { it.name },
-            { settings.romanizationMode = RomanizationMode.valueOf(it) }, labels = RomanizationMode.entries.map { it.label })
+    // The page header names both, so each group gets its own title.
+    SettingsSection("Romanization") {
+        ToggleRow("Romanize button", settings.romanizeButton, { settings.romanizeButton = it },
+            description = "Show the romanize button.", icon = Icons.Rounded.Translate,
+            searchDescription = "Show the button that romanizes lyrics, on songs that have them.")
+        SettingRow("Romanization", description = "Replace lyrics or show romanization below.", icon = Icons.Rounded.ViewAgenda,
+            searchDescription = "Replace the synced lyric words or show romanization below each line.") {
+            SpicySelect(settings.romanizationMode.name, RomanizationMode.entries.map { it.name },
+                { settings.romanizationMode = RomanizationMode.valueOf(it) }, labels = RomanizationMode.entries.map { it.label })
+        }
+        ToggleRow("Human romanizations", state.humanRomanizations, viewModel::setHumanRomanizations,
+            description = "Use matching romanizations from Genius.", icon = Icons.Rounded.People,
+            searchDescription = "Use a romanization written by people on Genius where it lines up with the lyrics, for readings no romanizer can guess. Asks Genius.")
     }
-    ToggleRow("Human romanizations", state.humanRomanizations, viewModel::setHumanRomanizations,
-        description = "Use matching romanizations from Genius.", icon = Icons.Rounded.People,
-        searchDescription = "Use a romanization written by people on Genius where it lines up with the lyrics, for readings no romanizer can guess. Asks Genius.")
-    TranslationContent(state, viewModel, settings)
+    SettingsSection("Translation") {
+        TranslationContent(state, viewModel, settings)
+    }
 }
 
 @Composable
