@@ -61,9 +61,14 @@ object TranslationBatching {
 
     private fun size(pieces: List<TranslationPiece>): Int = pieces.sumOf { it.text.length } + (pieces.size - 1).coerceAtLeast(0)
 
+    /**
+     * A batch whose line count came back wrong, split into its verses to ask again. A single verse
+     * isn't split further: asking line by line is a burst of requests that gets the connection
+     * blocked, so its lines stay untranslated instead.
+     */
     fun fallback(batch: List<TranslationPiece>): List<List<TranslationPiece>> {
         val verses = batch.groupBy { it.verse }.values.toList()
-        return if (verses.size > 1) verses else batch.map { listOf(it) }
+        return if (verses.size > 1) verses else emptyList()
     }
 
     /** A positional response of the wrong size cannot reveal where a missing item was. */
@@ -91,7 +96,10 @@ class TranslationEngine(
     private val cache: TranslationCache,
     /** Waits between requests and before a retry; tests pass one that doesn't. */
     private val pause: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+    private val now: () -> Long = System::currentTimeMillis,
 ) {
+    /** Until when Google is left alone after it started limiting this connection. */
+    @Volatile private var googleRestsUntil = 0L
     private val languages = object : LinkedHashMap<String, String?>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String?>): Boolean = size > 32
     }
@@ -183,6 +191,17 @@ class TranslationEngine(
 
     /** [Translator.translate], waiting out a busy provider a couple of times before giving up. */
     private suspend fun ask(translator: Translator, request: TranslatorRequest): TranslatorResponse {
+        // Google's limit is a block on the connection: asking again soon only makes it last
+        // longer, so it's left alone for a while instead of retried.
+        if (translator.provider == TranslationProvider.Google) {
+            if (now() < googleRestsUntil) throw TranslationFailure(GOOGLE_RESTING)
+            return try {
+                translator.translate(request)
+            } catch (busy: ProviderBusy) {
+                googleRestsUntil = now() + GOOGLE_REST_MS
+                throw TranslationFailure(GOOGLE_RESTING)
+            }
+        }
         repeat(BUSY_RETRIES) { attempt ->
             try {
                 return translator.translate(request)
@@ -203,5 +222,7 @@ class TranslationEngine(
         const val PACE_MS = 300L
         const val BUSY_RETRIES = 2
         const val BUSY_WAIT_MS = 2_000L
+        const val GOOGLE_REST_MS = 10 * 60_000L
+        const val GOOGLE_RESTING = "Google is limiting translations on this connection. Try again in a few minutes, or use DeepL."
     }
 }

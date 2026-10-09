@@ -69,25 +69,39 @@ class TranslationSourcesTest {
         assertTrue(runCatching { googleResponse("""{"sentences":[{"orig":"missing translation"}]}""") }.isFailure)
     }
 
-    @Test fun `Google HTTP rate limits and unavailable answers use provider backoff`() = runBlocking {
-        for (code in listOf(429, 503)) {
-            val client = OkHttpClient.Builder().addInterceptor { chain ->
-                Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(code)
-                    .message("Busy").header("Retry-After", "4").body("".toResponseBody()).build()
-            }.build()
-            try {
-                GoogleTranslator(client).translate(TranslatorRequest(listOf("ciao"), "en", "it", "ciao"))
-                fail("A busy response must request backoff")
-            } catch (busy: ProviderBusy) {
-                assertEquals(4_000L, busy.retryAfterMs)
-            } finally {
-                client.dispatcher.executorService.shutdown()
-                client.connectionPool.evictAll()
-            }
+    /** A Google client whose two endpoints answer [chrome] and [web] (status, body). */
+    private fun google(chrome: Pair<Int, String>, web: Pair<Int, String>, asked: MutableList<String>) = OkHttpClient.Builder().addInterceptor { chain ->
+        val path = chain.request().url.encodedPath
+        asked += path
+        val (code, body) = if (path.endsWith("/t")) chrome else web
+        Response.Builder().request(chain.request()).protocol(Protocol.HTTP_1_1).code(code).message("x").body(body.toResponseBody()).build()
+    }.build()
+
+    @Test fun `Google asks Chrome's endpoint first and the web one only when that one is limited`() = runBlocking {
+        val request = TranslatorRequest(listOf("ciao", "mondo"), "en", null, "ciao\nmondo")
+        val asked = mutableListOf<String>()
+        val chrome = GoogleTranslator(google(200 to """[["hello\nworld","it"]]""", 500 to "", asked)).translate(request)
+        assertEquals(listOf("hello", "world"), chrome.lines.map { it?.text })
+        assertEquals("it", chrome.detectedLanguage)
+        assertEquals(listOf("/translate_a/t"), asked)
+        asked.clear()
+        val web = GoogleTranslator(google(429 to "", 200 to """{"sentences":[{"trans":"hello\nworld"}],"src":"it"}""", asked)).translate(request)
+        assertEquals(listOf("hello", "world"), web.lines.map { it?.text })
+        assertEquals(listOf("/translate_a/t", "/translate_a/single"), asked)
+        asked.clear()
+        try {
+            GoogleTranslator(google(429 to "", 429 to "", asked)).translate(request)
+            fail("Both endpoints limiting the connection is busy")
+        } catch (_: ProviderBusy) {
         }
     }
 
-    @Test fun `Google retries the whole mismatched song at verse boundaries then individual lines`() = runBlocking {
+    @Test fun `Google's answer with a given language is a bare string`() {
+        assertEquals(listOf("hello"), googleChromeResponse("""["hello"]""", "it").lines.map { it?.text })
+        assertEquals("it", googleChromeResponse("""["hello"]""", "it").detectedLanguage)
+    }
+
+    @Test fun `a mismatched song is asked again by verse, never line by line`() = runBlocking {
         val input = document("一行目", "二行目", "", "三行目", "四行目")
         val requests = mutableListOf<List<String>>()
         val translator = object : Translator {
@@ -100,9 +114,27 @@ class TranslationSourcesTest {
         }
         val result = TranslationEngine(SongLanguageDetector { null }, Cache(), pause = {})
             .translate(input, preferences, null, translator) as TranslationOutcome.Translated
-        assertEquals(listOf(listOf("一行目", "二行目", "三行目", "四行目"), listOf("一行目", "二行目"),
-            listOf("三行目", "四行目"), listOf("三行目"), listOf("四行目")), requests)
-        assertEquals(listOf("t:一行目", "t:二行目", null, null, "t:四行目"), result.result.texts)
+        assertEquals(listOf(listOf("一行目", "二行目", "三行目", "四行目"), listOf("一行目", "二行目"), listOf("三行目", "四行目")), requests)
+        assertEquals(listOf("t:一行目", "t:二行目", null, null, null), result.result.texts)
+    }
+
+    @Test fun `a limited Google is left alone for a while instead of retried`() = runBlocking {
+        var clock = 0L
+        var calls = 0
+        val translator = object : Translator {
+            override val provider = TranslationProvider.Google
+            override suspend fun translate(request: TranslatorRequest): TranslatorResponse { calls++; throw ProviderBusy() }
+        }
+        val engine = TranslationEngine(SongLanguageDetector { null }, Cache(), pause = {}, now = { clock })
+        val first = runCatching { engine.translate(document("一行目"), preferences, null, translator) }.exceptionOrNull()
+        assertTrue(first is TranslationFailure)
+        assertEquals(1, calls)
+        clock += 60_000L
+        runCatching { engine.translate(document("二行目"), preferences, null, translator) }
+        assertEquals("No request while it rests", 1, calls)
+        clock += 10 * 60_000L
+        runCatching { engine.translate(document("三行目"), preferences, null, translator) }
+        assertEquals(2, calls)
     }
 
     @Test fun `old provider names migrate but Unison consent never grants Google or Genius consent`() {

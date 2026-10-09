@@ -56,38 +56,35 @@ class TranslationTest {
         assertNull(TranslationBatching.align(batch, TranslatorResponse(listOf(TranslationEntry("one"), TranslationEntry("two", false), TranslationEntry("three"))))[1 to 0])
     }
 
-    @Test fun `a mismatched verse falls back to lines without moving a missing line`() = runBlocking {
+    @Test fun `a mismatched single verse is not asked again line by line`() = runBlocking {
         val texts = List(9) { "riga $it" }
-        val translator = FakeTranslator { request ->
-            if ("riga 5" in request.lines) TranslatorResponse(emptyList(), "it")
-            else TranslatorResponse(request.lines.map { TranslationEntry("translated:$it") }, "it")
-        }
-        val waits = mutableListOf<Long>()
-        val result = TranslationEngine(SongLanguageDetector { "it" }, MemoryCache(), pause = { waits.add(it) })
-            .translate(document(*texts.toTypedArray()), preferences, "it", translator) as TranslationOutcome.Translated
-        assertEquals(texts.map { if (it == "riga 5") null else "translated:$it" }, result.result.texts)
-        assertEquals(10, translator.requests.size)
-        assertEquals(List(9) { 300L }, waits)
+        val translator = FakeTranslator { TranslatorResponse(emptyList(), "it") }
+        val error = runCatching {
+            TranslationEngine(SongLanguageDetector { "it" }, MemoryCache(), pause = {}).translate(document(*texts.toTypedArray()), preferences, "it", translator)
+        }.exceptionOrNull()
+        assertTrue(error is TranslationFailure)
+        assertEquals(1, translator.requests.size)
     }
 
     @Test fun `a busy provider is waited out`() = runBlocking {
         var calls = 0
         val waits = mutableListOf<Long>()
-        val translator = FakeTranslator { request ->
+        // DeepL's limits are per key, so it is waited out; Google's are a block on the connection.
+        val translator = FakeTranslator(TranslationProvider.DeepL) { request ->
             if (calls++ == 0) throw ProviderBusy(retryAfterMs = 4_000L)
             TranslatorResponse(request.lines.map { TranslationEntry("translated:$it") }, "it")
         }
         val result = TranslationEngine(SongLanguageDetector { null }, MemoryCache(), pause = { waits.add(it) })
-            .translate(document("uno"), preferences, "it", translator) as TranslationOutcome.Translated
+            .translate(document("uno"), preferences.copy(provider = TranslationProvider.DeepL), "it", translator) as TranslationOutcome.Translated
         assertEquals(listOf("translated:uno"), result.result.texts)
         assertEquals(listOf(4_000L), waits)
     }
 
     @Test fun `a provider that stays busy says so and nothing is cached`() = runBlocking {
         val cache = MemoryCache()
-        val translator = FakeTranslator { throw ProviderBusy() }
+        val translator = FakeTranslator(TranslationProvider.DeepL) { throw ProviderBusy() }
         val error = runCatching {
-            TranslationEngine(SongLanguageDetector { null }, cache, pause = {}).translate(document("uno"), preferences, "it", translator)
+            TranslationEngine(SongLanguageDetector { null }, cache, pause = {}).translate(document("uno"), preferences.copy(provider = TranslationProvider.DeepL), "it", translator)
         }.exceptionOrNull()
         assertEquals("Translation is busy right now. Try again in a minute.", error?.message)
         assertEquals(3, translator.requests.size)
@@ -102,7 +99,7 @@ class TranslationTest {
         }.exceptionOrNull()
         assertTrue(error is TranslationFailure)
         assertNull(cache.result)
-        assertEquals(41, translator.requests.size)
+        assertEquals(1, translator.requests.size)
     }
 
     @Test fun `blank and musical markers keep their positions without being sent`() = runBlocking {

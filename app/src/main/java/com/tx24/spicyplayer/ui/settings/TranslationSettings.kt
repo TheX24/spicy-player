@@ -13,7 +13,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -52,7 +51,6 @@ internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybac
     val languages = TranslationLanguages.common.toMutableMap().apply {
         if (preferences.targetLanguage !in this) put(preferences.targetLanguage, TranslationLanguages.name(preferences.targetLanguage))
     }.toList().sortedBy { it.second }
-    var choosingExcluded by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf("") }
     SettingRow("Target language", description = "Translate lyrics into this language.", icon = Icons.Rounded.Language) {
         SpicySelect(preferences.targetLanguage, languages.map { it.first }, viewModel::setTranslationTarget, labels = languages.map { it.second })
@@ -92,17 +90,8 @@ internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybac
     }
     SettingRow("Don't translate", description = "Keep these languages untranslated.", icon = Icons.Rounded.Block,
         searchDescription = "Leave songs in languages you already read in their original form.") {
-        SpicyButton(if (preferences.excludedLanguages.isEmpty()) "Choose" else "${preferences.excludedLanguages.size} selected", onClick = { choosingExcluded = true })
-    }
-    SpicyModal(visible = choosingExcluded, onDismissRequest = { choosingExcluded = false }, title = "Don't translate", backdrop = LocalBackdrop.current) {
-        CompositionLocalProvider(LocalSettingsQuery provides "") {
-            languages.forEach { (code, name) ->
-                ToggleRow(name, code in preferences.excludedLanguages, { selected ->
-                    viewModel.setTranslationExcluded(if (selected) preferences.excludedLanguages + code else preferences.excludedLanguages - code)
-                }, icon = Icons.Rounded.Language)
-            }
-        }
-        SpicyButton("Done", onClick = { choosingExcluded = false })
+        SpicyMultiSelect(preferences.excludedLanguages, languages.map { it.first }, viewModel::setTranslationExcluded,
+            labels = languages.map { it.second })
     }
 }
 

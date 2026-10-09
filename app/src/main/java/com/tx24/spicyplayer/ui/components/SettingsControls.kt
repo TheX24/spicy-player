@@ -349,6 +349,51 @@ fun SpicySelect(
     labels: List<String> = options,
     enabled: Boolean = true,
 ) {
+    val haptics = LocalHapticFeedback.current
+    SelectMenu(labels.getOrElse(options.indexOf(value)) { value }, modifier, enabled) { close ->
+        options.forEachIndexed { i, option ->
+            SelectOption(labels.getOrElse(i) { option }, selected = option == value) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                close()
+                if (option != value) onChange(option)
+            }
+        }
+    }
+}
+
+/**
+ * [SpicySelect] for picking any number of options: each tap ticks or unticks one and the menu
+ * stays open; a tap outside closes it. The pill reads [none] when nothing is picked.
+ */
+@Composable
+fun SpicyMultiSelect(
+    selected: Set<String>,
+    options: List<String>,
+    onChange: (Set<String>) -> Unit,
+    modifier: Modifier = Modifier,
+    labels: List<String> = options,
+    none: String = "None",
+    enabled: Boolean = true,
+) {
+    val haptics = LocalHapticFeedback.current
+    val label = when (selected.size) {
+        0 -> none
+        1 -> labels.getOrElse(options.indexOf(selected.single())) { selected.single() }
+        else -> "${selected.size} picked"
+    }
+    SelectMenu(label, modifier, enabled) {
+        options.forEachIndexed { i, option ->
+            SelectOption(labels.getOrElse(i) { option }, selected = option in selected) {
+                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
+                onChange(if (option in selected) selected - option else selected + option)
+            }
+        }
+    }
+}
+
+/** The pill and its menu plate, shared by [SpicySelect] and [SpicyMultiSelect]; [items] gets a way to close it. */
+@Composable
+private fun SelectMenu(label: String, modifier: Modifier, enabled: Boolean, items: @Composable (close: () -> Unit) -> Unit) {
     // Drives the open and close animation; the popup stays up until the close finishes.
     val menu = remember { MutableTransitionState(false) }
     // A tap on the pill while open lands after the popup has closed itself on touch-down;
@@ -379,7 +424,7 @@ fun SpicySelect(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            Text(labels.getOrElse(options.indexOf(value)) { value }, style = SpicyType.Caption.copy(fontWeight = FontWeight.Medium))
+            Text(label, style = SpicyType.Caption.copy(fontWeight = FontWeight.Medium))
             val turn by animateFloatAsState(if (open) 180f else 0f, tween(SpicyMotion.FAST_MS), label = "selectChevron")
             Icon(
                 Icons.Rounded.KeyboardArrowDown,
@@ -411,15 +456,7 @@ fun SpicySelect(
                             .border(1.dp, SpicyColors.HairlineStrong, plate)
                             .verticalScroll(rememberScrollState())
                             .padding(vertical = SpicySpacing.S1),
-                    ) {
-                        options.forEachIndexed { i, option ->
-                            SelectOption(labels.getOrElse(i) { option }, selected = option == value) {
-                                haptics.performHapticFeedback(HapticFeedbackType.SegmentTick)
-                                close()
-                                if (option != value) onChange(option)
-                            }
-                        }
-                    }
+                    ) { items(close) }
                 }
             }
         }
