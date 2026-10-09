@@ -17,6 +17,8 @@ import androidx.compose.ui.platform.LocalContext
 import com.tx24.spicyplayer.BuildConfig
 import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.playback.SyncTrace
+import com.tx24.spicyplayer.playback.TranslationTrace
+import com.tx24.spicyplayer.lyrics.LyricsState
 import com.tx24.spicyplayer.ui.components.SettingRow
 import com.tx24.spicyplayer.ui.components.SpicyButton
 import kotlinx.coroutines.delay
@@ -42,12 +44,19 @@ internal fun debugReport(context: Context, state: PlayerUiState): String {
         appendLine("Delays: output ${state.lyricDelayMs.signed()} ms, this song ${state.songDelayMs.signed()} ms")
         appendLine("Lyrics: ${songSummary(state)}")
         lyricsLines(state)?.forEach { (label, value) -> appendLine("$label: $value") }
+        textLines(context, state).forEach { (label, value) -> appendLine("$label: $value") }
         appendLine()
         appendLine("Last lookup:")
         if (state.providerAttempts.isEmpty()) appendLine("  none yet")
         state.providerAttempts.forEach { attempt ->
             val detail = attemptDetail(attempt) { time.format(it) }
             appendLine("  ${attemptSourceName(attempt, state)}: ${attempt.outcome.label()}" + if (detail.isNotEmpty()) " ($detail)" else "")
+        }
+        val translation = TranslationTrace.lines(SystemClock.elapsedRealtime())
+        if (translation.isNotEmpty()) {
+            appendLine()
+            appendLine("Translation (newest last):")
+            translation.forEach { appendLine("  $it") }
         }
         val sync = SyncTrace.lines(SystemClock.elapsedRealtime())
         if (sync.isNotEmpty()) {
@@ -57,6 +66,34 @@ internal fun debugReport(context: Context, state: PlayerUiState): String {
         }
     }
     return redactSecrets(report).trimEnd()
+}
+
+/** Where the romanization and translation on screen come from, and how they're set. */
+private fun textLines(context: Context, state: PlayerUiState): List<Pair<String, String>> {
+    val settings = AppSettings(context.getSharedPreferences("ui", Context.MODE_PRIVATE))
+    val lyrics = state.lyrics as? LyricsState.Ready
+    val romanization = when {
+        !settings.romanize -> "off"
+        else -> settings.romanizationMode.label.lowercase() + ", from " + when {
+            lyrics?.sourceRomanized == true -> "the lyrics themselves"
+            state.humanRomanizedLines > 0 -> "Genius on ${state.humanRomanizedLines} lines, on-device for the rest"
+            state.humanRomanizations -> "on-device (Genius had none that matched)"
+            else -> "on-device"
+        }
+    }
+    val preferences = state.translationPreferences
+    val translation = if (!state.translationEnabled) "off" else buildString {
+        append("${preferences.provider.label} to ${preferences.targetLanguage}, ${settings.translationMode.label.lowercase()}")
+        if (preferences.humanTranslations) append(", Genius first")
+        state.translation?.let { append("; lines: ${it.lineSources()}") }
+        if (state.translating) append("; translating now")
+    }
+    val language = state.lyricsLanguage ?: "not detected yet"
+    return listOf(
+        "Romanization" to romanization,
+        "Translation" to translation,
+        "Lyrics language" to language + (state.lyricsLanguageOverride?.let { " (set to $it for this song)" } ?: ""),
+    )
 }
 
 /** Blanks Spicy Lyrics keys and URL queries, where provider tokens travel. */

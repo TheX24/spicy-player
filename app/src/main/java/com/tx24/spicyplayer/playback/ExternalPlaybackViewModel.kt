@@ -155,6 +155,8 @@ data class PlayerUiState(
     val providerAttempts: List<ProviderAttempt> = emptyList(),
     val lookupStatus: String? = null,
     val humanRomanizations: Boolean = false,
+    /** Lines of the lyrics on screen that carry Genius's human romanization. */
+    val humanRomanizedLines: Int = 0,
     /** What a source the user is switching on would send, waiting for their OK. */
     val sourceDisclosure: SourceDisclosure? = null,
     /** What this update switched off (source IDs, [SourceDisclosures.GENIUS_ROMANIZATION_ID], Musixmatch); said once. */
@@ -342,6 +344,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     fun detectLyricsLanguage() = translateCurrent(detectOnly = true)
 
+    private fun traceTranslation(line: String) {
+        Log.d(TRANSLATE_TAG, line)
+        TranslationTrace.add(SystemClock.elapsedRealtime(), line)
+    }
+
     private fun translateCurrent(manual: Boolean = false, force: Boolean = false, detectOnly: Boolean = false) {
         if (!mutableState.value.translationEnabled && !detectOnly) return
         val document = translationDocument() ?: return
@@ -353,7 +360,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val preferences = state.translationPreferences
         val override = translationStore.language(state.localLyricsKey)
         val ticket = translationSession.begin(translationEngine.key(document, preferences, override))
-        Log.d(TRANSLATE_TAG, "start ${preferences.provider} manual=$manual force=$force doc=${document.hash.take(8)}")
+        traceTranslation("start: ${preferences.provider}" + (if (manual) ", tapped" else "") + ", lyrics ${document.hash.take(8)}")
         translationJob = viewModelScope.launch {
             try {
                 val source = withContext(Dispatchers.Default) { translationEngine.language(document, override) }
@@ -377,7 +384,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                             onPartial = { partial ->
                                 withContext(Dispatchers.Main) {
                                     if (translationSession.accepts(ticket) && translationDocument()?.hash == document.hash && mutableState.value.translationEnabled) {
-                                        Log.d(TRANSLATE_TAG, "showing the machine translation while the human one is looked up")
+                                        traceTranslation("machine translation shown, Genius still looking")
                                         mutableState.value = mutableState.value.copy(translation = partial)
                                     }
                                 }
@@ -388,12 +395,19 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     if (translationSession.accepts(ticket)) mutableState.value = mutableState.value.copy(translating = false)
                 }
                 if (!translationSession.accepts(ticket) || translationDocument()?.hash != document.hash || !mutableState.value.translationEnabled) {
-                    Log.d(TRANSLATE_TAG, "result dropped: the lyrics or the setting changed meanwhile")
+                    traceTranslation("result dropped: the lyrics or a setting changed meanwhile")
                     return@launch
                 }
-                Log.d(TRANSLATE_TAG, "result ${result::class.simpleName} doc=${document.hash.take(8)}")
+                traceTranslation(when (result) {
+                    is TranslationOutcome.Translated -> "translated: ${result.result.lineSources()}"
+                    is TranslationOutcome.Skipped -> "skipped: already in ${result.language ?: "the target language"}"
+                })
                 when (result) {
-                    is TranslationOutcome.Translated -> mutableState.value = mutableState.value.copy(translation = result.result, lyricsLanguage = result.result.detectedLanguage ?: source)
+                    is TranslationOutcome.Translated -> {
+                        mutableState.value = mutableState.value.copy(translation = result.result, lyricsLanguage = result.result.detectedLanguage ?: source)
+                        // A tap gets told what answered; a song change just shows it.
+                        if (manual) showMessage("Translated: ${result.result.lineSources()}.")
+                    }
                     is TranslationOutcome.Skipped -> {
                         mutableState.value = mutableState.value.copy(lyricsLanguage = result.language ?: source)
                         if (manual && result.language != null) showMessage("Already in ${TranslationLanguages.name(result.language)}.")
@@ -402,7 +416,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
-                Log.w(SYNC_TAG, "translation failed", error)
+                Log.w(TRANSLATE_TAG, "translation failed", error)
+                traceTranslation("failed: ${error.message}")
                 if (translationSession.accepts(ticket) && mutableState.value.translationEnabled) {
                     // Never surface provider bodies, request contents, or credentials in a message.
                     showMessage(if (error is TranslationFailure) error.message ?: "Couldn't translate these lyrics." else "Couldn't translate these lyrics. Try again later.")
@@ -1420,8 +1435,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             } ?: return@launch
             synchronized(humanCache) { humanCache[selection] = human }
             if (currentLyricsKey != identity || shownSelection != selection) return@launch
-            Log.d("LyricsProviders", "Genius romanization laid over ${human.lines.count { it !in lyrics.lines }} lines")
-            mutableState.value = mutableState.value.copy(lyrics = human)
+            val laid = human.lines.count { it !in lyrics.lines }
+            Log.d("LyricsProviders", "Genius romanization laid over $laid lines")
+            mutableState.value = mutableState.value.copy(lyrics = human, humanRomanizedLines = laid)
         }
     }
 
@@ -1638,6 +1654,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             localLyricsKey = localKey,
             songDelayMs = if (lyricsChanged) songDelays.delayMs(localKey) else mutableState.value.songDelayMs,
             lyricsLanguage = if (lyricsChanged) null else mutableState.value.lyricsLanguage,
+            humanRomanizedLines = if (lyricsChanged) 0 else mutableState.value.humanRomanizedLines,
             lyricsLanguageOverride = if (lyricsChanged) translationStore.language(localKey) else mutableState.value.lyricsLanguageOverride,
             translationEnabled = mutableState.value.translationEnabled || (lyricsChanged && mutableState.value.translationPreferences.automatic),
             lookupStatus = if (lyricsChanged) null else mutableState.value.lookupStatus,

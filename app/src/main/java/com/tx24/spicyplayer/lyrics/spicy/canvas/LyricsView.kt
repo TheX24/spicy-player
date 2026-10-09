@@ -250,14 +250,14 @@ fun LyricsView(
                     })
                 }.also { measuredCache[key] = it }
             }
-            if (translation != null) {
-                val base = measure(romanize, null)
-                measuredShown = ShownLyrics(documentId, base.lines, base.layouts, incomingType, incomingFooter, romanizationLines = base.romanizationLines)
-                if (lines.any { line -> line.words.any { it.romanizedText != null } }) measure(!romanize, null)
-            }
+            // What's asked for goes up first; the layouts a toggle switches to are measured after,
+            // so they're ready without holding this one back.
             val measured = measure(romanize)
             measuredShown = ShownLyrics(documentId, measured.lines, measured.layouts, incomingType, incomingFooter, translation, measured.romanizationLines)
-            if (lines.any { line -> line.words.any { it.romanizedText != null } }) measure(!romanize)
+            val romanizable = lines.any { line -> line.words.any { it.romanizedText != null } }
+            if (translation != null) measure(romanize, null)
+            if (romanizable) measure(!romanize)
+            if (translation != null && romanizable) measure(!romanize, null)
         }
 
         if (lineLayouts.isEmpty()) return@BoxWithConstraints

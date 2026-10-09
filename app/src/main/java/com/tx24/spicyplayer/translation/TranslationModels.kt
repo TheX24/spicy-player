@@ -114,6 +114,13 @@ data class TranslationResult(
     val detectedLanguage: String?,
     val origins: List<TranslationOrigin?> = texts.map { if (it == null) null else TranslationOrigin.valueOf(key.provider.name) },
 ) {
+    /** Where the lines came from, for the debug report and a tap's message: "Genius 22, Google 37, none 4". */
+    fun lineSources(): String {
+        val counts = origins.groupingBy { it?.name ?: "none" }.eachCount()
+        val order = TranslationOrigin.entries.map { it.name } + "none"
+        return order.mapNotNull { name -> counts[name]?.let { "$name $it" } }.joinToString(", ")
+    }
+
     fun geniusCredit(): String? {
         if (TranslationOrigin.Genius !in origins) return null
         val machine = origins.filterNotNull().firstOrNull { it != TranslationOrigin.Genius }
