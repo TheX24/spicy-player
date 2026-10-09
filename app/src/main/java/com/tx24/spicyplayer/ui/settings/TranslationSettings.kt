@@ -77,11 +77,11 @@ internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybac
 
 @Composable
 internal fun LyricsLanguageRow(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
-    val detected = state.lyricsLanguage?.let { "Detected: ${TranslationLanguages.name(it)}." } ?: "Not detected yet."
+    val detected = state.lyricsLanguage?.let { "Detected: ${TranslationLanguages.name(it)}" } ?: "Not detected yet"
     val languages = TranslationLanguages.common.toList().sortedBy { it.second }
-    SettingRow("Lyrics language", description = "$detected Set it for this song if that's wrong.", icon = Icons.Rounded.Translate) {
+    SettingRow("Lyrics language", description = detected, icon = Icons.Rounded.Translate) {
         SpicySelect(state.lyricsLanguageOverride ?: "auto", listOf("auto") + languages.map { it.first },
             { viewModel.setLyricsLanguage(it.takeUnless { code -> code == "auto" }) },
-            labels = listOf("Detect automatically") + languages.map { it.second }, enabled = state.localLyricsKey != null)
+            labels = listOf("Auto") + languages.map { it.second }, enabled = state.localLyricsKey != null)
     }
 }
