@@ -129,7 +129,7 @@ fun LyricsView(
     // The original variant is measured first and retained, so turning off switches immediately.
     val shown = if (translation != null || measuredShown?.translation != null) {
         (desired ?: original)?.let { ShownLyrics(documentId, it.lines, it.layouts, lyricsType, footer,
-            translation.takeIf { desired != null }) }
+            translation.takeIf { desired != null }, it.romanizationLines) }
     } else measuredShown
     val shownId = shown?.documentId
     val lineLayouts = shown?.layouts.orEmpty()
@@ -149,6 +149,7 @@ fun LyricsView(
     // composable's body — only the Canvas redraws when the derived anim state actually changes.
     val currentTimeProvider by rememberUpdatedState(currentTimeMs)
     val linesUpdated by rememberUpdatedState(shown?.lines.orEmpty())
+    val romanizationLinesUpdated by rememberUpdatedState(shown?.romanizationLines)
     val lineLayoutsUpdated by rememberUpdatedState(lineLayouts)
     val onFrameTickUpdated by rememberUpdatedState(onFrameTick)
     val isPlayingUpdated by rememberUpdatedState(isPlaying)
@@ -244,16 +245,18 @@ fun LyricsView(
                         display, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanized, letterConfig.isSimple,
                         letterConfig.wideDuetPadding,
                         if (letterConfig.isAppleMusic) AppleMusicMotion.BACKGROUND_SIZE else 0.75f,
-                    ))
+                    ), romanizationLines = originals.takeIf {
+                        presentation?.mode == TranslationMode.Replace && romanized && romanizationMode == RomanizationMode.UnderLine
+                    })
                 }.also { measuredCache[key] = it }
             }
             if (translation != null) {
                 val base = measure(romanize, null)
-                measuredShown = ShownLyrics(documentId, base.lines, base.layouts, incomingType, incomingFooter)
+                measuredShown = ShownLyrics(documentId, base.lines, base.layouts, incomingType, incomingFooter, romanizationLines = base.romanizationLines)
                 if (lines.any { line -> line.words.any { it.romanizedText != null } }) measure(!romanize, null)
             }
             val measured = measure(romanize)
-            measuredShown = ShownLyrics(documentId, measured.lines, measured.layouts, incomingType, incomingFooter, translation)
+            measuredShown = ShownLyrics(documentId, measured.lines, measured.layouts, incomingType, incomingFooter, translation, measured.romanizationLines)
             if (lines.any { line -> line.words.any { it.romanizedText != null } }) measure(!romanize)
         }
 
@@ -301,7 +304,7 @@ fun LyricsView(
 
                     if (currentLayouts.size == currentLines.size && currentLines.isNotEmpty()) {
                         // 1. Step the animator for visual properties (scale, opacity, glow).
-                        animStates = animator.animate(currentLines, currentTime, deltaTime, scrollManager.hideLineBlur, lyricsType)
+                        animStates = animator.animate(currentLines, currentTime, deltaTime, scrollManager.hideLineBlur, lyricsType, romanizationLinesUpdated)
 
                         // 1.5 Calculate dynamic Y offsets based on interlude scales.
                         var accumulatedY = 0f
@@ -604,7 +607,7 @@ private data class MeasureKey(
     val romanizationMode: RomanizationMode = RomanizationMode.Replace,
 )
 
-private class MeasuredLyrics(val lines: List<Line>, val layouts: List<LineLayout>)
+private class MeasuredLyrics(val lines: List<Line>, val layouts: List<LineLayout>, val romanizationLines: List<Line>? = null)
 
 private class ShownLyrics(
     val documentId: String,
@@ -613,6 +616,7 @@ private class ShownLyrics(
     val lyricsType: LyricsType,
     val footer: LyricsFooter,
     val translation: TranslationPresentation? = null,
+    val romanizationLines: List<Line>? = null,
 )
 
 /** Paused and this many frames without a change, the frame loop rests. */

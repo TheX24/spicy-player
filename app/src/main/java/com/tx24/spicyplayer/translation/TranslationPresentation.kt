@@ -5,20 +5,30 @@ import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
 
+/** A note piece retains its source word and its range in the complete, spaced note. */
+internal data class RomanizationPiece(val word: Word, val sourceWordIndex: Int, val text: String, val textOffset: Int)
+
+internal data class RomanizationNote(val text: String, val pieces: List<RomanizationPiece>)
+
+internal fun romanizationNote(original: Line): RomanizationNote? {
+    if (original.isInterlude || original.words.none { it.romanizedText != null }) return null
+    // Chinese pinyin separates syllables; Japanese keeps syllables of the same word glued.
+    val chinese = original.words.any { word -> word.text.any(ScriptDetector::hasHan) } &&
+        original.words.none { word -> word.text.any(ScriptDetector::hasKana) }
+    val text = StringBuilder()
+    val pieces = original.words.mapIndexed { index, word ->
+        if (text.isNotEmpty() && (!word.isPartOfWord || chinese)) text.append(' ')
+        val piece = word.romanizedText ?: word.text
+        RomanizationPiece(word, index, piece, text.length).also { text.append(piece) }
+    }
+    return RomanizationNote(text.toString(), pieces).takeIf { it.text.isNotBlank() }
+}
+
 /** Supplemental rows are independent: romanization first, then translation. */
 internal fun presentationSupplements(original: Line, romanize: Boolean, romanizationMode: RomanizationMode,
     translation: String?, translationMode: TranslationMode?): List<String> {
     if (original.isInterlude) return emptyList()
-    val romanized = if (romanize && romanizationMode == RomanizationMode.UnderLine && original.words.any { it.romanizedText != null }) {
-        // Chinese runs its characters together, but each one's pinyin is a syllable of its own.
-        val chinese = original.words.any { word -> word.text.any(ScriptDetector::hasHan) } && original.words.none { word -> word.text.any(ScriptDetector::hasKana) }
-        buildString {
-            original.words.forEach { word ->
-                if (isNotEmpty() && (!word.isPartOfWord || chinese)) append(' ')
-                append(word.romanizedText ?: word.text)
-            }
-        }.takeIf(String::isNotBlank)
-    } else null
+    val romanized = if (romanize && romanizationMode == RomanizationMode.UnderLine) romanizationNote(original)?.text else null
     return listOfNotNull(romanized, translation?.takeIf { translationMode == TranslationMode.UnderLine && it.isNotBlank() })
 }
 

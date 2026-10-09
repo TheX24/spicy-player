@@ -40,6 +40,27 @@ internal fun DrawScope.drawTranslationText(
         ))
     }) {
         if (replacement) layout.words.forEach { draw(it.textLayoutResult, Offset(startX, y + scroll) + it.relativeOffset, 1f) }
-        layout.supplements.forEach { draw(it.text, Offset(startX, y + scroll) + it.offset, 0.65f) }
+        layout.supplements.forEach { supplement ->
+            val offset = Offset(startX, y + scroll) + supplement.offset
+            if (!static && animation.isActive && supplement.words.isNotEmpty()) {
+                supplement.words.forEach words@ { word ->
+                    val state = animation.wordStates.getOrNull(word.sourceWordIndex) ?: return@words
+                    val width = word.textLayoutResult.size.width.toFloat()
+                    val size = with(word.textLayoutResult.layoutInput.density) { word.textLayoutResult.layoutInput.style.fontSize.toPx() }
+                    val (position, band) = if (config.isAppleMusic)
+                        appleWipe(state.gradientPosition, word.fullWordWidth, size, word.word.text)
+                    else state.gradientPosition to if (config.isSimple) 30f else 0f
+                    val dim = when {
+                        config.isAppleMusic && animation.isBackground -> AppleMusicMotion.BACKGROUND_DIM_ALPHA
+                        config.isAppleMusic -> AppleMusicMotion.DIM_ALPHA
+                        animation.isBackground -> 0.3f
+                        else -> config.gradientAlphaDim
+                    } * animation.opacity * 0.65f
+                    drawWipeText(word.textLayoutResult, offset.x + word.relativeOffset.x, offset.y + word.relativeOffset.y,
+                        width, word.fullWordWidth, word.startXOffset, position, alpha * 0.65f, dim,
+                        shadow = null, rtl = supplement.isRtl, gradientOffsetPercent = band)
+                }
+            } else draw(supplement.text, offset, 0.65f)
+        }
     }
 }

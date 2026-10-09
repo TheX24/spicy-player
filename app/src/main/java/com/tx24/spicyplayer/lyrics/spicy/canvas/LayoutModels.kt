@@ -54,4 +54,9 @@ internal data class LineLayout(
     val lyricHeight: Float? = null,
 )
 
-internal data class SupplementLayout(val text: TextLayoutResult, val offset: Offset)
+internal data class SupplementLayout(
+    val text: TextLayoutResult,
+    val offset: Offset,
+    val words: List<WordLayout> = emptyList(),
+    val isRtl: Boolean = false,
+)

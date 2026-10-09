@@ -211,6 +211,7 @@ class LyricsAnimator(
      * only the first letter or two of a held word until the line became active.
      */
     private var cachedFor: List<Line>? = null
+    private var cachedRomanizationFor: List<Line>? = null
 
     /** Blur is recomputed only when the active line index changes (reference Blurring_LastLine). */
     private var blurringLastLine: Int = -1
@@ -244,6 +245,8 @@ class LyricsAnimator(
         deltaTime: Float,
         suppressBlur: Boolean = false,
         lyricsType: LyricsType = LyricsType.Syllable,
+        /** Original word timings for romanization below a whole-line translation replacement. */
+        romanizationLines: List<Line>? = null,
     ): List<LineAnimState> {
         if (lines.isEmpty()) return emptyList()
 
@@ -258,8 +261,9 @@ class LyricsAnimator(
             }
         }
 
-        if (lines !== cachedFor) {
+        if (lines !== cachedFor || romanizationLines !== cachedRomanizationFor) {
             cachedFor = lines
+            cachedRomanizationFor = romanizationLines
             cachedWordStates.clear()
             appleFinalStates.clear()
             wordSpringsMap.clear()
@@ -273,13 +277,14 @@ class LyricsAnimator(
         if (blurAmounts.size != lines.size) blurAmounts = FloatArray(lines.size)
 
         val states = lines.map { elementState(processedPosition, it.startMs, it.endMs) }
-        if (config.isAppleMusic) return animateAppleMusic(lines, states, processedPosition, deltaTime, suppressBlur, lyricsType)
+        if (config.isAppleMusic) return animateAppleMusic(lines, states, processedPosition, deltaTime, suppressBlur, lyricsType, romanizationLines)
         // Minimal's `.LyricsContent:not(.HideLineBlur)` rules drop out while the user scrolls.
         val minimalLook = config.isMinimal && !suppressBlur
         // `.LyricsContent:not(:has(.line.Active)):not(:has(.line.NotSung))`: the song is over.
         val allSung = states.none { it != ElementState.Sung }
 
         return lines.mapIndexed { lineIdx, line ->
+            val romanization = if (line.translationReplaces && lyricsType == LyricsType.Syllable) romanizationLines?.getOrNull(lineIdx) else null
             val lyricsType = if (line.translationReplaces) LyricsType.Line else lyricsType
             val lineState = states[lineIdx]
             val isActive = !line.isSongwriter && lineState == ElementState.Active
@@ -339,7 +344,9 @@ class LyricsAnimator(
                 }
                 cachedLineGradient[lineIdx] = lineGradient
                 cachedLineGlow[lineIdx] = lineGlow
-                wordStates = emptyList()
+                wordStates = if (isActive && romanization != null) romanization.words.mapIndexed { wordIdx, word ->
+                    animateWord(word, romanization.words.getOrNull(wordIdx - 1), processedPosition, deltaTime, lineIdx, wordIdx)
+                } else emptyList()
             } else {
                 wordStates = when {
                     line.isSongwriter -> cachedWordStates.getOrPut(lineIdx) {
@@ -423,6 +430,7 @@ class LyricsAnimator(
         deltaTime: Float,
         userScrolling: Boolean,
         lyricsType: LyricsType,
+        romanizationLines: List<Line>?,
     ): List<LineAnimState> {
         if (appleOrdinalsFor !== lines) {
             appleOrdinalsFor = lines
@@ -451,6 +459,7 @@ class LyricsAnimator(
         val activeOrdinal = appleOrdinals.getOrElse(appleActiveLine) { -1 }
 
         return lines.mapIndexed { lineIdx, line ->
+            val romanization = if (line.translationReplaces && lyricsType == LyricsType.Syllable) romanizationLines?.getOrNull(lineIdx) else null
             val lineState = states[lineIdx]
             val isActive = !line.isSongwriter && lineState == ElementState.Active
             // Before any line has been sung, distances count from just above the first.
@@ -501,6 +510,7 @@ class LyricsAnimator(
             }
 
             val wordStates = when {
+                isActive && romanization != null -> romanization.words.mapIndexed { i, word -> appleWordState(word, i, romanization, t) }
                 lyricsType == LyricsType.Line && !line.isInterlude -> emptyList()
                 line.isSongwriter -> cachedWordStates.getOrPut(lineIdx) { line.words.map { songwriterWordState(it) } }
                 line.isInterlude -> appleDots(line, t)

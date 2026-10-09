@@ -36,7 +36,7 @@ import com.tx24.spicyplayer.lyrics.spicy.animation.WordAnimState
  *   rows, whole line, or — for a standalone letter — that letter's own width).
  * @param startXOffset this fragment's offset within [fullWidth].
  */
-private fun DrawScope.drawWipeText(
+internal fun DrawScope.drawWipeText(
     layoutResult: TextLayoutResult,
     xPos: Float,
     yPos: Float,
@@ -524,7 +524,7 @@ private fun DrawScope.drawStandardWord(
  * unsung colour. The edge starts a feather before the word and ends at its far side, so the word
  * is wholly dim at 0 and wholly lit at 100. Returns the position and the extra band width.
  */
-private fun appleWipe(progress: Float, fullWidth: Float, lyricSize: Float, text: String): Pair<Float, Float> {
+internal fun appleWipe(progress: Float, fullWidth: Float, lyricSize: Float, text: String): Pair<Float, Float> {
     val width = fullWidth.coerceAtLeast(1f)
     val feather = minOf(AppleMusicMotion.featherEm(text.length, AppleMusicMotion.isCjk(text)) * lyricSize, width / 2f)
     val edge = progress / 100f * (width + feather) - feather

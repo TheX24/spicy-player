@@ -29,6 +29,8 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
 import com.tx24.spicyplayer.translation.TranslationPresentation
 import com.tx24.spicyplayer.translation.presentationSupplements
+import com.tx24.spicyplayer.translation.romanizationNote
+import com.tx24.spicyplayer.translation.RomanizationNote
 import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
 
 internal object LyricsLayoutCalculator {
@@ -76,6 +78,8 @@ internal object LyricsLayoutCalculator {
                     isRtl = rtl, isRightAligned = right, contentStartX = slot.startPx, contentWidth = slot.widthPx)
             }
             if (!line.isInterlude) {
+                val romanization = if (romanize && romanizationMode == RomanizationMode.UnderLine && lyricsType == LyricsType.Syllable)
+                    romanizationNote(originals[index]) else null
                 val supplements = presentationSupplements(originals[index], romanize, romanizationMode,
                     presentation?.texts?.getOrNull(index), presentation?.mode).map {
                     measure(it, 0.6f, layout.contentWidth / ACTIVE_LINE_SCALE, layout.isRightAligned)
@@ -87,7 +91,9 @@ internal object LyricsLayoutCalculator {
                     // read as belonging to it.
                     val rows = supplements.mapIndexed { row, measured ->
                         y += em * if (row == 0) LINE_TO_NOTE_GAP else NOTE_GAP
-                        SupplementLayout(measured, Offset(if (layout.isRightAligned) layout.totalWidth - measured.size.width else 0f, y))
+                        SupplementLayout(measured, Offset(if (layout.isRightAligned) layout.totalWidth - measured.size.width else 0f, y),
+                            words = if (row == 0 && romanization != null) calculateRomanizationWords(romanization, measured, textMeasurer) else emptyList(),
+                            isRtl = RtlDetector.isRtl(measured.layoutInput.text.text))
                             .also { y += measured.size.height }
                     }
                     layout = layout.copy(height = y, lyricHeight = layout.height, supplements = rows)
@@ -99,6 +105,41 @@ internal object LyricsLayoutCalculator {
             }
             extraY += layout.height - original.height
             layout
+        }
+    }
+
+    /**
+     * Keep the note's existing wrapping, alignment and height. Each source word gets its own
+     * measured fragments at those positions, so painting a sweep never measures text per frame
+     * and the static note never reflows when its line becomes active.
+     */
+    private fun calculateRomanizationWords(note: RomanizationNote, measured: androidx.compose.ui.text.TextLayoutResult,
+        textMeasurer: TextMeasurer): List<WordLayout> = buildList {
+        for (piece in note.pieces) {
+            val fragments = mutableListOf<WordLayout>()
+            var wordWidth = 0f
+            for (row in 0 until measured.lineCount) {
+                val start = maxOf(piece.textOffset, measured.getLineStart(row))
+                val end = minOf(piece.textOffset + piece.text.length, measured.getLineEnd(row, visibleEnd = true))
+                if (start >= end) continue
+                val text = note.text.substring(start, end)
+                val result = textMeasurer.measure(text, measured.layoutInput.style.copy(
+                    textAlign = TextAlign.Left, shadow = Shadow.None,
+                    // Identical pieces must not share Compose's mutable text paint.
+                    letterSpacing = (System.identityHashCode(piece.word) % 1000 * 0.0000001f + row * 0.00000001f).sp,
+                ), softWrap = false)
+                var left = Float.POSITIVE_INFINITY
+                for (offset in start until end) left = minOf(left, measured.getBoundingBox(offset).left)
+                fragments += WordLayout(piece.word, result,
+                    Offset(left, measured.getLineBaseline(row) - result.firstBaseline),
+                    sourceWordIndex = piece.sourceWordIndex, startXOffset = wordWidth)
+                wordWidth += result.size.width
+            }
+            val rtl = RtlDetector.isRtl(piece.text)
+            fragments.forEach { fragment ->
+                add(fragment.copy(fullWordWidth = wordWidth,
+                    startXOffset = if (rtl) wordWidth - fragment.startXOffset - fragment.textLayoutResult.size.width else fragment.startXOffset))
+            }
         }
     }
     /** Scale of the active line in line-synced lyrics (reference: data-lyrics-type="Line" .line.Active). */
