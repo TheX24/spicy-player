@@ -219,7 +219,8 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val outputProfiles = AudioOutputProfiles(application)
     private val songDelays = SongDelays(application)
     private val translationStore = TranslationSettingsStore(application)
-    private val translationEngine = TranslationEngine(LocalSongLanguageDetector(), DiskTranslationCache(File(application.cacheDir, "translations")))
+    // The song's language comes from the provider's answer, kept in the translation cache.
+    private val translationEngine = TranslationEngine(SongLanguageDetector { null }, DiskTranslationCache(File(application.cacheDir, "translations")))
     private val translationSession = TranslationSession()
     private val translationClient = okhttp3.OkHttpClient.Builder().callTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
         .followRedirects(false).followSslRedirects(false).build()
@@ -373,6 +374,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Exception) {
+                Log.w(SYNC_TAG, "translation failed", error)
                 if (translationSession.accepts(ticket) && mutableState.value.translationEnabled) {
                     // Never surface provider bodies, request contents, or credentials in a message.
                     showMessage(if (error is TranslationFailure) error.message ?: "Couldn't translate these lyrics." else "Couldn't translate these lyrics. Try again later.")

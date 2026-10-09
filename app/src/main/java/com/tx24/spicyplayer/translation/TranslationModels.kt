@@ -113,6 +113,12 @@ interface Translator {
 
 class TranslationFailure(message: String) : IllegalArgumentException(message)
 
+/**
+ * The provider refused these particular lines, not the service as a whole: Google's lyrics
+ * translation fails on some lines, and Unison then answers the whole request with a 502.
+ */
+class LinesRejected(code: Int) : java.io.IOException("Translation refused these lines (HTTP $code).")
+
 fun interface SongLanguageDetector { fun detect(originalLyrics: String): String? }
 
 object DeepLKey {

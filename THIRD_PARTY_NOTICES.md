@@ -23,10 +23,6 @@ Spicy Lyrics Mobile is licensed under the [GNU Affero General Public License, ve
 
 ## Libraries
 
-[Optimaize language-detector](https://github.com/optimaize/language-detector) 0.6 (Apache-2.0), by Nakatani Shuyo, Fabian Kessler, Francois ROLAND and Robert Theis, provides offline song language detection and bundled language profiles.
-
-[SLF4J](https://www.slf4j.org/) 1.7.36 (MIT), Copyright (c) 2004-2022 QOS.ch, supplies a no-op logging binding for the language detector.
-
 Kuromoji (Apache-2.0), OkHttp and Retrofit (Apache-2.0), Gson (Apache-2.0), Coil (Apache-2.0), Haze (Apache-2.0), Timber (Apache-2.0), Kotlin and kotlinx.coroutines (Apache-2.0) and AndroidX (Apache-2.0) are used as dependencies under their own licenses.
 
 ## Fonts

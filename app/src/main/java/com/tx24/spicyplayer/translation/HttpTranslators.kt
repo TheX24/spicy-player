@@ -22,6 +22,8 @@ class UnisonTranslator(private val client: OkHttpClient) : Translator {
         val response = client.newCall(Request.Builder().url("${UnisonLyricsProvider.BASE}/translate")
             .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build())
             .awaitResponse().use { response ->
+                // 400: no language found in these lines; 502: Google failed on them.
+                if (response.code == 400 || response.code == 502) throw LinesRejected(response.code)
                 if (!response.isSuccessful) throw IOException("Translation is unavailable (HTTP ${response.code}).")
                 JsonParser.parseString(response.body.string()).asJsonObject
             }

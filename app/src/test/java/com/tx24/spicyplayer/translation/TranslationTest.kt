@@ -55,6 +55,29 @@ class TranslationTest {
         assertNull(TranslationBatching.align(batch, TranslatorResponse(listOf(TranslationEntry("one"), TranslationEntry("two", false), TranslationEntry("three"))))[1 to 0])
     }
 
+    @Test fun `a refused line is singled out and the rest of the song still translates`() = runBlocking {
+        val texts = List(9) { "riga $it" }
+        val translator = FakeTranslator { request ->
+            if ("riga 5" in request.lines) throw LinesRejected(502)
+            TranslatorResponse(request.lines.map { TranslationEntry("translated:$it") }, "it")
+        }
+        val result = TranslationEngine(SongLanguageDetector { "it" }, MemoryCache())
+            .translate(document(*texts.toTypedArray()), preferences, "it", translator) as TranslationOutcome.Translated
+        assertEquals(texts.map { if (it == "riga 5") null else "translated:$it" }, result.result.texts)
+        assertTrue(translator.requests.size <= 8)
+    }
+
+    @Test fun `a song refused everywhere is a failure and isn't cached`() = runBlocking {
+        val cache = MemoryCache()
+        val translator = FakeTranslator { throw LinesRejected(502) }
+        val error = runCatching {
+            TranslationEngine(SongLanguageDetector { "it" }, cache).translate(document(*Array(40) { "riga $it" }), preferences, "it", translator)
+        }.exceptionOrNull()
+        assertTrue(error is TranslationFailure)
+        assertNull(cache.result)
+        assertTrue(translator.requests.size <= 24)
+    }
+
     @Test fun `blank and musical markers keep their positions without being sent`() = runBlocking {
         val input = document("uno", "", "♪", "♫", "...", "due")
         val translator = FakeTranslator()
@@ -296,10 +319,22 @@ class TranslationTest {
         assertTrue(translator.requests.isEmpty())
     }
 
-    @Test fun `bundled detector identifies complete original songs offline`() {
-        val detector = LocalSongLanguageDetector()
-        assertEquals("en", detector.detect("We watched the morning light across the river. The sky was clear and the streets were quiet. I could hear the wind through the trees as we walked home together."))
-        assertEquals("ru", detector.detect("Сегодня утром мы гуляли по улицам города. Ветер шумел в деревьях, и солнце освещало дома. Я смотрел на небо и думал о том, как хорошо вернуться домой."))
-        assertNull(detector.detect("♪"))
+    @Test fun `a song found to be in the target language is asked about once`() = runBlocking {
+        val cache = MemoryCache()
+        val engine = TranslationEngine(SongLanguageDetector { null }, cache)
+        val translator = FakeTranslator { request -> TranslatorResponse(request.lines.map { TranslationEntry(null, false) }, "en") }
+        val song = document("I want your love", "and I want your revenge")
+        assertEquals(TranslationOutcome.Skipped("en"), engine.translate(song, preferences, null, translator))
+        assertEquals(TranslationOutcome.Skipped("en"), engine.translate(song, preferences, null, translator))
+        assertEquals(1, translator.requests.size)
+    }
+
+    @Test fun `later batches carry the language the first answer found`() = runBlocking {
+        val texts = (0 until 260).map { if (it % 100 == 99) "" else "riga $it" }
+        val translator = FakeTranslator()
+        TranslationEngine(SongLanguageDetector { null }, MemoryCache()).translate(document(*texts.toTypedArray()), preferences, null, translator)
+        assertTrue(translator.requests.size > 1)
+        assertNull(translator.requests.first().source)
+        assertTrue(translator.requests.drop(1).all { it.source == "it" })
     }
 }

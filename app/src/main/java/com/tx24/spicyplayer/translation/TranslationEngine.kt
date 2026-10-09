@@ -94,17 +94,41 @@ class TranslationEngine(private val detector: SongLanguageDetector, private val 
         }
         val batches = TranslationBatching.batches(document, translator.provider)
         if (batches.isEmpty()) return TranslationOutcome.Skipped(source)
-        if (source == null && translator.provider == TranslationProvider.Unison && batches.size > 1)
-            throw TranslationFailure("Choose this song's lyrics language in Quick settings first.")
         val aligned = mutableMapOf<Pair<Int, Int>, String?>()
         var detected = source
-        for (batch in batches) {
-            val response = translator.translate(TranslatorRequest(batch.map { it.text }, key.targetLanguage, source, document.context))
+        var requests = 0
+        var answered = false
+        // A refused batch is halved until the refused lines stand alone; they stay untranslated and
+        // the rest keep as much of their verse around them as the provider takes.
+        suspend fun send(batch: List<TranslationPiece>) {
+            if (requests++ >= MAX_REQUESTS) {
+                batch.forEach { aligned[it.index to it.part] = null }
+                return
+            }
+            val response = try {
+                // Later batches go out with the language the first answer found.
+                translator.translate(TranslatorRequest(batch.map { it.text }, key.targetLanguage, detected, document.context))
+            } catch (refused: LinesRejected) {
+                if (batch.size == 1) {
+                    aligned[batch[0].index to batch[0].part] = null
+                } else {
+                    send(batch.subList(0, batch.size / 2))
+                    send(batch.subList(batch.size / 2, batch.size))
+                }
+                return
+            }
             if (response.lines.size != batch.size) throw TranslationFailure("Translation returned an incomplete response. Try again later.")
+            answered = true
             detected = detected ?: languageCode(response.detectedLanguage)
             aligned.putAll(TranslationBatching.align(batch, response))
         }
-        if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) return TranslationOutcome.Skipped(detected)
+        batches.forEach { send(it) }
+        if (!answered) throw TranslationFailure("Couldn't translate these lyrics. Try again later.")
+        if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) {
+            // Kept, untranslated, so the song is known to need nothing the next time it plays.
+            cache.write(TranslationResult(key, List(document.lines.size) { null }, detected))
+            return TranslationOutcome.Skipped(detected)
+        }
         val pieces = batches.flatten().groupBy { it.index }
         val texts = document.lines.map { line ->
             val parts = pieces[line.index].orEmpty()
@@ -115,5 +139,10 @@ class TranslationEngine(private val detector: SongLanguageDetector, private val 
         val result = TranslationResult(key, texts, detected)
         cache.write(result)
         return TranslationOutcome.Translated(result)
+    }
+
+    private companion object {
+        /** Requests one song may take while singling out refused lines, so a broken one can't flood the provider. */
+        const val MAX_REQUESTS = 24
     }
 }
