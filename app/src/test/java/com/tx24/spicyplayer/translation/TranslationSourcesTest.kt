@@ -173,6 +173,19 @@ class TranslationSourcesTest {
         assertTrue(machine.requests.isEmpty())
     }
 
+    @Test fun `a slow human lookup shows the machine translation first, then upgrades it`() = runBlocking {
+        val input = document("夜が来る", "違う歌詞", "星が光る")
+        val pair = GeniusTranslationPair.fromText("夜が来る\n星が光る", "Night comes\nStars shine", "ja")!!
+        val partials = mutableListOf<List<String?>>()
+        val result = (TranslationEngine(SongLanguageDetector { null }, Cache(), pause = {})
+            .translate(input, preferences, null, Machine(), onPartial = { partials.add(it.texts) }) {
+                kotlinx.coroutines.delay(600)
+                pair
+            } as TranslationOutcome.Translated).result
+        assertEquals(listOf(listOf("machine:夜が来る", "machine:違う歌詞", "machine:星が光る")), partials)
+        assertEquals(listOf("Night comes", "machine:違う歌詞", "Stars shine"), result.texts)
+    }
+
     @Test fun `mixed combination preserves gaps and disabling human translations has its own cache key`() = runBlocking {
         val input = document("夜が来る", "違う歌詞", "星が光る")
         val pair = GeniusTranslationPair.fromText("夜が来る\n星が光る", "Night comes\nStars shine", "ja")!!

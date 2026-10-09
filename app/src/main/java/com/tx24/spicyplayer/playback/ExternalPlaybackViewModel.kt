@@ -88,6 +88,7 @@ private const val FETCH_AHEAD = 3
 /** How long after our own skip a track change is still taken to be its result. */
 private const val SKIP_DIRECTION_WINDOW_MS = 3_000L
 private const val SYNC_TAG = "SpicySync"
+private const val TRANSLATE_TAG = "SpicyTranslate"
 private const val SPOTIFY_PACKAGE = "com.spotify.music"
 /** How long a skip may take before Spotify is taken to have refused it. */
 private const val SKIP_REFUSED_AFTER_MS = 2_500L
@@ -351,6 +352,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val preferences = state.translationPreferences
         val override = translationStore.language(state.localLyricsKey)
         val ticket = translationSession.begin(translationEngine.key(document, preferences, override))
+        Log.d(TRANSLATE_TAG, "start ${preferences.provider} manual=$manual force=$force doc=${document.hash.take(8)}")
         translationJob = viewModelScope.launch {
             try {
                 val source = withContext(Dispatchers.Default) { translationEngine.language(document, override) }
@@ -369,14 +371,26 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 mutableState.value = mutableState.value.copy(translating = true)
                 val result = try {
                     withContext(Dispatchers.IO) {
-                        translationEngine.translate(document, preferences, source, translator) {
-                            lyricsBackend.humanTranslation(state.title, state.artist, preferences.targetLanguage)
-                        }
+                        translationEngine.translate(document, preferences, source, translator,
+                            human = { lyricsBackend.humanTranslation(state.title, state.artist, preferences.targetLanguage) },
+                            onPartial = { partial ->
+                                withContext(Dispatchers.Main) {
+                                    if (translationSession.accepts(ticket) && translationDocument()?.hash == document.hash && mutableState.value.translationEnabled) {
+                                        Log.d(TRANSLATE_TAG, "showing the machine translation while the human one is looked up")
+                                        mutableState.value = mutableState.value.copy(translation = partial)
+                                    }
+                                }
+                            },
+                        )
                     }
                 } finally {
                     if (translationSession.accepts(ticket)) mutableState.value = mutableState.value.copy(translating = false)
                 }
-                if (!translationSession.accepts(ticket) || translationDocument()?.hash != document.hash || !mutableState.value.translationEnabled) return@launch
+                if (!translationSession.accepts(ticket) || translationDocument()?.hash != document.hash || !mutableState.value.translationEnabled) {
+                    Log.d(TRANSLATE_TAG, "result dropped: the lyrics or the setting changed meanwhile")
+                    return@launch
+                }
+                Log.d(TRANSLATE_TAG, "result ${result::class.simpleName} doc=${document.hash.take(8)}")
                 when (result) {
                     is TranslationOutcome.Translated -> mutableState.value = mutableState.value.copy(translation = result.result, lyricsLanguage = result.result.detectedLanguage ?: source)
                     is TranslationOutcome.Skipped -> {

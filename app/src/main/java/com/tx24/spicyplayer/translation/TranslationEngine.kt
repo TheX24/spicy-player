@@ -1,5 +1,9 @@
 package com.tx24.spicyplayer.translation
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.withTimeoutOrNull
+
 /** Keeps request positions separate from display positions, including split long lines. */
 data class TranslationPiece(val index: Int, val part: Int, val text: String, val verse: Int = 0)
 
@@ -105,31 +109,40 @@ class TranslationEngine(
         preferences: TranslationPreferences,
         source: String?,
         translator: Translator,
+        /** The machine translation, shown while a slow human lookup is still out. */
+        onPartial: suspend (TranslationResult) -> Unit = {},
         human: suspend () -> GeniusTranslationPair? = { null },
-    ): TranslationOutcome {
-        if (skipTranslation(source, preferences.targetLanguage, preferences.excludedLanguages)) return TranslationOutcome.Skipped(source)
+    ): TranslationOutcome = coroutineScope {
+        if (skipTranslation(source, preferences.targetLanguage, preferences.excludedLanguages)) return@coroutineScope TranslationOutcome.Skipped(source)
         require(translator.provider == preferences.provider)
         val key = key(document, preferences, source)
         cache.read(key, document.lines.size)?.let {
-            return if (skipTranslation(it.detectedLanguage, preferences.targetLanguage, preferences.excludedLanguages))
+            return@coroutineScope if (skipTranslation(it.detectedLanguage, preferences.targetLanguage, preferences.excludedLanguages))
                 TranslationOutcome.Skipped(it.detectedLanguage) else TranslationOutcome.Translated(it)
         }
-        val pair = if (preferences.humanTranslations) human() else null
-        val humanTexts = pair?.let { HumanTranslation.align(document, it) } ?: List(document.lines.size) { null }
-        var detected = source ?: languageCode(pair?.sourceLanguage)
-        if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) {
-            cache.write(TranslationResult(key, List(document.lines.size) { null }, detected))
+        val none = List<String?>(document.lines.size) { null }
+        val lookup = if (preferences.humanTranslations) async { runCatching { human() }.getOrNull() } else null
+        // A human translation already on hand (cached) decides before any machine request; a slow
+        // lookup doesn't hold the machine translation back.
+        val quick = lookup?.let { withTimeoutOrNull(QUICK_HUMAN_MS) { it.await() } }
+        var humanTexts = quick?.let { HumanTranslation.align(document, it) } ?: none
+        var detected = source ?: languageCode(quick?.sourceLanguage)
+        fun skipped(): TranslationOutcome {
+            lookup?.cancel()
+            // Kept, untranslated, so the song is known to need nothing the next time it plays.
+            cache.write(TranslationResult(key, none, detected))
             return TranslationOutcome.Skipped(detected)
         }
-        if (document.lines.all { it.boundary }) return TranslationOutcome.Skipped(source)
+        if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) return@coroutineScope skipped()
+        if (document.lines.all { it.boundary }) return@coroutineScope TranslationOutcome.Skipped(source)
         if (document.lines.all { it.boundary || humanTexts[it.index] != null }) {
-            val result = combineTranslations(key, humanTexts, List(document.lines.size) { null }, detected)
+            val result = combineTranslations(key, humanTexts, none, detected)
             cache.write(result)
-            return TranslationOutcome.Translated(result)
+            return@coroutineScope TranslationOutcome.Translated(result)
         }
         // Keep the whole original song in the machine request, even where human lines win.
         val batches = TranslationBatching.batches(document, translator.provider)
-        if (batches.isEmpty()) return TranslationOutcome.Skipped(source)
+        if (batches.isEmpty()) return@coroutineScope TranslationOutcome.Skipped(source)
         val aligned = mutableMapOf<Pair<Int, Int>, String?>()
         var requests = 0
         var answered = false
@@ -150,12 +163,7 @@ class TranslationEngine(
             aligned.putAll(TranslationBatching.align(batch, response))
         }
         batches.forEach { if (!skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) send(it) }
-        if (!answered && humanTexts.all { it == null }) throw TranslationFailure("Couldn't translate these lyrics. Try again later.")
-        if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) {
-            // Kept, untranslated, so the song is known to need nothing the next time it plays.
-            cache.write(TranslationResult(key, List(document.lines.size) { null }, detected))
-            return TranslationOutcome.Skipped(detected)
-        }
+        if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) return@coroutineScope skipped()
         val pieces = batches.flatten().groupBy { it.index }
         val texts = document.lines.map { line ->
             val parts = pieces[line.index].orEmpty()
@@ -163,9 +171,14 @@ class TranslationEngine(
             if (parts.isEmpty() || parts.any { aligned[it.index to it.part] == null }) null
             else parts.joinToString(" ") { aligned.getValue(it.index to it.part).orEmpty() }
         }
+        if (lookup != null && quick == null) {
+            if (texts.any { it != null }) onPartial(combineTranslations(key, none, texts, detected))
+            humanTexts = lookup.await()?.let { HumanTranslation.align(document, it) } ?: none
+        }
+        if (!answered && humanTexts.all { it == null }) throw TranslationFailure("Couldn't translate these lyrics. Try again later.")
         val result = combineTranslations(key, humanTexts, texts, detected)
         cache.write(result)
-        return TranslationOutcome.Translated(result)
+        TranslationOutcome.Translated(result)
     }
 
     /** [Translator.translate], waiting out a busy provider a couple of times before giving up. */
@@ -185,6 +198,8 @@ class TranslationEngine(
     }
 
     private companion object {
+        /** How long a human lookup gets before the machine translation goes ahead without it. */
+        const val QUICK_HUMAN_MS = 300L
         const val PACE_MS = 300L
         const val BUSY_RETRIES = 2
         const val BUSY_WAIT_MS = 2_000L
