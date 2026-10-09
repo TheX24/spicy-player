@@ -129,26 +129,21 @@ class LyricClockTest {
         assertEquals(30_000L - 89_884L, clock.local(3_000L, 30_000L).appliedMs)
     }
 
-    @Test fun spotifysResumeJumpDoesNotMoveTheClock() {
-        // Pixel, October 2026: paused at 195 123 for 4.7 s. The mixer's frame count carried on
-        // from the pause, but Spotify's resume report (196 083) ran 877 ms ahead of it.
-        val clock = clockAt(194_000L)
-        clock.local(1_123L, 195_123L, paused)
-        val resume = clock.local(5_831L, 196_083L)
-        assertEquals(0L, resume.appliedMs)
-        assertEquals(-960L, resume.biasMs)
-        assertNear(195_123L, clock.positionAt(5_831L))
-        // Spotify's reports keep the lead; read with the bias they agree with the clock.
-        assertEquals(0L, clock.local(7_831L, 198_083L).appliedMs)
-        assertNear(197_123L, clock.positionAt(7_831L))
-        // A second pause and resume adds its own jump on top.
-        clock.local(8_831L, 199_083L, paused)
-        assertNear(198_123L, clock.positionAt(8_831L))
-        assertEquals(0L, clock.local(9_500L, 199_233L).appliedMs)
-        assertNear(198_123L, clock.positionAt(9_500L))
-        // A seek drops it.
-        assertEquals(0L, clock.local(10_500L, 40_000L).biasMs)
-        assertNear(40_000L, clock.positionAt(10_500L))
+    @Test fun spotifysResumeIsTakenAsItComes() {
+        // Pixel, 9 October 2026: paused at 22 604; the mixer kept playing ~0.3 s of fade-out and
+        // resumed from there, where Spotify's resume report (22 863) said it was. Its reports
+        // matched the audio to within 40 ms across every pause and resume that minute.
+        val clock = clockAt(22_000L)
+        clock.local(604L, 22_604L, paused)
+        val resume = clock.local(2_844L, 22_863L)
+        assertEquals(0L, resume.biasMs)
+        assertNear(22_863L, clock.positionAt(2_844L))
+        // Pause after pause, the clock stays with the reports: nothing piles up.
+        clock.local(4_844L, 24_863L, paused)
+        clock.local(10_000L, 25_150L)
+        clock.local(12_000L, 27_150L, paused)
+        assertEquals(0L, clock.local(27_000L, 27_430L).biasMs)
+        assertNear(27_430L, clock.positionAt(27_000L))
     }
 
     @Test fun aLatePauseReportDoesNotPullTheClockBack() {

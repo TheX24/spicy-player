@@ -24,11 +24,9 @@ import kotlin.math.abs
  * resume: YouTube Music's first report after a resume is within ~40 ms of its pause report, while
  * Spotify and KDE Connect resume 0.07-3 s past theirs, and the bias is dropped.
  *
- * Spotify's resume is wrong the other way: its audio carries on from the pause, but its reports
- * after a resume run ahead of it, more the longer the pause (~150 ms after 0.5 s, ~850 ms after
- * 5 s, measured against the mixer's frame count). So a local player's resume ahead of the paused
- * clock by less than [RESUME_JUMP_MAX_MS] doesn't move the clock: the gap becomes a negative
- * [biasMs] that later reports are read with.
+ * Spotify's first report after a resume lands past its pause report, by about as long as its
+ * audio kept playing after it reported the pause (its fade-out, ~0.3 s). That's where the audio
+ * picks up again, measured against the mixer's frame count, so it's taken as it comes.
  *
  * Plain Kotlin, no Android: the times are `elapsedRealtime`, passed in.
  */
@@ -64,8 +62,6 @@ internal class LyricClock(nowMs: Long) {
         private set
     /** The position of the pause report that set [biasMs]. */
     private var stalePauseAtMs = 0L
-    /** The clock stopped on a local player's pause report, so a resume that jumps ahead of it is suspect. */
-    private var pausedByReport = false
     private val votes = ArrayDeque<Vote>()
 
     val isPlaying get() = anchor.isPlaying
@@ -93,16 +89,10 @@ internal class LyricClock(nowMs: Long) {
         // Buffering after a seek isn't a pause: its report is the seek target, not an old sample.
         val pauseReport = fresh && wasPlaying && report.state == STATE_PAUSED
         val resuming = report.playing && !anchor.isPlaying
-        // How far a resume lands past the paused clock, read with the lead it already had.
-        val heldBiasMs = biasMs.coerceAtMost(0L)
-        val resumeJumpMs = raw + heldBiasMs - predicted
-        val resumesAhead = resuming && pausedByReport && !report.relayed && !snap &&
-            resumeJumpMs in MIN_MOVE_MS until RESUME_JUMP_MAX_MS
         // A resume that doesn't carry on from the stale pause report isn't counting on from it.
         if (resuming && abs(report.positionMs - stalePauseAtMs) >= RESUME_CARRIES_ON_MS) biasMs = 0L
         biasMs = when {
             snap -> 0L
-            resumesAhead -> heldBiasMs - resumeJumpMs
             else -> ClockCorrection.reportBiasMs(
                 rawMs = raw,
                 predictedMs = predicted,
@@ -111,8 +101,6 @@ internal class LyricClock(nowMs: Long) {
             )
         }
         if (pauseReport) stalePauseAtMs = report.positionMs
-        if (snap || report.playing) pausedByReport = false
-        if (fresh && report.state == STATE_PAUSED && !report.relayed && !snap) pausedByReport = true
         val reported = raw + biasMs
         val drift = reported - predicted
         val speedChanged = report.playing && anchor.isPlaying && report.speed != anchor.speed
@@ -172,7 +160,6 @@ internal class LyricClock(nowMs: Long) {
     fun seekTo(targetMs: Long, nowMs: Long) {
         anchor = anchor.copy(positionMs = targetMs, atMs = nowMs)
         biasMs = 0L
-        pausedByReport = false
         votes.clear()
     }
 
@@ -180,7 +167,6 @@ internal class LyricClock(nowMs: Long) {
     fun startTrack(nowMs: Long, speed: Float, playing: Boolean) {
         anchor = Anchor(0L, nowMs, speed, playing)
         biasMs = 0L
-        pausedByReport = false
         votes.clear()
     }
 
@@ -189,7 +175,6 @@ internal class LyricClock(nowMs: Long) {
         anchor = Anchor(0L, nowMs, 0f, false)
         lastReport = null
         biasMs = 0L
-        pausedByReport = false
         votes.clear()
     }
 
@@ -211,8 +196,6 @@ internal class LyricClock(nowMs: Long) {
         const val RESUME_CARRIES_ON_MS = 50L
         /** A local pause report at most this far behind the clock is late, not the song going back. */
         const val PAUSE_LAG_MAX_MS = 150L
-        /** A local player's resume this far or more past its paused clock is a seek, not Spotify's resume jump. */
-        const val RESUME_JUMP_MAX_MS = 3_000L
         /** Votes older than this don't count: sparse reporters send one every couple of seconds. */
         const val VOTE_WINDOW_MS = 5_000L
         private const val MAX_VOTES = 64

@@ -25,8 +25,6 @@ internal object ClockCorrection {
      */
     fun reportBiasMs(rawMs: Long, predictedMs: Long, biasMs: Long, pauseReport: Boolean): Long {
         if (pauseReport) {
-            // A lead from Spotify's resume jump ([LyricClock]) still holds while its pause report agrees.
-            if (biasMs < 0L && abs(rawMs + biasMs - predictedMs) < JITTER_MS) return biasMs
             val behind = predictedMs - rawMs
             // Position 0 is the player going back to the start, not an old sample.
             return if (rawMs > 0L && behind >= JITTER_MS && behind < STALE_PAUSE_MAX_MS) behind else 0L
