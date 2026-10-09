@@ -328,6 +328,11 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     private val geniusRomanization = GeniusRomanizationSource(client, gson)
     private val romanCache = File(context.cacheDir, "genius-roman")
+    private val geniusTranslation = GeniusTranslationSource(client, gson)
+    private val humanTranslationCache = com.tx24.spicyplayer.translation.DiskGeniusTranslationCache(File(context.cacheDir, "genius-translations"))
+
+    suspend fun humanTranslation(title: String, artist: String, target: String): com.tx24.spicyplayer.translation.GeniusTranslationPair? =
+        humanTranslationCache.find(title, artist, target) { geniusTranslation.find(title, artist, target) }
 
     /**
      * Genius's romanization of the song as lyric lines, or null when it has none. Kept on disk a
@@ -349,6 +354,7 @@ internal class NextLyricsBackend(context: Context, clientKey: String) {
 
     fun forgetRomanization(title: String, artist: String) {
         File(romanCache, cacheKey(title, artist) + ".json").delete()
+        humanTranslationCache.forget(title, artist)
     }
 
     private data class StoredRoman(val expiresAt: Long, val lines: List<String>?)

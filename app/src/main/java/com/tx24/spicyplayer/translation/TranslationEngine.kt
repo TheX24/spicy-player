@@ -1,9 +1,11 @@
 package com.tx24.spicyplayer.translation
 
 /** Keeps request positions separate from display positions, including split long lines. */
-data class TranslationPiece(val index: Int, val part: Int, val text: String)
+data class TranslationPiece(val index: Int, val part: Int, val text: String, val verse: Int = 0)
 
 object TranslationBatching {
+    const val GOOGLE_TEXT_LIMIT = 4_999
+
     fun batches(document: TranslationDocument, provider: TranslationProvider): List<List<TranslationPiece>> {
         val verses = mutableListOf<MutableList<TranslationPiece>>()
         var verse = mutableListOf<TranslationPiece>()
@@ -13,22 +15,28 @@ object TranslationBatching {
                 verse = mutableListOf()
             }
             if (!line.boundary) {
-                val texts = if (provider == TranslationProvider.Unison) splitLongLine(line.text) else listOf(line.text)
-                texts.forEachIndexed { part, text -> verse.add(TranslationPiece(line.index, part, text)) }
+                val texts = if (provider == TranslationProvider.Google) splitLongLine(line.text) else listOf(line.text)
+                texts.forEachIndexed { part, text -> verse.add(TranslationPiece(line.index, part, text, verses.size)) }
             }
         }
         if (verse.isNotEmpty()) verses.add(verse)
         // One document, so DeepL reads the whole song together; its size limit is checked on the request.
-        if (provider == TranslationProvider.DeepL) return listOf(verses.flatten())
+        if (provider == TranslationProvider.DeepL) return listOf(verses.flatten()).filter { it.isNotEmpty() }
         val batches = mutableListOf<List<TranslationPiece>>()
         var batch = mutableListOf<TranslationPiece>()
         verses.forEach { block ->
-            if (block.size > 200) throw TranslationFailure("A verse exceeds Unison's limit. Try DeepL.")
-            if (batch.size + block.size > 200) {
+            if (size(batch + block) > GOOGLE_TEXT_LIMIT && batch.isNotEmpty()) {
                 batches.add(batch)
                 batch = mutableListOf()
             }
-            batch.addAll(block)
+            // An oversized verse has to split between lines; each piece still keeps its address.
+            block.forEach { piece ->
+                if (size(batch + piece) > GOOGLE_TEXT_LIMIT && batch.isNotEmpty()) {
+                    batches.add(batch)
+                    batch = mutableListOf()
+                }
+                batch.add(piece)
+            }
         }
         if (batch.isNotEmpty()) batches.add(batch)
         return batches
@@ -37,14 +45,21 @@ object TranslationBatching {
     private fun splitLongLine(text: String): List<String> {
         val parts = mutableListOf<String>()
         var remaining = text
-        while (remaining.length > 500) {
-            var end = remaining.lastIndexOf(' ', 500).takeIf { it > 0 } ?: 500
+        while (remaining.length > GOOGLE_TEXT_LIMIT) {
+            var end = remaining.lastIndexOf(' ', GOOGLE_TEXT_LIMIT).takeIf { it > 0 } ?: GOOGLE_TEXT_LIMIT
             if (remaining[end - 1].isHighSurrogate()) end--
             parts.add(remaining.substring(0, end))
             remaining = remaining.substring(end).trimStart()
         }
         if (remaining.isNotBlank()) parts.add(remaining)
         return parts
+    }
+
+    private fun size(pieces: List<TranslationPiece>): Int = pieces.sumOf { it.text.length } + (pieces.size - 1).coerceAtLeast(0)
+
+    fun fallback(batch: List<TranslationPiece>): List<List<TranslationPiece>> {
+        val verses = batch.groupBy { it.verse }.values.toList()
+        return if (verses.size > 1) verses else batch.map { listOf(it) }
     }
 
     /** A positional response of the wrong size cannot reveal where a missing item was. */
@@ -83,13 +98,14 @@ class TranslationEngine(
     }
 
     fun key(document: TranslationDocument, preferences: TranslationPreferences, source: String?): TranslationKey =
-        TranslationKey(document.hash, languageCode(preferences.targetLanguage) ?: "en", preferences.provider, languageCode(source))
+        TranslationKey(document.hash, languageCode(preferences.targetLanguage) ?: "en", preferences.provider, languageCode(source), preferences.humanTranslations)
 
     suspend fun translate(
         document: TranslationDocument,
         preferences: TranslationPreferences,
         source: String?,
         translator: Translator,
+        human: suspend () -> GeniusTranslationPair? = { null },
     ): TranslationOutcome {
         if (skipTranslation(source, preferences.targetLanguage, preferences.excludedLanguages)) return TranslationOutcome.Skipped(source)
         require(translator.provider == preferences.provider)
@@ -98,40 +114,43 @@ class TranslationEngine(
             return if (skipTranslation(it.detectedLanguage, preferences.targetLanguage, preferences.excludedLanguages))
                 TranslationOutcome.Skipped(it.detectedLanguage) else TranslationOutcome.Translated(it)
         }
+        val pair = if (preferences.humanTranslations) human() else null
+        val humanTexts = pair?.let { HumanTranslation.align(document, it) } ?: List(document.lines.size) { null }
+        var detected = source ?: languageCode(pair?.sourceLanguage)
+        if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) {
+            cache.write(TranslationResult(key, List(document.lines.size) { null }, detected))
+            return TranslationOutcome.Skipped(detected)
+        }
+        if (document.lines.all { it.boundary }) return TranslationOutcome.Skipped(source)
+        if (document.lines.all { it.boundary || humanTexts[it.index] != null }) {
+            val result = combineTranslations(key, humanTexts, List(document.lines.size) { null }, detected)
+            cache.write(result)
+            return TranslationOutcome.Translated(result)
+        }
+        // Keep the whole original song in the machine request, even where human lines win.
         val batches = TranslationBatching.batches(document, translator.provider)
         if (batches.isEmpty()) return TranslationOutcome.Skipped(source)
         val aligned = mutableMapOf<Pair<Int, Int>, String?>()
-        var detected = source
         var requests = 0
         var answered = false
-        // A refused batch is halved until the refused lines stand alone; they stay untranslated and
-        // the rest keep as much of their verse around them as the provider takes.
         suspend fun send(batch: List<TranslationPiece>) {
-            if (requests++ >= MAX_REQUESTS) {
-                batch.forEach { aligned[it.index to it.part] = null }
+            if (requests++ > 0) pause(PACE_MS)
+            val response = ask(translator, TranslatorRequest(batch.map { it.text }, key.targetLanguage, detected, document.context))
+            detected = detected ?: languageCode(response.detectedLanguage)
+            if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) {
+                answered = true
                 return
             }
-            // Spaced out, so singling out a refused line doesn't trip the provider's rate limit.
-            if (requests > 1) pause(PACE_MS)
-            val response = try {
-                // Later batches go out with the language the first answer found.
-                ask(translator, TranslatorRequest(batch.map { it.text }, key.targetLanguage, detected, document.context))
-            } catch (refused: LinesRejected) {
-                if (batch.size == 1) {
-                    aligned[batch[0].index to batch[0].part] = null
-                } else {
-                    send(batch.subList(0, batch.size / 2))
-                    send(batch.subList(batch.size / 2, batch.size))
-                }
+            if (response.lines.size != batch.size && translator.provider == TranslationProvider.Google) {
+                if (batch.size > 1) TranslationBatching.fallback(batch).forEach { send(it) }
                 return
             }
             if (response.lines.size != batch.size) throw TranslationFailure("Translation returned an incomplete response. Try again later.")
             answered = true
-            detected = detected ?: languageCode(response.detectedLanguage)
             aligned.putAll(TranslationBatching.align(batch, response))
         }
-        batches.forEach { send(it) }
-        if (!answered) throw TranslationFailure("Couldn't translate these lyrics. Try again later.")
+        batches.forEach { if (!skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) send(it) }
+        if (!answered && humanTexts.all { it == null }) throw TranslationFailure("Couldn't translate these lyrics. Try again later.")
         if (skipTranslation(detected, preferences.targetLanguage, preferences.excludedLanguages)) {
             // Kept, untranslated, so the song is known to need nothing the next time it plays.
             cache.write(TranslationResult(key, List(document.lines.size) { null }, detected))
@@ -144,7 +163,7 @@ class TranslationEngine(
             if (parts.isEmpty() || parts.any { aligned[it.index to it.part] == null }) null
             else parts.joinToString(" ") { aligned.getValue(it.index to it.part).orEmpty() }
         }
-        val result = TranslationResult(key, texts, detected)
+        val result = combineTranslations(key, humanTexts, texts, detected)
         cache.write(result)
         return TranslationOutcome.Translated(result)
     }
@@ -169,7 +188,5 @@ class TranslationEngine(
         const val PACE_MS = 300L
         const val BUSY_RETRIES = 2
         const val BUSY_WAIT_MS = 2_000L
-        /** Requests one song may take while singling out refused lines, so a broken one can't flood the provider. */
-        const val MAX_REQUESTS = 24
     }
 }

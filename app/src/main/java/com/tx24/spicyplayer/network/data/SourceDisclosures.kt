@@ -30,15 +30,16 @@ private const val TITLE_ARTIST = "the song's title and artist"
 private const val WITH_LENGTH = "the song's title, artist and length"
 
 object SourceDisclosures {
-    fun translation(provider: com.tx24.spicyplayer.translation.TranslationProvider): SourceDisclosure {
+    fun translation(provider: com.tx24.spicyplayer.translation.TranslationProvider, human: Boolean = true): SourceDisclosure {
         val deepL = provider == com.tx24.spicyplayer.translation.TranslationProvider.DeepL
-        val recipient = if (deepL) "DeepL" else "Unison, which forwards them to Google"
+        val recipient = if (deepL) "DeepL" else "Google Translate"
         return SourceDisclosure(
-            id = if (deepL) "translation_deepl" else "translation_unison",
-            name = "translation", recipient = recipient,
+            id = com.tx24.spicyplayer.translation.TranslationConsent.id(provider, human),
+            name = "translation", recipient = recipient + if (human) " and Genius" else "",
             descriptionOverride = "Translation sends the song's original lyric lines, including background vocals, to $recipient. " +
                 "Your target and lyrics languages are sent too. " +
-                (if (deepL) "Your DeepL API key authenticates requests to DeepL. " else "No API key is needed. ") +
+                (if (deepL) "Your DeepL API key authenticates requests to DeepL. " else "This uses Google's free web service, not a paid API; no API key is needed. ") +
+                (if (human) "Human translations are checked first: the song's title and artist are sent to Genius, and its original and translated lyric pages are fetched. Only songs with gaps in the human translation need $recipient. " else "") +
                 "Their own terms and privacy policies apply. You can turn translation off at any time.",
         )
     }

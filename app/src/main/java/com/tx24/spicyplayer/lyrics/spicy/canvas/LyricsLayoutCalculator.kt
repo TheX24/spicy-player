@@ -27,14 +27,15 @@ import com.tx24.spicyplayer.lyrics.spicy.parser.RtlDetector
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Constraints
-import com.tx24.spicyplayer.translation.TranslationMode
 import com.tx24.spicyplayer.translation.TranslationPresentation
+import com.tx24.spicyplayer.translation.presentationSupplements
+import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
 
 internal object LyricsLayoutCalculator {
     fun calculatePresentationLayouts(
         originals: List<Line>,
         display: List<Line>,
-        presentation: TranslationPresentation,
+        presentation: TranslationPresentation?,
         canvasWidth: Float,
         textMeasurer: TextMeasurer,
         density: Float,
@@ -44,10 +45,10 @@ internal object LyricsLayoutCalculator {
         simpleMode: Boolean,
         wideDuet: Boolean,
         backgroundScale: Float,
+        romanizationMode: RomanizationMode = RomanizationMode.Replace,
     ): List<LineLayout> {
-        val under = presentation.mode == TranslationMode.UnderLine
         val base = calculateLineLayouts(originals, canvasWidth, textMeasurer, density, lyricsType, fontSizeScale,
-            romanize && !under, simpleMode, wideDuet, backgroundScale)
+            romanize && romanizationMode == RomanizationMode.Replace, simpleMode, wideDuet, backgroundScale)
         val metrics = LyricsLayoutMetrics(canvasWidth, density, lyricsType, fontSizeScale)
         val hasDuet = originals.any { it.oppositeAligned }
         var extraY = 0f
@@ -75,16 +76,8 @@ internal object LyricsLayoutCalculator {
                     isRtl = rtl, isRightAligned = right, contentStartX = slot.startPx, contentWidth = slot.widthPx)
             }
             if (!line.isInterlude) {
-                val romanized = if (under && romanize && originals[index].words.any { it.text.isNotBlank() } && originals[index].words.any { it.romanizedText != null }) {
-                    buildString {
-                        originals[index].words.forEach { word ->
-                            if (isNotEmpty() && !word.isPartOfWord) append(' ')
-                            append(word.romanizedText ?: word.text)
-                        }
-                    }.takeIf(String::isNotBlank)
-                } else null
-                val translation = presentation.texts.getOrNull(index)?.takeIf { under && it.isNotBlank() }
-                val supplements = listOfNotNull(romanized, translation).map {
+                val supplements = presentationSupplements(originals[index], romanize, romanizationMode,
+                    presentation?.texts?.getOrNull(index), presentation?.mode).map {
                     measure(it, 0.6f, layout.contentWidth / ACTIVE_LINE_SCALE, layout.isRightAligned)
                 }
                 if (supplements.isNotEmpty()) {

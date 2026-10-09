@@ -742,7 +742,7 @@ internal fun DeviceContent(settings: AppSettings) {
 }
 
 @Composable
-internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
+internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
     var clientKey by remember { mutableStateOf("") }
     Searchable("Sources", "Priority", "Order", *state.sourceOrder.mapNotNull { id -> state.sourceDescriptors.firstOrNull { it.id == id }?.displayName }.toTypedArray()) {
         Text(
@@ -771,6 +771,11 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
     }
     CustomSourcesSection(state, viewModel)
     SettingsSection("Romanization") {
+        SettingRow("Romanization", description = "Replace the synced lyric words or show romanization below each line.") {
+            val modes = com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode.entries
+            SpicySelect(settings.romanizationMode.name, modes.map { it.name },
+                { settings.romanizationMode = com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode.valueOf(it) }, labels = modes.map { it.label })
+        }
         ToggleRow(
             label = "Human romanizations",
             checked = state.humanRomanizations,

@@ -353,7 +353,7 @@ private fun PageContent(
         SettingsPage.NowPlaying -> NowPlayingContent(settings)
         SettingsPage.Controls -> ControlsContent(settings)
         SettingsPage.Theme -> ThemeContent(settings)
-        SettingsPage.Sources -> SourcesContent(state, viewModel)
+        SettingsPage.Sources -> SourcesContent(state, viewModel, settings)
         SettingsPage.Device -> DeviceContent(settings)
         SettingsPage.Advanced -> AdvancedContent(state, viewModel, updater, settings)
     }
@@ -421,13 +421,13 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 5)
         }
         SettingsPage.Lyrics -> SettingsSkeleton(rows = 12)
-        SettingsPage.Translation -> SettingsSkeleton(rows = 7)
+        SettingsPage.Translation -> SettingsSkeleton(rows = 8)
         SettingsPage.ScrollSync -> SettingsSkeleton(rows = 6)
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
         SettingsPage.Controls -> SettingsSkeleton(rows = 11)
         SettingsPage.Theme -> SettingsSkeleton(rows = 3)
-        SettingsPage.Sources -> SettingsSkeleton(rows = 13, cards = true)
+        SettingsPage.Sources -> SettingsSkeleton(rows = 14, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 8)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 12)
     }

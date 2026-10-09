@@ -130,6 +130,7 @@ import com.tx24.spicyplayer.playback.PlayerUiState
 import com.tx24.spicyplayer.translation.TranslationResult
 import com.tx24.spicyplayer.translation.TranslationMode
 import com.tx24.spicyplayer.translation.TranslationPresentation
+import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
 import com.tx24.spicyplayer.network.data.providers.CustomLyricsSource
 import com.tx24.spicyplayer.ui.background.SpicySessionBackground
 import com.tx24.spicyplayer.ui.components.LocalBackdrop
@@ -783,6 +784,7 @@ private fun LyricsApp(
                             lyrics = state.lyrics,
                             translation = state.translation.takeIf { state.translationEnabled },
                             translationMode = settings.translationMode,
+                            romanizationMode = settings.romanizationMode,
                             currentTimeMs = viewModel::currentLyricPositionMs,
                             onSeek = viewModel::seekTo,
                             romanize = romanize,
@@ -1103,6 +1105,7 @@ private fun PipLyrics(
             lyrics = state.lyrics,
             translation = state.translation.takeIf { state.translationEnabled },
             translationMode = settings.translationMode,
+            romanizationMode = settings.romanizationMode,
             currentTimeMs = viewModel::currentLyricPositionMs,
             onSeek = {},
             romanize = romanize,
@@ -1428,6 +1431,7 @@ private fun LyricsPanel(
     maskScale: Float = 1f,
     translation: TranslationResult? = null,
     translationMode: TranslationMode = TranslationMode.UnderLine,
+    romanizationMode: RomanizationMode = RomanizationMode.Replace,
 ) {
     // The loading skeleton: up as soon as the lookup starts, over whatever the panel
     // shows, fading in over 0.2s and out over 0.25s (ease-out).
@@ -1438,6 +1442,7 @@ private fun LyricsPanel(
             maskScale = maskScale,
             translation = translation,
             translationMode = translationMode,
+            romanizationMode = romanizationMode,
         )
         AnimatedVisibility(
             visible = lyrics == LyricsState.Loading,
@@ -1479,6 +1484,7 @@ private fun LyricsPanelContent(
     maskScale: Float = 1f,
     translation: TranslationResult? = null,
     translationMode: TranslationMode = TranslationMode.UnderLine,
+    romanizationMode: RomanizationMode = RomanizationMode.Replace,
 ) {
     when (lyrics) {
         LyricsState.Idle -> LyricsNotice("Waiting for a song", null, noticeBottomPx, modifier)
@@ -1522,6 +1528,7 @@ private fun LyricsPanelContent(
                 currentTimeMs = currentTimeMs,
                 onSeekWord = onSeek,
                 romanize = romanize,
+                romanizationMode = romanizationMode,
                 translation = presentation,
                 isPlaying = isPlaying,
                 activeLineTopPx = activeLineTopPx,
@@ -1534,9 +1541,10 @@ private fun LyricsPanelContent(
                 pinnedFooter = pinnedFooter,
                 maskBottomPx = maskBottomPx,
                 maskScale = maskScale,
-                footer = remember(lyrics) {
+                footer = remember(lyrics, translation) {
                     LyricsFooter(
                         songwriters = lyrics.songwriters,
+                        translationCredit = translation?.geniusCredit(),
                         // "Lyrics: Spicy Lyrics • Apple Music" when a provider syndicates another catalogue.
                         provenance = LyricsProvenance(lyrics.provider, lyrics.source?.takeIf { it != lyrics.provider }),
                         maker = lyrics.maker?.let { LyricsCredit(it.username, it.profileUrl, it.avatarUrl) },

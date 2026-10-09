@@ -1,43 +1,46 @@
 package com.tx24.spicyplayer.translation
 
-import com.google.gson.JsonObject
 import com.google.gson.JsonParser
 import com.tx24.spicyplayer.network.data.awaitResponse
-import com.tx24.spicyplayer.network.data.providers.UnisonLyricsProvider
 import java.io.IOException
 import okhttp3.FormBody
-import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
 
-class UnisonTranslator(private val client: OkHttpClient) : Translator {
-    override val provider = TranslationProvider.Unison
+class GoogleTranslator(private val client: OkHttpClient) : Translator {
+    override val provider = TranslationProvider.Google
     override suspend fun translate(request: TranslatorRequest): TranslatorResponse {
-        val body = JsonObject().apply {
-            add("lines", com.google.gson.JsonArray().apply { request.lines.forEach(::add) })
-            addProperty("to", request.target)
-            request.source?.let { addProperty("from", it) }
-        }
-        val response = client.newCall(Request.Builder().url("${UnisonLyricsProvider.BASE}/translate")
-            .post(body.toString().toRequestBody("application/json; charset=utf-8".toMediaType())).build())
+        val response = client.newCall(googleRequest(request))
             .awaitResponse().use { response ->
-                // 400: no language found in these lines; 502: Google failed on them.
-                if (response.code == 400 || response.code == 502) throw LinesRejected(response.code)
                 if (response.code == 429 || response.code == 503) {
                     throw ProviderBusy(response.header("Retry-After")?.toLongOrNull()?.times(1_000L))
                 }
                 if (!response.isSuccessful) throw IOException("Translation is unavailable (HTTP ${response.code}).")
-                JsonParser.parseString(response.body.string()).asJsonObject
+                response.body.string()
             }
-        val lines = response.getAsJsonArray("lines") ?: throw IOException("Translation returned an invalid response.")
-        return TranslatorResponse(lines.map { value ->
-            if (!value.isJsonObject) null else value.asJsonObject.let { line ->
-                TranslationEntry(line.get("translation")?.takeUnless { it.isJsonNull }?.asString,
-                    line.get("needsTranslation")?.takeUnless { it.isJsonNull }?.asBoolean == true)
-            }
-        }, response.get("detectedLang")?.takeUnless { it.isJsonNull }?.asString)
+        return googleResponse(response)
     }
+}
+
+internal fun googleRequest(request: TranslatorRequest): Request {
+    val text = request.lines.joinToString("\n")
+    if (text.length > TranslationBatching.GOOGLE_TEXT_LIMIT) throw TranslationFailure("This request exceeds Google's text limit.")
+    val url = "https://translate.googleapis.com/translate_a/single".toHttpUrl().newBuilder()
+        .addQueryParameter("client", "gtx").addQueryParameter("dt", "t").addQueryParameter("dj", "1")
+        .addQueryParameter("sl", request.source ?: "auto").addQueryParameter("tl", request.target).build()
+    return Request.Builder().url(url).post(FormBody.Builder().add("q", text).build()).build()
+}
+
+internal fun googleResponse(json: String): TranslatorResponse {
+    val root = JsonParser.parseString(json).asJsonObject
+    val sentences = root.getAsJsonArray("sentences") ?: throw IOException("Google returned an invalid response.")
+    val text = sentences.joinToString("") { sentence ->
+        sentence.asJsonObject.get("trans")?.takeUnless { it.isJsonNull }?.asString
+            ?: throw IOException("Google returned an invalid sentence.")
+    }
+    return TranslatorResponse(text.replace("\r\n", "\n").split('\n').map { TranslationEntry(it.takeIf(String::isNotBlank)) },
+        root.get("src")?.takeUnless { it.isJsonNull }?.asString)
 }
 
 class DeepLTranslator(private val client: OkHttpClient, private val key: String) : Translator {

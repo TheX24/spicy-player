@@ -27,7 +27,7 @@ class TranslationTest {
         override fun write(result: TranslationResult) { this.result = result }
     }
     private class FakeTranslator(
-        override val provider: TranslationProvider = TranslationProvider.Unison,
+        override val provider: TranslationProvider = TranslationProvider.Google,
         val answer: suspend (TranslatorRequest) -> TranslatorResponse = { request ->
             TranslatorResponse(request.lines.map { TranslationEntry("translated:$it") }, "it")
         },
@@ -40,7 +40,7 @@ class TranslationTest {
     }
 
     @Test fun `short and long positional responses never shift lines`() {
-        val batch = TranslationBatching.batches(document("uno", "due", "tre"), TranslationProvider.Unison).single()
+        val batch = TranslationBatching.batches(document("uno", "due", "tre"), TranslationProvider.Google).single()
         for (size in listOf(0, 1, 2, 4, 10)) {
             val result = TranslationBatching.align(batch, TranslatorResponse(List(size) { TranslationEntry("x$it") }))
             assertEquals(setOf(0 to 0, 1 to 0, 2 to 0), result.keys)
@@ -49,22 +49,24 @@ class TranslationTest {
     }
 
     @Test fun `missing middle entry stays empty and no-op lines have no overlay`() {
-        val batch = TranslationBatching.batches(document("uno", "due", "tre"), TranslationProvider.Unison).single()
+        val batch = TranslationBatching.batches(document("uno", "due", "tre"), TranslationProvider.Google).single()
         val result = TranslationBatching.align(batch, TranslatorResponse(listOf(TranslationEntry("one"), null, TranslationEntry("three"))))
         assertEquals(mapOf((0 to 0) to "one", (1 to 0) to null, (2 to 0) to "three"), result)
         assertNull(TranslationBatching.align(batch, TranslatorResponse(listOf(TranslationEntry("one"), TranslationEntry("two", false), TranslationEntry("three"))))[1 to 0])
     }
 
-    @Test fun `a refused line is singled out and the rest of the song still translates`() = runBlocking {
+    @Test fun `a mismatched verse falls back to lines without moving a missing line`() = runBlocking {
         val texts = List(9) { "riga $it" }
         val translator = FakeTranslator { request ->
-            if ("riga 5" in request.lines) throw LinesRejected(502)
-            TranslatorResponse(request.lines.map { TranslationEntry("translated:$it") }, "it")
+            if ("riga 5" in request.lines) TranslatorResponse(emptyList(), "it")
+            else TranslatorResponse(request.lines.map { TranslationEntry("translated:$it") }, "it")
         }
-        val result = TranslationEngine(SongLanguageDetector { "it" }, MemoryCache())
+        val waits = mutableListOf<Long>()
+        val result = TranslationEngine(SongLanguageDetector { "it" }, MemoryCache(), pause = { waits.add(it) })
             .translate(document(*texts.toTypedArray()), preferences, "it", translator) as TranslationOutcome.Translated
         assertEquals(texts.map { if (it == "riga 5") null else "translated:$it" }, result.result.texts)
-        assertTrue(translator.requests.size <= 8)
+        assertEquals(10, translator.requests.size)
+        assertEquals(List(9) { 300L }, waits)
     }
 
     @Test fun `a busy provider is waited out`() = runBlocking {
@@ -91,15 +93,15 @@ class TranslationTest {
         assertNull(cache.result)
     }
 
-    @Test fun `a song refused everywhere is a failure and isn't cached`() = runBlocking {
+    @Test fun `a song mismatched everywhere is a failure and is not cached`() = runBlocking {
         val cache = MemoryCache()
-        val translator = FakeTranslator { throw LinesRejected(502) }
+        val translator = FakeTranslator { TranslatorResponse(emptyList()) }
         val error = runCatching {
-            TranslationEngine(SongLanguageDetector { "it" }, cache).translate(document(*Array(40) { "riga $it" }), preferences, "it", translator)
+            TranslationEngine(SongLanguageDetector { "it" }, cache, pause = {}).translate(document(*Array(40) { "riga $it" }), preferences, "it", translator)
         }.exceptionOrNull()
         assertTrue(error is TranslationFailure)
         assertNull(cache.result)
-        assertTrue(translator.requests.size <= 24)
+        assertEquals(41, translator.requests.size)
     }
 
     @Test fun `blank and musical markers keep their positions without being sent`() = runBlocking {
@@ -176,7 +178,7 @@ class TranslationTest {
 
     @Test fun `off and on rejects old tickets even for identical lyrics`() {
         val session = TranslationSession()
-        val key = TranslationKey(document("uno").hash, "en", TranslationProvider.Unison, "it")
+        val key = TranslationKey(document("uno").hash, "en", TranslationProvider.Google, "it")
         val old = session.begin(key)
         session.invalidate()
         assertFalse(session.accepts(old))
@@ -204,7 +206,7 @@ class TranslationTest {
 
     @Test fun `cache identity covers song source original script address target provider and version`() {
         val input = document("a", "bc")
-        val key = TranslationKey(input.hash, "en", TranslationProvider.Unison, "it")
+        val key = TranslationKey(input.hash, "en", TranslationProvider.Google, "it")
         assertNotEquals(input.hash, input.copy(song = "other").hash)
         assertNotEquals(input.hash, input.copy(source = "other").hash)
         assertNotEquals(input.hash, document("ab", "c").hash)
@@ -213,38 +215,38 @@ class TranslationTest {
         assertNotEquals(key.fileName(), key.copy(provider = TranslationProvider.DeepL).fileName())
         assertNotEquals(key.fileName(), key.copy(sourceLanguage = "ru").fileName())
         assertNotEquals(key.fileName(), key.fileName(TRANSLATION_CACHE_VERSION + 1))
-        assertEquals(1, TRANSLATION_CACHE_VERSION)
+        assertEquals(2, TRANSLATION_CACHE_VERSION)
     }
 
     @Test fun `wrong cache version and malformed entries are ignored`() {
         val directory = temporary.newFolder()
-        val key = TranslationKey(document("uno").hash, "en", TranslationProvider.Unison, "it")
+        val key = TranslationKey(document("uno").hash, "en", TranslationProvider.Google, "it")
         val cache = DiskTranslationCache(directory)
         cache.write(TranslationResult(key, listOf("one"), "it"))
         val file = java.io.File(directory, key.fileName())
-        file.writeText(file.readText().replace("\"version\":1", "\"version\":999"))
+        file.writeText(file.readText().replace("\"version\":2", "\"version\":999"))
         assertNull(cache.read(key, 1))
         file.writeText("{broken")
         assertNull(cache.read(key, 1))
     }
 
-    @Test fun `unison sends a whole song and only splits at verse boundaries`() {
-        assertEquals(1, TranslationBatching.batches(document(*Array(200) { "line $it" }), TranslationProvider.Unison).size)
-        val input = document(*(List(150) { "first $it" } + "" + List(90) { "second $it" }).toTypedArray())
-        val batches = TranslationBatching.batches(input, TranslationProvider.Unison)
+    @Test fun `Google sends a whole song and splits oversized songs at verse boundaries`() {
+        assertEquals(1, TranslationBatching.batches(document(*Array(250) { "line $it" }), TranslationProvider.Google).size)
+        val input = document(*(List(150) { "first $it " + "a".repeat(16) } + "" + List(90) { "second $it " + "b".repeat(16) }).toTypedArray())
+        val batches = TranslationBatching.batches(input, TranslationProvider.Google)
         assertEquals(listOf(150, 90), batches.map { it.size })
         assertEquals(151, batches[1].first().index)
-        try {
-            TranslationBatching.batches(document(*Array(201) { "verse $it" }), TranslationProvider.Unison)
-            fail("An oversized verse must not be cut mid-verse")
-        } catch (_: IllegalArgumentException) { }
+        assertTrue(batches.all { it.joinToString("\n") { piece -> piece.text }.length < 5_000 })
+        val oversizedVerse = TranslationBatching.batches(document(*Array(201) { "verse " + "v".repeat(100) }), TranslationProvider.Google)
+        assertTrue(oversizedVerse.size > 1)
+        assertTrue(oversizedVerse.all { it.joinToString("\n") { piece -> piece.text }.length < 5_000 })
     }
 
     @Test fun `long lines are split within the request limits and recombined at their index`() = runBlocking {
-        val input = document("a ".repeat(600), "next")
+        val input = document("a ".repeat(3_000), "next")
         val translator = FakeTranslator()
-        val result = TranslationEngine(SongLanguageDetector { "it" }, MemoryCache()).translate(input, preferences, "it", translator) as TranslationOutcome.Translated
-        assertTrue(translator.requests.single().lines.all { it.length <= 500 })
+        val result = TranslationEngine(SongLanguageDetector { "it" }, MemoryCache(), pause = {}).translate(input, preferences, "it", translator) as TranslationOutcome.Translated
+        assertTrue(translator.requests.all { it.lines.joinToString("\n").length < 5_000 })
         assertEquals(2, result.result.texts.size)
         assertEquals("translated:next", result.result.texts[1])
         assertTrue(result.result.texts[0]!!.count { it == ':' } > 1)
@@ -309,7 +311,7 @@ class TranslationTest {
         val last = Line(listOf(Word("last", 13_000, 14_000)), 13_000, 14_000, groupId = 3)
         val originals = listOf(lead, background, next, last)
         val timeline = buildDisplayTimeline(originals, minimalMode = false, holdThroughShortGaps = true)
-        val result = TranslationResult(TranslationKey("hash", "en", TranslationProvider.Unison, "it"), listOf("one", "back", "two", "three"), "it")
+        val result = TranslationResult(TranslationKey("hash", "en", TranslationProvider.Google, "it"), listOf("one", "back", "two", "three"), "it")
         val presentation = TranslationPresentation.forTimeline(originals, timeline, result, TranslationMode.Replace)!!
         assertEquals(listOf(null, "one", "back", "two", null, "three"), presentation.texts)
         assertEquals(7_000L, timeline[1].endMs)
@@ -330,10 +332,10 @@ class TranslationTest {
     }
 
     @Test fun `timed verse boundaries keep lead and background together`() {
-        val first = List(150) { line("verse one $it", group = it) }
-        val second = List(100) { line("verse two $it", group = it + 150).copy(startMs = 10_000, endMs = 11_000) }
+        val first = List(150) { line("verse one $it " + "v".repeat(15), group = it) }
+        val second = List(100) { line("verse two $it " + "v".repeat(15), group = it + 150).copy(startMs = 10_000, endMs = 11_000) }
         val input = TranslationDocument.from("song", "ttml", first + second)
-        assertEquals(listOf(150, 100), TranslationBatching.batches(input, TranslationProvider.Unison).map { it.size })
+        assertEquals(listOf(150, 100), TranslationBatching.batches(input, TranslationProvider.Google).map { it.size })
         assertTrue(input.lines[150].verseStart)
         assertFalse(input.lines[151].verseStart)
     }
@@ -360,7 +362,7 @@ class TranslationTest {
     }
 
     @Test fun `later batches carry the language the first answer found`() = runBlocking {
-        val texts = (0 until 260).map { if (it % 100 == 99) "" else "riga $it" }
+        val texts = (0 until 260).map { if (it % 100 == 99) "" else "riga $it " + "a".repeat(30) }
         val translator = FakeTranslator()
         TranslationEngine(SongLanguageDetector { null }, MemoryCache()).translate(document(*texts.toTypedArray()), preferences, null, translator)
         assertTrue(translator.requests.size > 1)

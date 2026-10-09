@@ -272,6 +272,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     fun setTranslationTarget(language: String) = saveTranslationPreferences(mutableState.value.translationPreferences.copy(targetLanguage = language))
     fun setTranslationProvider(provider: TranslationProvider) = saveTranslationPreferences(mutableState.value.translationPreferences.copy(provider = provider))
     fun setTranslationExcluded(languages: Set<String>) = saveTranslationPreferences(mutableState.value.translationPreferences.copy(excludedLanguages = languages))
+    fun setHumanTranslations(enabled: Boolean) = saveTranslationPreferences(mutableState.value.translationPreferences.copy(humanTranslations = enabled))
 
     private fun saveTranslationPreferences(preferences: TranslationPreferences) {
         translationStore.save(preferences)
@@ -302,12 +303,13 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     private fun translationConsent(action: String): Boolean {
-        val provider = mutableState.value.translationPreferences.provider
-        if (translationStore.disclosed(provider)) return false
+        val preferences = mutableState.value.translationPreferences
+        val provider = preferences.provider
+        if (translationStore.disclosed(provider, preferences.humanTranslations)) return false
         pendingTranslationAction = action
         // A source notice already on screen finishes first; its answer resumes this action.
         if (mutableState.value.sourceDisclosure != null) return true
-        mutableState.value = mutableState.value.copy(sourceDisclosure = SourceDisclosures.translation(provider))
+        mutableState.value = mutableState.value.copy(sourceDisclosure = SourceDisclosures.translation(provider, preferences.humanTranslations))
         return true
     }
 
@@ -361,12 +363,16 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 }
                 if (translationConsent("resume")) return@launch
                 val translator = when (preferences.provider) {
-                    TranslationProvider.Unison -> UnisonTranslator(translationClient)
+                    TranslationProvider.Google -> GoogleTranslator(translationClient)
                     TranslationProvider.DeepL -> DeepLTranslator(translationClient, translationStore.key())
                 }
                 mutableState.value = mutableState.value.copy(translating = true)
                 val result = try {
-                    withContext(Dispatchers.IO) { translationEngine.translate(document, preferences, source, translator) }
+                    withContext(Dispatchers.IO) {
+                        translationEngine.translate(document, preferences, source, translator) {
+                            lyricsBackend.humanTranslation(state.title, state.artist, preferences.targetLanguage)
+                        }
+                    }
                 } finally {
                     if (translationSession.accepts(ticket)) mutableState.value = mutableState.value.copy(translating = false)
                 }
@@ -988,8 +994,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     fun acceptSourceDisclosure() {
         val disclosure = mutableState.value.sourceDisclosure ?: return
         if (disclosure.id.startsWith("translation_")) {
-            val provider = if (disclosure.id == "translation_deepl") TranslationProvider.DeepL else TranslationProvider.Unison
-            translationStore.disclose(provider)
+            translationStore.disclose(disclosure.id)
             mutableState.value = mutableState.value.copy(sourceDisclosure = null)
             resumeTranslationAction()
             return

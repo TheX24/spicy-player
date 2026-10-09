@@ -7,6 +7,7 @@ data class LyricsFooter(
     /** Sync credits: who made the timing and who uploaded/submitted it. */
     val maker: LyricsCredit? = null,
     val uploader: LyricsCredit? = null,
+    val translationCredit: String? = null,
 ) {
     /**
      * The lines shown after the lyrics: writers, then the Spicy Lyrics community block, or for other sources
@@ -22,6 +23,7 @@ data class LyricsFooter(
                 ?.let { if (it == "Spicy Lyrics Community") "Spicy Lyrics" else it } ?: p.provider
             add(FooterLine("Provided by: $origin", FooterLine.Kind.PROVIDER))
         }
+        translationCredit?.let { add(FooterLine(it, FooterLine.Kind.PROVIDER)) }
         val spicyCommunity = provenance?.provider == "Spicy Lyrics" && (maker != null || uploader != null)
         if (spicyCommunity) add(FooterLine("These lyrics have been provided by our community", FooterLine.Kind.NOTE))
         maker?.let { add(it.line("Made by")) }

@@ -12,7 +12,7 @@ class DiskTranslationCache(private val directory: File) : TranslationCache {
         if (!file.isFile || file.length() > 2 * 1024 * 1024) return null
         val entry = gson.fromJson(file.readText(), Entry::class.java)
         entry.result.takeIf {
-            entry.version == TRANSLATION_CACHE_VERSION && it.key == key && it.texts.size == lineCount
+            entry.version == TRANSLATION_CACHE_VERSION && it.key == key && it.texts.size == lineCount && it.origins.size == lineCount
         }
     }.getOrNull()
 

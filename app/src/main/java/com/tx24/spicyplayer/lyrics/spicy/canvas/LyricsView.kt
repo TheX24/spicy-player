@@ -59,6 +59,7 @@ import com.tx24.spicyplayer.lyrics.spicy.parser.LetterSynthesizer
 import com.tx24.spicyplayer.ui.controls.keepsControlsHidden
 import com.tx24.spicyplayer.translation.TranslationPresentation
 import com.tx24.spicyplayer.translation.TranslationMode
+import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
@@ -110,6 +111,7 @@ fun LyricsView(
     /** Scales the top and bottom edge fade; under 1 for a window too small for the full one. */
     maskScale: Float = 1f,
     translation: TranslationPresentation? = null,
+    romanizationMode: RomanizationMode = RomanizationMode.Replace,
 ) {
     val textMeasurer = rememberTextMeasurer()
     // What is on screen: lines and their layouts, swapped together once new layouts are measured.
@@ -120,7 +122,7 @@ fun LyricsView(
     val measuredCache = remember(lines) { HashMap<MeasureKey, MeasuredLyrics>() }
     var measuredWidth by remember { mutableFloatStateOf(0f) }
     val fontKey = LyricsLayoutCalculator.fontKey
-    val desiredKey = MeasureKey(letterConfig, measuredWidth, fontSizeScale, romanize, lyricsType, fontKey, translation)
+    val desiredKey = MeasureKey(letterConfig, measuredWidth, fontSizeScale, romanize, lyricsType, fontKey, translation, romanizationMode)
     val desired = measuredCache[desiredKey]
     val original = measuredCache[desiredKey.copy(translation = null)]
     // Translation variants never keep a previous song or an off-toggle's translated layout up.
@@ -220,21 +222,24 @@ fun LyricsView(
         val maskBottomUpdated by rememberUpdatedState(maskBottomPx)
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
         // A newer key cancels a measurement still running, so only the latest one lands.
-        LaunchedEffect(lines, letterConfig, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, fontKey, translation) {
+        LaunchedEffect(lines, letterConfig, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, fontKey, translation, romanizationMode) {
             suspend fun measure(romanized: Boolean, presentation: TranslationPresentation? = translation): MeasuredLyrics {
-                val key = MeasureKey(letterConfig, canvasWidth, fontSizeScale, romanized, incomingType, fontKey, presentation)
+                val key = MeasureKey(letterConfig, canvasWidth, fontSizeScale, romanized, incomingType, fontKey, presentation, romanizationMode)
                 measuredCache[key]?.let { return it }
                 return withContext(Dispatchers.Default) {
                     // Per-letter emphasis for held words (mode-dependent thresholds, romanized
                     // display). Syllable mode only; Line/Static never letter-split.
                     val translated = presentation?.displayLines(lines) ?: lines
-                    val useRomanized = romanized && presentation?.mode != TranslationMode.UnderLine
+                    val useRomanized = romanized && romanizationMode == RomanizationMode.Replace
                     val display = if (incomingType == LyricsType.Syllable) LetterSynthesizer.apply(translated, letterConfig, useRomanized) else translated
-                    MeasuredLyrics(display, if (presentation != null) LyricsLayoutCalculator.calculatePresentationLayouts(
-                        if (presentation.mode == TranslationMode.UnderLine) display else lines, display, presentation,
+                    val originals = if (presentation?.mode == TranslationMode.Replace && incomingType == LyricsType.Syllable)
+                        LetterSynthesizer.apply(lines, letterConfig, useRomanized) else if (presentation?.mode == TranslationMode.Replace) lines else display
+                    MeasuredLyrics(display, if (presentation != null || romanized && romanizationMode == RomanizationMode.UnderLine) LyricsLayoutCalculator.calculatePresentationLayouts(
+                        originals, display, presentation,
                         canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanized, letterConfig.isSimple,
                         letterConfig.wideDuetPadding,
                         if (letterConfig.isAppleMusic) AppleMusicMotion.BACKGROUND_SIZE else 0.75f,
+                        romanizationMode,
                     ) else LyricsLayoutCalculator.calculateLineLayouts(
                         display, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanized, letterConfig.isSimple,
                         letterConfig.wideDuetPadding,
@@ -596,6 +601,7 @@ private data class MeasureKey(
     val type: LyricsType,
     val fontKey: String,
     val translation: TranslationPresentation? = null,
+    val romanizationMode: RomanizationMode = RomanizationMode.Replace,
 )
 
 private class MeasuredLyrics(val lines: List<Line>, val layouts: List<LineLayout>)

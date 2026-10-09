@@ -40,6 +40,8 @@ internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybac
         SpicySelect(preferences.provider.name, TranslationProvider.entries.map { it.name },
             { viewModel.setTranslationProvider(TranslationProvider.valueOf(it)) }, labels = TranslationProvider.entries.map { it.label })
     }
+    ToggleRow("Use human translations from Genius", preferences.humanTranslations, viewModel::setHumanTranslations,
+        description = "Use human translations where Genius's original lyrics confidently match, then fill gaps with the selected provider.")
     if (preferences.provider == TranslationProvider.DeepL) {
         SettingRow("DeepL API key", description = if (state.deepLKeyPresent) "A key is saved on this device. Paste a new key to replace it." else "Paste your DeepL API key. Free keys end in :fx.", stacked = true) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {

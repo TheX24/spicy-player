@@ -6,13 +6,30 @@ import java.security.MessageDigest
 import java.util.Locale
 
 enum class TranslationMode(val label: String) { UnderLine("Under each line"), Replace("Replace") }
-enum class TranslationProvider(val label: String) { Unison("Google via Unison"), DeepL("DeepL") }
+enum class TranslationProvider(val label: String) {
+    Google("Google Translate"), DeepL("DeepL");
+
+    companion object {
+        fun stored(value: String?): TranslationProvider = entries.firstOrNull { it.name == value } ?: Google
+    }
+}
+
+enum class TranslationOrigin { Genius, Google, DeepL }
+
+object TranslationConsent {
+    fun id(provider: TranslationProvider, human: Boolean): String =
+        "translation_${provider.name.lowercase(Locale.ROOT)}" + if (human) "_genius" else ""
+
+    fun covered(disclosed: Set<String>, provider: TranslationProvider, human: Boolean): Boolean =
+        id(provider, human) in disclosed || (!human && (id(provider, true) in disclosed || provider == TranslationProvider.DeepL && "DeepL" in disclosed))
+}
 
 data class TranslationPreferences(
     val targetLanguage: String = Locale.getDefault().language,
     val automatic: Boolean = false,
-    val provider: TranslationProvider = TranslationProvider.Unison,
+    val provider: TranslationProvider = TranslationProvider.Google,
     val excludedLanguages: Set<String> = emptySet(),
+    val humanTranslations: Boolean = true,
 )
 
 /** A main line and each of its background voices have distinct, stable addresses. */
@@ -82,15 +99,27 @@ data class TranslationKey(
     val targetLanguage: String,
     val provider: TranslationProvider,
     val sourceLanguage: String?,
+    val humanTranslations: Boolean = true,
 ) {
     fun fileName(version: Int = TRANSLATION_CACHE_VERSION): String = translationHash(
-        listOf(version.toString(), lyricsHash, targetLanguage, provider.name, sourceLanguage.orEmpty()),
+        listOf(version.toString(), lyricsHash, targetLanguage, provider.name, sourceLanguage.orEmpty(), humanTranslations.toString()),
     ) + ".json"
 }
 
-const val TRANSLATION_CACHE_VERSION = 1
+const val TRANSLATION_CACHE_VERSION = 2
 
-data class TranslationResult(val key: TranslationKey, val texts: List<String?>, val detectedLanguage: String?)
+data class TranslationResult(
+    val key: TranslationKey,
+    val texts: List<String?>,
+    val detectedLanguage: String?,
+    val origins: List<TranslationOrigin?> = texts.map { if (it == null) null else TranslationOrigin.valueOf(key.provider.name) },
+) {
+    fun geniusCredit(): String? {
+        if (TranslationOrigin.Genius !in origins) return null
+        val machine = origins.filterNotNull().firstOrNull { it != TranslationOrigin.Genius }
+        return "Translation: Genius" + (machine?.let { " + ${it.name}" } ?: "")
+    }
+}
 
 /** A generation also rejects an old request after off/on, even when its document is identical. */
 class TranslationSession {
@@ -112,12 +141,6 @@ interface Translator {
 }
 
 class TranslationFailure(message: String) : IllegalArgumentException(message)
-
-/**
- * The provider refused these particular lines, not the service as a whole: Google's lyrics
- * translation fails on some lines, and Unison then answers the whole request with a 502.
- */
-class LinesRejected(code: Int) : java.io.IOException("Translation refused these lines (HTTP $code).")
 
 /** The provider is rate limited for now; [retryAfterMs] is how long it asked to wait, when it said. */
 class ProviderBusy(val retryAfterMs: Long? = null) : java.io.IOException("Translation is busy.")

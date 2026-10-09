@@ -2,6 +2,22 @@ package com.tx24.spicyplayer.translation
 
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
+import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
+
+/** Supplemental rows are independent: romanization first, then translation. */
+internal fun presentationSupplements(original: Line, romanize: Boolean, romanizationMode: RomanizationMode,
+    translation: String?, translationMode: TranslationMode?): List<String> {
+    if (original.isInterlude) return emptyList()
+    val romanized = if (romanize && romanizationMode == RomanizationMode.UnderLine && original.words.any { it.romanizedText != null }) {
+        buildString {
+            original.words.forEach { word ->
+                if (isNotEmpty() && !word.isPartOfWord) append(' ')
+                append(word.romanizedText ?: word.text)
+            }
+        }.takeIf(String::isNotBlank)
+    } else null
+    return listOfNotNull(romanized, translation?.takeIf { translationMode == TranslationMode.UnderLine && it.isNotBlank() })
+}
 
 data class TranslationPresentation(val texts: List<String?>, val mode: TranslationMode) {
     companion object {
