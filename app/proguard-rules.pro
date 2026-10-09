@@ -11,6 +11,12 @@
 -keepclassmembers class com.tx24.spicyplayer.network.data.LyricsContributor { <fields>; }
 -keep class com.tx24.spicyplayer.network.model.** { <fields>; <init>(...); }
 
+# Translation cache entries are also serialized by field name, including their provider enum.
+-keep class com.tx24.spicyplayer.translation.DiskTranslationCache$Entry { <fields>; <init>(...); }
+-keep class com.tx24.spicyplayer.translation.TranslationKey { <fields>; <init>(...); }
+-keep class com.tx24.spicyplayer.translation.TranslationResult { <fields>; <init>(...); }
+-keep enum com.tx24.spicyplayer.translation.TranslationProvider { *; }
+
 # Retrofit builds the LRCLIB client from this interface's annotations and generic signatures.
 -keep interface com.tx24.spicyplayer.network.service.LyricsService { *; }
 -keepattributes Signature, InnerClasses, EnclosingMethod, RuntimeVisibleAnnotations, RuntimeVisibleParameterAnnotations

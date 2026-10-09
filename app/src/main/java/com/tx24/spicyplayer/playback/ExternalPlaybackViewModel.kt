@@ -41,6 +41,7 @@ import com.tx24.spicyplayer.network.data.RemoteLyricsResolution
 import com.tx24.spicyplayer.network.data.RemoteLyricsSelection
 import com.tx24.spicyplayer.network.data.TrackNameCleaner
 import com.tx24.spicyplayer.network.data.SpicyLyricsKey
+import com.tx24.spicyplayer.translation.*
 import com.tx24.spicyplayer.network.data.RemoteLyricsSource
 import com.tx24.spicyplayer.network.data.LyricsCapability
 import com.tx24.spicyplayer.network.data.RemoteLyricsPayload
@@ -181,6 +182,12 @@ data class PlayerUiState(
     val lyricsFolderScanning: Boolean = false,
     /** The output delay is being found by tapping along ([TapCalibration]); the music haptics rest. */
     val calibratingDelay: Boolean = false,
+    val translationPreferences: TranslationPreferences = TranslationPreferences(),
+    val translationEnabled: Boolean = false,
+    val translation: TranslationResult? = null,
+    val lyricsLanguage: String? = null,
+    val lyricsLanguageOverride: String? = null,
+    val deepLKeyPresent: Boolean = false,
 )
 
 /** One song in the player's queue. */
@@ -211,8 +218,19 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val overrideStore = application.getSharedPreferences("spotify_id_overrides", 0)
     private val outputProfiles = AudioOutputProfiles(application)
     private val songDelays = SongDelays(application)
+    private val translationStore = TranslationSettingsStore(application)
+    private val translationEngine = TranslationEngine(LocalSongLanguageDetector(), DiskTranslationCache(File(application.cacheDir, "translations")))
+    private val translationSession = TranslationSession()
+    private val translationClient = okhttp3.OkHttpClient.Builder().callTimeout(45, java.util.concurrent.TimeUnit.SECONDS)
+        .followRedirects(false).followSslRedirects(false).build()
+    private var translationJob: Job? = null
+    private var translatedDocument: String? = null
+    private var pendingTranslationAction: String? = null
     private var outputRoute = outputProfiles.currentRoute()
     private val mutableState = MutableStateFlow(PlayerUiState(
+        translationPreferences = translationStore.read(),
+        translationEnabled = translationStore.read().automatic,
+        deepLKeyPresent = translationStore.key().isNotBlank(),
         outputLabel = outputRoute.label,
         lyricDelayMs = outputProfiles.delayMs(outputRoute),
         sourceDescriptors = lyricsBackend.descriptors + lyricsBackend.blendDescriptors,
@@ -228,6 +246,140 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private val mutableMessages = MutableSharedFlow<String>(extraBufferCapacity = 4)
     /** Short notes on what an action did ("Removed from Local DB."), shown as toasts. */
     val messages: SharedFlow<String> = mutableMessages
+
+    fun toggleTranslation() {
+        if (mutableState.value.translationEnabled) {
+            clearTranslation()
+            mutableState.value = mutableState.value.copy(translationEnabled = false)
+        } else if (!translationConsent("manual")) {
+            mutableState.value = mutableState.value.copy(translationEnabled = true)
+            translateCurrent(manual = true, force = true)
+        }
+    }
+
+    fun setTranslateAutomatically(enabled: Boolean) {
+        if (enabled && translationConsent("automatic")) return
+        val preferences = mutableState.value.translationPreferences.copy(automatic = enabled)
+        translationStore.save(preferences)
+        clearTranslation()
+        mutableState.value = mutableState.value.copy(translationPreferences = preferences, translationEnabled = enabled)
+        if (enabled) translateCurrent()
+    }
+
+    fun setTranslationTarget(language: String) = saveTranslationPreferences(mutableState.value.translationPreferences.copy(targetLanguage = language))
+    fun setTranslationProvider(provider: TranslationProvider) = saveTranslationPreferences(mutableState.value.translationPreferences.copy(provider = provider))
+    fun setTranslationExcluded(languages: Set<String>) = saveTranslationPreferences(mutableState.value.translationPreferences.copy(excludedLanguages = languages))
+
+    private fun saveTranslationPreferences(preferences: TranslationPreferences) {
+        translationStore.save(preferences)
+        clearTranslation()
+        mutableState.value = mutableState.value.copy(translationPreferences = preferences)
+        translateCurrent()
+    }
+
+    fun useDeepLKey(input: String) {
+        val key = input.trim()
+        if (key.isNotEmpty() && !DeepLKey.valid(key)) {
+            showMessage("That isn't a DeepL API key.")
+            return
+        }
+        translationStore.saveKey(key)
+        mutableState.value = mutableState.value.copy(deepLKeyPresent = key.isNotEmpty())
+        clearTranslation()
+        translateCurrent()
+        showMessage(if (key.isEmpty()) "Removed the DeepL key." else "Using your DeepL key.")
+    }
+
+    fun setLyricsLanguage(language: String?) {
+        val song = mutableState.value.localLyricsKey ?: return
+        translationStore.saveLanguage(song, languageCode(language))
+        clearTranslation()
+        mutableState.value = mutableState.value.copy(lyricsLanguageOverride = languageCode(language), lyricsLanguage = null)
+        translateCurrent(detectOnly = true)
+    }
+
+    private fun translationConsent(action: String): Boolean {
+        val provider = mutableState.value.translationPreferences.provider
+        if (translationStore.disclosed(provider)) return false
+        pendingTranslationAction = action
+        // A source notice already on screen finishes first; its answer resumes this action.
+        if (mutableState.value.sourceDisclosure != null) return true
+        mutableState.value = mutableState.value.copy(sourceDisclosure = SourceDisclosures.translation(provider))
+        return true
+    }
+
+    private fun resumeTranslationAction() {
+        val action = pendingTranslationAction ?: return
+        pendingTranslationAction = null
+        if (translationConsent(action)) return
+        when (action) {
+            "automatic" -> setTranslateAutomatically(true)
+            "manual" -> { mutableState.value = mutableState.value.copy(translationEnabled = true); translateCurrent(manual = true, force = true) }
+            else -> translateCurrent(force = true)
+        }
+    }
+
+    private fun clearTranslation() {
+        translationJob?.cancel()
+        translationSession.invalidate()
+        translatedDocument = null
+        mutableState.value = mutableState.value.copy(translation = null)
+    }
+
+    private fun translationDocument(): TranslationDocument? {
+        val state = mutableState.value
+        val lyrics = state.lyrics as? LyricsState.Ready ?: return null
+        val song = state.localLyricsKey ?: return null
+        return TranslationDocument.from(song, "${shownSelection?.source?.id.orEmpty()}:${lyrics.provider}:${lyrics.source.orEmpty()}", lyrics.lines)
+    }
+
+    fun detectLyricsLanguage() = translateCurrent(detectOnly = true)
+
+    private fun translateCurrent(manual: Boolean = false, force: Boolean = false, detectOnly: Boolean = false) {
+        if (!mutableState.value.translationEnabled && !detectOnly) return
+        val document = translationDocument() ?: return
+        val state = mutableState.value
+        // Re-detect when the exact original document changes, never on the playback ticker.
+        if (!force && translatedDocument == document.hash) return
+        clearTranslation()
+        translatedDocument = document.hash
+        val preferences = state.translationPreferences
+        val override = translationStore.language(state.localLyricsKey)
+        val ticket = translationSession.begin(translationEngine.key(document, preferences, override))
+        translationJob = viewModelScope.launch {
+            try {
+                val source = withContext(Dispatchers.Default) { translationEngine.language(document, override) }
+                if (!translationSession.accepts(ticket) || translationDocument()?.hash != document.hash) return@launch
+                mutableState.value = mutableState.value.copy(lyricsLanguage = source, lyricsLanguageOverride = override)
+                if (!mutableState.value.translationEnabled) return@launch
+                if (skipTranslation(source, preferences.targetLanguage, preferences.excludedLanguages)) {
+                    if (manual) showMessage("Already in ${TranslationLanguages.name(source!!)}.")
+                    return@launch
+                }
+                if (translationConsent("resume")) return@launch
+                val translator = when (preferences.provider) {
+                    TranslationProvider.Unison -> UnisonTranslator(translationClient)
+                    TranslationProvider.DeepL -> DeepLTranslator(translationClient, translationStore.key())
+                }
+                val result = withContext(Dispatchers.IO) { translationEngine.translate(document, preferences, source, translator) }
+                if (!translationSession.accepts(ticket) || translationDocument()?.hash != document.hash || !mutableState.value.translationEnabled) return@launch
+                when (result) {
+                    is TranslationOutcome.Translated -> mutableState.value = mutableState.value.copy(translation = result.result, lyricsLanguage = result.result.detectedLanguage ?: source)
+                    is TranslationOutcome.Skipped -> {
+                        mutableState.value = mutableState.value.copy(lyricsLanguage = result.language ?: source)
+                        if (manual && result.language != null) showMessage("Already in ${TranslationLanguages.name(result.language)}.")
+                    }
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                if (translationSession.accepts(ticket) && mutableState.value.translationEnabled) {
+                    // Never surface provider bodies, request contents, or credentials in a message.
+                    showMessage(if (error is TranslationFailure) error.message ?: "Couldn't translate these lyrics." else "Couldn't translate these lyrics. Try again later.")
+                }
+            }
+        }
+    }
 
     private val localLyrics = LocalLyricsStore(File(application.filesDir, "local-lyrics"))
     private val lyricsFolder = LyricsFolder(application, File(application.filesDir, "lyrics-folder-index.json"))
@@ -337,6 +489,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             detachController()
             mutableState.value = PlayerUiState(
                 accessGranted = false,
+                translationPreferences = translationStore.read(),
+                translationEnabled = translationStore.read().automatic,
+                deepLKeyPresent = translationStore.key().isNotBlank(),
                 outputLabel = outputRoute.label,
                 lyricDelayMs = outputProfiles.delayMs(outputRoute),
                 sourceDescriptors = lyricsBackend.descriptors + lyricsBackend.blendDescriptors,
@@ -823,14 +978,29 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     /** The user agreed to what [SourceDisclosure] sends: switch it on. */
     fun acceptSourceDisclosure() {
         val disclosure = mutableState.value.sourceDisclosure ?: return
+        if (disclosure.id.startsWith("translation_")) {
+            val provider = if (disclosure.id == "translation_deepl") TranslationProvider.DeepL else TranslationProvider.Unison
+            translationStore.disclose(provider)
+            mutableState.value = mutableState.value.copy(sourceDisclosure = null)
+            resumeTranslationAction()
+            return
+        }
         lyricsBackend.markDisclosed(disclosure.id)
         mutableState.value = mutableState.value.copy(sourceDisclosure = null)
         if (disclosure.id == SourceDisclosures.GENIUS_ROMANIZATION_ID) setHumanRomanizations(true)
         else setSourceEnabled(disclosure.id, true)
+        resumeTranslationAction()
     }
 
     fun dismissSourceDisclosure() {
+        val translationNotice = mutableState.value.sourceDisclosure?.id?.startsWith("translation_") == true
+        if (translationNotice) {
+            pendingTranslationAction = null
+            clearTranslation()
+            mutableState.value = mutableState.value.copy(translationEnabled = false)
+        }
         mutableState.value = mutableState.value.copy(sourceDisclosure = null)
+        if (!translationNotice) resumeTranslationAction()
     }
 
     fun dismissSwitchedOff() {
@@ -857,6 +1027,11 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     /** Picks up a settings restore: sources, delays and Spotify links are re-read from storage. */
     fun reloadSavedSettings() {
+        clearTranslation()
+        mutableState.value = mutableState.value.copy(
+            translationPreferences = translationStore.read(), translationEnabled = translationStore.read().automatic,
+            lyricsLanguageOverride = translationStore.language(mutableState.value.localLyricsKey), lyricsLanguage = null,
+        )
         lyricsBackend.reloadCustomSources()
         lookupCache.clear()
         refreshSourcePolicy()
@@ -1176,6 +1351,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 else -> "Lookup finished; some sources were unavailable"
             },
         )
+        translateCurrent()
     }
 
     /** [selection] rendered for the renderer, from [renderedCache] when it holds it. */
@@ -1287,6 +1463,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     }
 
     private fun detachController() {
+        clearTranslation()
         controller?.unregisterCallback(controllerCallback)
         controller = null
         currentTrackIdentity = null
@@ -1304,6 +1481,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             val kept = mutableState.value
             mutableState.value = PlayerUiState(
                 accessGranted = kept.accessGranted,
+                translationPreferences = kept.translationPreferences,
+                translationEnabled = kept.translationEnabled,
+                deepLKeyPresent = kept.deepLKeyPresent,
                 humanRomanizations = kept.humanRomanizations,
                 sourceDisclosure = kept.sourceDisclosure,
                 switchedOffSources = kept.switchedOffSources,
@@ -1387,6 +1567,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         val lyricsKey = metadata.lyricsKey()
         val lyricsChanged = lyricsKey != currentLyricsKey
         if (lyricsChanged) {
+            clearTranslation()
             currentLyricsKey = lyricsKey
             shownSelection = null
             temporaryLyrics = null
@@ -1423,6 +1604,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
             providerAttempts = if (lyricsChanged) emptyList() else mutableState.value.providerAttempts,
             localLyricsKey = localKey,
             songDelayMs = if (lyricsChanged) songDelays.delayMs(localKey) else mutableState.value.songDelayMs,
+            lyricsLanguage = if (lyricsChanged) null else mutableState.value.lyricsLanguage,
+            lyricsLanguageOverride = if (lyricsChanged) translationStore.language(localKey) else mutableState.value.lyricsLanguageOverride,
+            translationEnabled = mutableState.value.translationEnabled || (lyricsChanged && mutableState.value.translationPreferences.automatic),
             lookupStatus = if (lyricsChanged) null else mutableState.value.lookupStatus,
             lastCommandLatencyMs = latency ?: mutableState.value.lastCommandLatencyMs,
             status = if (waitingForSeek || preserveStatus) mutableState.value.status else null,

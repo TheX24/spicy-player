@@ -15,9 +15,10 @@ data class SourceDisclosure(
     val sends: String = TITLE_ARTIST,
     /** Anything else worth knowing first. */
     val note: String? = null,
+    val descriptionOverride: String? = null,
 ) {
     val description: String
-        get() = buildString {
+        get() = descriptionOverride ?: buildString {
             append("Turning this on sends $sends to $recipient each time it looks for lyrics. ")
             append("No account or device details are sent. ")
             append("This source isn't run by Spicy Lyrics, so its own terms apply.")
@@ -29,6 +30,18 @@ private const val TITLE_ARTIST = "the song's title and artist"
 private const val WITH_LENGTH = "the song's title, artist and length"
 
 object SourceDisclosures {
+    fun translation(provider: com.tx24.spicyplayer.translation.TranslationProvider): SourceDisclosure {
+        val deepL = provider == com.tx24.spicyplayer.translation.TranslationProvider.DeepL
+        val recipient = if (deepL) "DeepL" else "Unison, which forwards them to Google"
+        return SourceDisclosure(
+            id = if (deepL) "translation_deepl" else "translation_unison",
+            name = "translation", recipient = recipient,
+            descriptionOverride = "Translation sends the song's original lyric lines, including background vocals, to $recipient. " +
+                "Your target and lyrics languages are sent too. " +
+                (if (deepL) "Your DeepL API key authenticates requests to DeepL. " else "No API key is needed. ") +
+                "Their own terms and privacy policies apply. You can turn translation off at any time.",
+        )
+    }
     /** The setting that lays human-written romanizations from Genius over the lyrics. */
     const val GENIUS_ROMANIZATION_ID = "genius_romanization"
 

@@ -692,7 +692,7 @@ internal fun DrawScope.drawLineModeLine(
                     xPos = xPos,
                     yPos = yPos,
                     fragmentHeight = textHeight,
-                    fullHeight = layout.height.coerceAtLeast(1f),
+                    fullHeight = (layout.lyricHeight ?: layout.height).coerceAtLeast(1f),
                     startYOffset = wLayout.relativeOffset.y,
                     gradientPositionPercent = lineAnim.lineGradientPercent,
                     brightAlpha = bright,

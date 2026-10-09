@@ -135,7 +135,7 @@ class UnisonLyricsProvider @Inject constructor(
         retryable = code >= 500,
     )
 
-    private companion object {
+    companion object {
         const val BASE = "https://unison.boidu.dev"
         val KEY_ID = Regex("[0-9a-f]{16,128}")
         val LRC_TIME = Regex("\\[\\d{1,3}:\\d{2}(?:[.:]\\d{1,3})?]")

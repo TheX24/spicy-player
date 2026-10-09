@@ -52,13 +52,17 @@ class SettingsBackupStore(private val context: Context) {
                 "humanRomanizations" to Boolean::class,
                 "disclosed" to Set::class, "switchedOff" to Set::class,
             )
+            "translation" -> mapOf(
+                "targetLanguage" to String::class, "automatic" to Boolean::class,
+                "provider" to String::class, "excludedLanguages" to Set::class,
+            )
             else -> emptyMap()
         }
         val current = prefs.all
         return { key ->
             when (store) {
                 "song_delays", "lyric_output_delays" -> Int::class
-                "spotify_id_overrides" -> String::class
+                "spotify_id_overrides", "song_languages" -> String::class
                 else -> known[key] ?: current[key]?.let { it::class }
             }
         }
@@ -71,7 +75,11 @@ class SettingsBackupStore(private val context: Context) {
      * device, and the usage-stats answer was given on this device.
      */
     private fun kept(store: String): Set<String> =
-        if (store == "ui") setOf("customFontFile", "customFontName", UsageStats.KEY_ENABLED, UsageStats.KEY_ASKED) else emptySet()
+        when (store) {
+            "ui" -> setOf("customFontFile", "customFontName", UsageStats.KEY_ENABLED, UsageStats.KEY_ASKED)
+            "translation" -> setOf("disclosed")
+            else -> emptySet()
+        }
 
     @Suppress("UNCHECKED_CAST")
     private fun SharedPreferences.Editor.put(key: String, value: Any) {

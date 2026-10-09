@@ -57,6 +57,8 @@ import com.tx24.spicyplayer.lyrics.spicy.models.FooterLine
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsFooter
 import com.tx24.spicyplayer.lyrics.spicy.parser.LetterSynthesizer
 import com.tx24.spicyplayer.ui.controls.keepsControlsHidden
+import com.tx24.spicyplayer.translation.TranslationPresentation
+import com.tx24.spicyplayer.translation.TranslationMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.withContext
@@ -107,12 +109,26 @@ fun LyricsView(
     maskBottomPx: () -> Float = { 0f },
     /** Scales the top and bottom edge fade; under 1 for a window too small for the full one. */
     maskScale: Float = 1f,
+    translation: TranslationPresentation? = null,
 ) {
     val textMeasurer = rememberTextMeasurer()
     // What is on screen: lines and their layouts, swapped together once new layouts are measured.
     // Until then the previous lyrics stay up, so a source switch mid-song (a better answer
     // arriving) replaces them in one frame instead of blanking the view while it measures.
-    var shown by remember { mutableStateOf<ShownLyrics?>(null) }
+    var measuredShown by remember { mutableStateOf<ShownLyrics?>(null) }
+    val letterConfig = config.copy(wordMotionBoost = 1f, scroll = ScrollConfig())
+    val measuredCache = remember(lines) { HashMap<MeasureKey, MeasuredLyrics>() }
+    var measuredWidth by remember { mutableFloatStateOf(0f) }
+    val fontKey = LyricsLayoutCalculator.fontKey
+    val desiredKey = MeasureKey(letterConfig, measuredWidth, fontSizeScale, romanize, lyricsType, fontKey, translation)
+    val desired = measuredCache[desiredKey]
+    val original = measuredCache[desiredKey.copy(translation = null)]
+    // Translation variants never keep a previous song or an off-toggle's translated layout up.
+    // The original variant is measured first and retained, so turning off switches immediately.
+    val shown = if (translation != null || measuredShown?.translation != null) {
+        (desired ?: original)?.let { ShownLyrics(documentId, it.lines, it.layouts, lyricsType, footer,
+            translation.takeIf { desired != null }) }
+    } else measuredShown
     val shownId = shown?.documentId
     val lineLayouts = shown?.layouts.orEmpty()
     // The type and credits of what is shown, not of what is still being measured.
@@ -121,12 +137,6 @@ fun LyricsView(
     val lyricsType = shown?.lyricsType ?: incomingType
     val footer = shown?.footer ?: incomingFooter
     val coroutineScope = rememberCoroutineScope()
-
-    // Letter synthesis only reads the mode-dependent thresholds, not the motion boost or scrolling.
-    val letterConfig = config.copy(wordMotionBoost = 1f, scroll = ScrollConfig())
-    // Measured lyrics for these lines, per variant (romanized or not, width, size...). The other
-    // romanization variant is measured ahead, so the romanize button swaps in a finished layout.
-    val measuredCache = remember(lines) { HashMap<MeasureKey, MeasuredLyrics>() }
 
     val animator = remember(shownId) { LyricsAnimator(coroutineScope, config) }
     LaunchedEffect(config) { animator.config = config }
@@ -161,6 +171,7 @@ fun LyricsView(
 
     BoxWithConstraints(modifier = modifier.fillMaxSize().clipToBounds()) {
         val canvasWidth = constraints.maxWidth.toFloat()
+        SideEffect { measuredWidth = canvasWidth }
         val canvasHeight = constraints.maxHeight.toFloat()
         // Compact fullscreen keeps the active lyric in the upper portion of the viewport.
         val centerY = activeLineTopPx ?: (ScrollPolicyController.anchorY(canvasHeight, focusAnchorFraction) - focusLiftPx)
@@ -185,7 +196,6 @@ fun LyricsView(
         scrollManager.pxPerReferencePx = creditBaseSp * density.density / REFERENCE_LYRIC_SIZE_PX
         // The rows the screen pins are drawn there instead.
         val footerLines = remember(footer, pinnedFooter) { footer.lines().filterNot { pinnedFooter.pins(it.kind) } }
-        val fontKey = LyricsLayoutCalculator.fontKey
         val footerLayouts = remember(footerLines, creditBaseSp, footerSlot.widthPx, canvasWidth, fontKey) {
             measureFooterRows(footerLines, textMeasurer, creditBaseSp, density.density, footerSlot.widthPx)
         }
@@ -210,23 +220,35 @@ fun LyricsView(
         val maskBottomUpdated by rememberUpdatedState(maskBottomPx)
         // Recalculate layouts whenever the lyrics, dimensions, or font size change.
         // A newer key cancels a measurement still running, so only the latest one lands.
-        LaunchedEffect(lines, letterConfig, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, fontKey) {
-            suspend fun measure(romanized: Boolean): MeasuredLyrics {
-                val key = MeasureKey(letterConfig, canvasWidth, fontSizeScale, romanized, incomingType, fontKey)
+        LaunchedEffect(lines, letterConfig, canvasWidth, fontSizeScale, romanize, documentId, incomingType, incomingFooter, fontKey, translation) {
+            suspend fun measure(romanized: Boolean, presentation: TranslationPresentation? = translation): MeasuredLyrics {
+                val key = MeasureKey(letterConfig, canvasWidth, fontSizeScale, romanized, incomingType, fontKey, presentation)
                 measuredCache[key]?.let { return it }
                 return withContext(Dispatchers.Default) {
                     // Per-letter emphasis for held words (mode-dependent thresholds, romanized
                     // display). Syllable mode only; Line/Static never letter-split.
-                    val display = if (incomingType == LyricsType.Syllable) LetterSynthesizer.apply(lines, letterConfig, romanized) else lines
-                    MeasuredLyrics(display, LyricsLayoutCalculator.calculateLineLayouts(
+                    val translated = presentation?.displayLines(lines) ?: lines
+                    val useRomanized = romanized && presentation?.mode != TranslationMode.UnderLine
+                    val display = if (incomingType == LyricsType.Syllable) LetterSynthesizer.apply(translated, letterConfig, useRomanized) else translated
+                    MeasuredLyrics(display, if (presentation != null) LyricsLayoutCalculator.calculatePresentationLayouts(
+                        if (presentation.mode == TranslationMode.UnderLine) display else lines, display, presentation,
+                        canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanized, letterConfig.isSimple,
+                        letterConfig.wideDuetPadding,
+                        if (letterConfig.isAppleMusic) AppleMusicMotion.BACKGROUND_SIZE else 0.75f,
+                    ) else LyricsLayoutCalculator.calculateLineLayouts(
                         display, canvasWidth, textMeasurer, density.density, incomingType, fontSizeScale, romanized, letterConfig.isSimple,
                         letterConfig.wideDuetPadding,
                         if (letterConfig.isAppleMusic) AppleMusicMotion.BACKGROUND_SIZE else 0.75f,
                     ))
                 }.also { measuredCache[key] = it }
             }
+            if (translation != null) {
+                val base = measure(romanize, null)
+                measuredShown = ShownLyrics(documentId, base.lines, base.layouts, incomingType, incomingFooter)
+                if (lines.any { line -> line.words.any { it.romanizedText != null } }) measure(!romanize, null)
+            }
             val measured = measure(romanize)
-            shown = ShownLyrics(documentId, measured.lines, measured.layouts, incomingType, incomingFooter)
+            measuredShown = ShownLyrics(documentId, measured.lines, measured.layouts, incomingType, incomingFooter, translation)
             if (lines.any { line -> line.words.any { it.romanizedText != null } }) measure(!romanize)
         }
 
@@ -530,6 +552,7 @@ fun LyricsView(
 
                 when {
                     layout.isInterlude -> drawInterludeGroup(layout, lineAnim, lineStartX, scrollOffset, dynamicY)
+                    layout.line.translationReplaces -> drawTranslationText(layout, lineAnim, lineStartX, scrollOffset, dynamicY, config, lyricsType == LyricsType.Static, replacement = true)
                     lyricsType == LyricsType.Static -> drawStaticLine(layout, lineAnim, lineStartX, scrollOffset, dynamicY)
                     lyricsType == LyricsType.Line -> drawLineModeLine(layout, lineAnim, lineStartX, scrollOffset, dynamicY, config)
                     // Minimal Lyrics Mode shrinks inactive lines (a CSS `scale`: paint only, no reflow)
@@ -541,6 +564,9 @@ fun LyricsView(
                         ))
                     }) { drawStandardLine(layout, lineAnim, lineStartX, scrollOffset, dynamicY, config) }
                     else -> drawStandardLine(layout, lineAnim, lineStartX, scrollOffset, dynamicY, config)
+                }
+                if (!layout.line.translationReplaces && layout.supplements.isNotEmpty()) {
+                    drawTranslationText(layout, lineAnim, lineStartX, scrollOffset, dynamicY, config, lyricsType == LyricsType.Static)
                 }
             }
 
@@ -569,6 +595,7 @@ private data class MeasureKey(
     val romanize: Boolean,
     val type: LyricsType,
     val fontKey: String,
+    val translation: TranslationPresentation? = null,
 )
 
 private class MeasuredLyrics(val lines: List<Line>, val layouts: List<LineLayout>)
@@ -579,6 +606,7 @@ private class ShownLyrics(
     val layouts: List<LineLayout>,
     val lyricsType: LyricsType,
     val footer: LyricsFooter,
+    val translation: TranslationPresentation? = null,
 )
 
 /** Paused and this many frames without a change, the frame loop rests. */

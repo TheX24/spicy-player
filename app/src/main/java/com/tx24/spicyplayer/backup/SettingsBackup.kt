@@ -28,7 +28,7 @@ object SettingsBackup {
      * delay and the songs pointed at a Spotify recording. Not update state, and not the Spicy
      * Lyrics key, which shouldn't travel in a file people pass around.
      */
-    val STORES = listOf("ui", "lyrics_sources", "lyric_output_delays", "song_delays", "spotify_id_overrides")
+    val STORES = listOf("ui", "lyrics_sources", "lyric_output_delays", "song_delays", "spotify_id_overrides", "translation", "song_languages")
 
     class InvalidBackup(message: String) : Exception(message)
 

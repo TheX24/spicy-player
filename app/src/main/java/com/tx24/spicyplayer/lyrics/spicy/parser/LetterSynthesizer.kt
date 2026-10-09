@@ -22,7 +22,7 @@ object LetterSynthesizer {
      */
     fun apply(lines: List<Line>, config: RenderConfig, romanized: Boolean): List<Line> {
         return lines.map { line ->
-            if (line.isInterlude || line.isSongwriter) {
+            if (line.isInterlude || line.isSongwriter || line.translationReplaces) {
                 line
             } else {
                 line.copy(words = mergeSyllables(line.words, config, romanized).map { synthesize(it, config, romanized) })

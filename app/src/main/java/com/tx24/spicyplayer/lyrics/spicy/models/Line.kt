@@ -20,6 +20,8 @@ data class Line(
     val groupId: Int? = null,
     /** If true, the line should be aligned to the opposite side (e.g., right-aligned for harmonies). */
     val oppositeAligned: Boolean = false,
+    /** Display-only text with no word timings. The original document is kept separately. */
+    val translationReplaces: Boolean = false,
 ) {
     val isBackground: Boolean get() = role == LineRole.BACKGROUND
     val isInterlude: Boolean get() = role == LineRole.INTERLUDE

@@ -51,6 +51,7 @@ fun QuickSettingsModal(
 ) {
     var screen by remember { mutableStateOf(QuickScreen.Main) }
     var uploading by remember { mutableStateOf(false) }
+    LaunchedEffect(visible, state.lyrics) { if (visible) viewModel.detectLyricsLanguage() }
     // Opens on its first screen each time.
     LaunchedEffect(visible) {
         if (visible) {
@@ -76,7 +77,7 @@ fun QuickSettingsModal(
             QuickScreen.Queue -> "Queue"
             QuickScreen.LyricsManager -> if (uploading) "Upload TTML" else "Local Lyrics DB"
         },
-        skeleton = { SettingsSkeleton(rows = if (state.queue.isNotEmpty()) 4 else 3) },
+        skeleton = { SettingsSkeleton(rows = if (state.queue.isNotEmpty()) 5 else 4) },
         // The header's back arrow (and Back) step out of a screen before Back closes the pop-up.
         onBack = when {
             screen == QuickScreen.Main -> null
@@ -121,6 +122,7 @@ private fun MainScreen(state: PlayerUiState, viewModel: ExternalPlaybackViewMode
         SpicyButton("Open", onClick = { open(QuickScreen.LyricsManager) })
     }
     SongDelayRow(state, viewModel)
+    LyricsLanguageRow(state, viewModel)
     SettingRow(
         label = "Output delay",
         description = "For every song on ${state.outputLabel}. Move it right if the lyrics run ahead of the song.",

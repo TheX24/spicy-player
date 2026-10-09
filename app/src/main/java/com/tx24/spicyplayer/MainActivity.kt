@@ -127,6 +127,9 @@ import com.tx24.spicyplayer.lyrics.spicy.models.buildDisplayTimeline
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerLimit
 import com.tx24.spicyplayer.playback.PlayerUiState
+import com.tx24.spicyplayer.translation.TranslationResult
+import com.tx24.spicyplayer.translation.TranslationMode
+import com.tx24.spicyplayer.translation.TranslationPresentation
 import com.tx24.spicyplayer.network.data.providers.CustomLyricsSource
 import com.tx24.spicyplayer.ui.background.SpicySessionBackground
 import com.tx24.spicyplayer.ui.components.LocalBackdrop
@@ -712,6 +715,8 @@ private fun LyricsApp(
                         viewModel.sendCustomAction(action)
                     },
                     onResync = viewModel::resync,
+                    onTranslate = viewModel::toggleTranslation.takeIf { state.lyrics is LyricsState.Ready },
+                    translated = state.translationEnabled,
                 )
                 val onEnterPipButton = onEnterPip.takeIf { settings.pipButton }
                 val onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null
@@ -775,6 +780,8 @@ private fun LyricsApp(
                         }
                         LyricsPanel(
                             lyrics = state.lyrics,
+                            translation = state.translation.takeIf { state.translationEnabled },
+                            translationMode = settings.translationMode,
                             currentTimeMs = viewModel::currentLyricPositionMs,
                             onSeek = viewModel::seekTo,
                             romanize = romanize,
@@ -1093,6 +1100,8 @@ private fun PipLyrics(
         )
         LyricsPanel(
             lyrics = state.lyrics,
+            translation = state.translation.takeIf { state.translationEnabled },
+            translationMode = settings.translationMode,
             currentTimeMs = viewModel::currentLyricPositionMs,
             onSeek = {},
             romanize = romanize,
@@ -1416,6 +1425,8 @@ private fun LyricsPanel(
     onSearchSpotify: () -> Unit,
     modifier: Modifier = Modifier,
     maskScale: Float = 1f,
+    translation: TranslationResult? = null,
+    translationMode: TranslationMode = TranslationMode.UnderLine,
 ) {
     // The loading skeleton: up as soon as the lookup starts, over whatever the panel
     // shows, fading in over 0.2s and out over 0.25s (ease-out).
@@ -1424,6 +1435,8 @@ private fun LyricsPanel(
             lyrics, currentTimeMs, onSeek, romanize, isPlaying, activeLineTopPx, centredLiftPx, noticeBottomPx,
             viewState, pinnedFooter, maskBottomPx, config, fontSizeScale, onSearchSpotify, Modifier.fillMaxSize(),
             maskScale = maskScale,
+            translation = translation,
+            translationMode = translationMode,
         )
         AnimatedVisibility(
             visible = lyrics == LyricsState.Loading,
@@ -1463,6 +1476,8 @@ private fun LyricsPanelContent(
     onSearchSpotify: () -> Unit,
     modifier: Modifier = Modifier,
     maskScale: Float = 1f,
+    translation: TranslationResult? = null,
+    translationMode: TranslationMode = TranslationMode.UnderLine,
 ) {
     when (lyrics) {
         LyricsState.Idle -> LyricsNotice("Waiting for a song", null, noticeBottomPx, modifier)
@@ -1473,8 +1488,8 @@ private fun LyricsPanelContent(
             onSearchSpotify = onSearchSpotify.takeIf { lyrics !== LyricsNotices.missingMetadata },
         )
         is LyricsState.Ready -> {
-            val rendererLines = remember(lyrics.lines, config.isMinimal, config.isSimple) {
-                buildDisplayTimeline(lyrics.lines.map { line ->
+            val originalLines = remember(lyrics.lines) {
+                lyrics.lines.map { line ->
                     Line(
                         words = line.words.map { word ->
                             Word(word.text, word.startMs, word.endMs, isPartOfWord = word.attached, romanizedText = word.romanized)
@@ -1486,11 +1501,19 @@ private fun LyricsPanelContent(
                         groupId = line.groupId,
                         oppositeAligned = line.oppositeAligned,
                     )
-                }, minimalMode = config.isMinimal, holdThroughShortGaps = when (lyrics.lyricsType) {
+                }
+            }
+            val rendererLines = remember(originalLines, config.isMinimal, config.isSimple) {
+                buildDisplayTimeline(originalLines, minimalMode = config.isMinimal, holdThroughShortGaps = when (lyrics.lyricsType) {
                     LyricsType.Syllable -> config.isMinimal
                     LyricsType.Line -> config.isSimple
                     else -> false
                 })
+            }
+            val presentation = remember(rendererLines, originalLines, translation, translationMode) {
+                translation?.let { result ->
+                    TranslationPresentation.forTimeline(originalLines, rendererLines, result, translationMode)
+                }
             }
             LyricsView(
                 lines = rendererLines,
@@ -1498,6 +1521,7 @@ private fun LyricsPanelContent(
                 currentTimeMs = currentTimeMs,
                 onSeekWord = onSeek,
                 romanize = romanize,
+                translation = presentation,
                 isPlaying = isPlaying,
                 activeLineTopPx = activeLineTopPx,
                 focusAnchorFraction = 0.5f,

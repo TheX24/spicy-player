@@ -280,6 +280,7 @@ class LyricsAnimator(
         val allSung = states.none { it != ElementState.Sung }
 
         return lines.mapIndexed { lineIdx, line ->
+            val lyricsType = if (line.translationReplaces) LyricsType.Line else lyricsType
             val lineState = states[lineIdx]
             val isActive = !line.isSongwriter && lineState == ElementState.Active
 
@@ -453,6 +454,7 @@ class LyricsAnimator(
             val lineState = states[lineIdx]
             val isActive = !line.isSongwriter && lineState == ElementState.Active
             // Before any line has been sung, distances count from just above the first.
+            val lyricsType = if (line.translationReplaces) LyricsType.Line else lyricsType
             val signed = appleOrdinals[lineIdx] - activeOrdinal
             val away = if (isActive) 0 else abs(signed).coerceAtLeast(1)
 

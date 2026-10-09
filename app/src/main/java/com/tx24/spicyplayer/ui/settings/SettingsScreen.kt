@@ -62,6 +62,8 @@ import androidx.compose.material.icons.rounded.Smartphone
 import androidx.compose.material.icons.rounded.TextFields
 import androidx.compose.material.icons.rounded.Timer
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.Translate
+import com.tx24.spicyplayer.translation.TranslationLanguages
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -119,6 +121,7 @@ import kotlin.coroutines.cancellation.CancellationException
 internal enum class SettingsPage(val title: String) {
     ThisSong("This song"),
     Lyrics("Lyrics"),
+    Translation("Translation"),
     ScrollSync("Scroll & Sync"),
     Background("Background"),
     NowPlaying("Now Playing"),
@@ -187,7 +190,7 @@ fun SettingsScreen(
         }
     }
     fun show(target: SettingsPage) {
-        UsageStats.count(UsageCounter.page(target.name))
+        if (target != SettingsPage.Translation) UsageStats.count(UsageCounter.page(target.name))
         page = target
         pageReady = false
         scope.launch {
@@ -344,6 +347,7 @@ private fun PageContent(
     when (page) {
         SettingsPage.ThisSong -> ThisSongContent(state, viewModel, onOpenLyricsManager, onOpenSpotifySearch)
         SettingsPage.Lyrics -> LyricsContent(state, viewModel, settings)
+        SettingsPage.Translation -> TranslationContent(state, viewModel, settings)
         SettingsPage.ScrollSync -> ScrollSyncContent(state, viewModel, settings)
         SettingsPage.Background -> BackgroundContent(settings)
         SettingsPage.NowPlaying -> NowPlayingContent(settings)
@@ -417,6 +421,7 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 5)
         }
         SettingsPage.Lyrics -> SettingsSkeleton(rows = 12)
+        SettingsPage.Translation -> SettingsSkeleton(rows = 7)
         SettingsPage.ScrollSync -> SettingsSkeleton(rows = 6)
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
@@ -461,6 +466,11 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
                 "no glow".takeIf { !settings.glow || settings.lowPerformance },
             ).joinToString().replaceFirstChar(Char::uppercase),
         ) { onOpen(SettingsPage.Lyrics) }
+        GroupDivider()
+        GroupRow(Icons.Rounded.Translate, SettingsPage.Translation.title,
+            "${TranslationLanguages.name(state.translationPreferences.targetLanguage)} · ${settings.translationMode.label} · " +
+                if (state.translationPreferences.automatic) "Automatic" else "On demand",
+        ) { onOpen(SettingsPage.Translation) }
         GroupDivider()
         GroupRow(
             Icons.Rounded.Timer,

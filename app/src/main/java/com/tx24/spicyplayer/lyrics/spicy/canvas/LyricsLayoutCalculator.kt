@@ -24,8 +24,84 @@ import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.LyricsType
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import com.tx24.spicyplayer.lyrics.spicy.parser.RtlDetector
+import androidx.compose.ui.graphics.Shadow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Constraints
+import com.tx24.spicyplayer.translation.TranslationMode
+import com.tx24.spicyplayer.translation.TranslationPresentation
 
 internal object LyricsLayoutCalculator {
+    fun calculatePresentationLayouts(
+        originals: List<Line>,
+        display: List<Line>,
+        presentation: TranslationPresentation,
+        canvasWidth: Float,
+        textMeasurer: TextMeasurer,
+        density: Float,
+        lyricsType: LyricsType,
+        fontSizeScale: Float,
+        romanize: Boolean,
+        simpleMode: Boolean,
+        wideDuet: Boolean,
+        backgroundScale: Float,
+    ): List<LineLayout> {
+        val under = presentation.mode == TranslationMode.UnderLine
+        val base = calculateLineLayouts(originals, canvasWidth, textMeasurer, density, lyricsType, fontSizeScale,
+            romanize && !under, simpleMode, wideDuet, backgroundScale)
+        val metrics = LyricsLayoutMetrics(canvasWidth, density, lyricsType, fontSizeScale)
+        val hasDuet = originals.any { it.oppositeAligned }
+        var extraY = 0f
+        return base.mapIndexed { index, original ->
+            val line = display[index]
+            var layout = original.copy(line = line, yOffset = original.yOffset + extraY)
+            val size = metrics.baseFontSizeSp * if (line.isBackground) backgroundScale else 1f
+            fun measure(text: String, scale: Float, width: Float, right: Boolean) = textMeasurer.measure(
+                text = AnnotatedString(text),
+                style = TextStyle(fontFamily = fontFamilyFor(text), fontSize = (size * scale).sp,
+                    fontWeight = if (line.isBackground) FontWeight.SemiBold else FontWeight.Bold,
+                    lineHeight = (size * scale * 1.18f).sp, textAlign = if (right) TextAlign.Right else TextAlign.Left,
+                    textMotion = TextMotion.Animated, color = Color.White, shadow = Shadow.None),
+                constraints = Constraints(maxWidth = width.toInt().coerceAtLeast(1)),
+            )
+            if (line.translationReplaces) {
+                val text = line.words.single().text
+                val rtl = RtlDetector.isRtl(text)
+                val right = resolveRightAligned(hasDuet, rtl, line.oppositeAligned, false)
+                val slot = metrics.contentSlot(hasDuet, rtl, line.oppositeAligned, wideDuet)
+                val textLayout = measure(text, 1f, slot.widthPx / ACTIVE_LINE_SCALE, right)
+                val width = textLayout.size.width.toFloat()
+                layout = layout.copy(words = listOf(WordLayout(line.words.single(), textLayout, Offset.Zero)),
+                    height = textLayout.size.height.toFloat(), totalWidth = width, maxRowWidth = width,
+                    isRtl = rtl, isRightAligned = right, contentStartX = slot.startPx, contentWidth = slot.widthPx)
+            }
+            if (!line.isInterlude) {
+                val romanized = if (under && romanize && originals[index].words.any { it.text.isNotBlank() } && originals[index].words.any { it.romanizedText != null }) {
+                    buildString {
+                        originals[index].words.forEach { word ->
+                            if (isNotEmpty() && !word.isPartOfWord) append(' ')
+                            append(word.romanizedText ?: word.text)
+                        }
+                    }.takeIf(String::isNotBlank)
+                } else null
+                val translation = presentation.texts.getOrNull(index)?.takeIf { under && it.isNotBlank() }
+                val supplements = listOfNotNull(romanized, translation).map {
+                    measure(it, 0.6f, layout.contentWidth / ACTIVE_LINE_SCALE, layout.isRightAligned)
+                }
+                if (supplements.isNotEmpty()) {
+                    val gap = size * density * 0.12f
+                    var y = maxOf(layout.height, layout.words.maxOfOrNull { it.relativeOffset.y + it.textLayoutResult.size.height } ?: 0f)
+                    val rows = supplements.map { measured ->
+                        y += gap
+                        SupplementLayout(measured, Offset(if (layout.isRightAligned) layout.totalWidth - measured.size.width else 0f, y))
+                            .also { y += measured.size.height }
+                    }
+                    layout = layout.copy(height = y, lyricHeight = layout.height, supplements = rows)
+                }
+            }
+            extraY += layout.height - original.height
+            layout
+        }
+    }
     /** Scale of the active line in line-synced lyrics (reference: data-lyrics-type="Line" .line.Active). */
     internal const val ACTIVE_LINE_SCALE = 1.05f
 

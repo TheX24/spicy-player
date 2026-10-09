@@ -50,4 +50,8 @@ internal data class LineLayout(
     /** Logical content slot after the 5cqw/15cqw side padding. */
     val contentStartX: Float = 0f,
     val contentWidth: Float = 0f,
+    val supplements: List<SupplementLayout> = emptyList(),
+    val lyricHeight: Float? = null,
 )
+
+internal data class SupplementLayout(val text: TextLayoutResult, val offset: Offset)

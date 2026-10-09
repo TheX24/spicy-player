@@ -122,6 +122,10 @@ dependencies {
     implementation("androidx.media3:media3-database:1.11.1")
     implementation("com.jakewharton.timber:timber:5.0.1")
     implementation("com.atilika.kuromoji:kuromoji-ipadic:0.9.0")
+    implementation("com.optimaize.languagedetector:language-detector:0.6") {
+        exclude(group = "com.intellij", module = "annotations")
+    }
+    runtimeOnly("org.slf4j:slf4j-nop:1.7.36")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     implementation("com.squareup.retrofit2:retrofit:3.0.0")
     implementation("com.squareup.retrofit2:converter-gson:3.0.0")

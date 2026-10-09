@@ -36,6 +36,7 @@ import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.FastOutSlowInEasing
 
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
+import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.Icons
 import androidx.compose.animation.core.Animatable
@@ -148,6 +149,8 @@ class PlaybackControlsState(
     val onCustomAction: (String) -> Unit = {},
     /** Re-reads the player's position, for when the lyrics have drifted. */
     val onResync: () -> Unit = {},
+    val onTranslate: (() -> Unit)? = null,
+    val translated: Boolean = false,
 )
 
 /**
@@ -491,6 +494,11 @@ private fun floatingActions(
     if (showResync) add(FloatingAction("Resync lyrics", keep = 30, controls.onResync) { icon ->
         Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(icon(23f)))
     })
+    controls.onTranslate?.let { toggle ->
+        add(FloatingAction(if (controls.translated) "Turn translation off" else "Translate", keep = 25, toggle) { icon ->
+            Image(rememberVectorPainter(Icons.Rounded.Translate), null, Modifier.size(icon(23f)), colorFilter = white)
+        })
+    }
     if (showExpand) add(FloatingAction(if (expanded) "Show lyrics" else "Show the cover", keep = 70, onToggleExpanded) { icon ->
         Image(rememberVectorPainter(if (expanded) SpicyIcons.Collapse else SpicyIcons.Expand), null, Modifier.size(icon(21f)))
     })

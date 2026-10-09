@@ -84,6 +84,8 @@ Out of the box, Spicy Lyrics Mobile asks [Spicy Lyrics](https://spicylyrics.org)
 
 Every other lyrics source (QQ Music, NetEase, Kugou, Kuwo, RMM Revival, Genius, YouTube transcripts) is off until you switch it on in Settings → Sources. Before one is switched on for the first time, the app says who it asks and what it sends: the song's title and artist, and for some, its album or length. The same goes for human romanizations, which ask Genius. No account or device details go to any of them. Release year and animated covers, which ask Spotify and Apple's iTunes search, are off by default too.
 
+Translation is off by default and asks before sending original lyric lines (including background vocals), the target language and the lyrics language to Unison, which forwards them to Google, or to DeepL with your own API key. Language detection runs on the device. Translation preferences and per-song language overrides are included in settings backups; the DeepL key and your consent stay on this device. Translation adds no analytics or usage counters.
+
 </details>
 
 <details>
