@@ -1,5 +1,9 @@
 package com.tx24.spicyplayer.ui.controls
 
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.rememberInfiniteTransition
 import com.tx24.spicyplayer.ui.theme.SpicyType
 import com.tx24.spicyplayer.ui.theme.SpicyRadii
 import com.tx24.spicyplayer.ui.components.SelectMenuPosition
@@ -151,6 +155,8 @@ class PlaybackControlsState(
     val onResync: () -> Unit = {},
     val onTranslate: (() -> Unit)? = null,
     val translated: Boolean = false,
+    /** A translation is on its way: the button pulses until it lands. */
+    val translating: Boolean = false,
 )
 
 /**
@@ -496,7 +502,17 @@ private fun floatingActions(
     })
     controls.onTranslate?.let { toggle ->
         add(FloatingAction(if (controls.translated) "Turn translation off" else "Translate", keep = 25, toggle) { icon ->
-            Image(rememberVectorPainter(Icons.Rounded.Translate), null, Modifier.size(icon(23f)), colorFilter = white)
+            if (controls.translating) {
+                // A spinning ring in the glyph's place until the translation lands.
+                val turn by rememberInfiniteTransition(label = "translating").animateFloat(
+                    0f, 360f, infiniteRepeatable(tween(900, easing = LinearEasing)), label = "translatingTurn",
+                )
+                Canvas(Modifier.size(icon(22f))) {
+                    drawArc(Color.White, turn, 270f, useCenter = false, style = Stroke(size.minDimension * 0.1f, cap = StrokeCap.Round))
+                }
+            } else {
+                Image(rememberVectorPainter(Icons.Rounded.Translate), null, Modifier.size(icon(23f)), colorFilter = white)
+            }
         })
     }
     if (showExpand) add(FloatingAction(if (expanded) "Show lyrics" else "Show the cover", keep = 70, onToggleExpanded) { icon ->

@@ -24,6 +24,9 @@ class UnisonTranslator(private val client: OkHttpClient) : Translator {
             .awaitResponse().use { response ->
                 // 400: no language found in these lines; 502: Google failed on them.
                 if (response.code == 400 || response.code == 502) throw LinesRejected(response.code)
+                if (response.code == 429 || response.code == 503) {
+                    throw ProviderBusy(response.header("Retry-After")?.toLongOrNull()?.times(1_000L))
+                }
                 if (!response.isSuccessful) throw IOException("Translation is unavailable (HTTP ${response.code}).")
                 JsonParser.parseString(response.body.string()).asJsonObject
             }
@@ -46,26 +49,45 @@ class DeepLTranslator(private val client: OkHttpClient, private val key: String)
                 if (!response.isSuccessful) throw IOException("DeepL couldn't translate these lyrics (HTTP ${response.code}).")
                 JsonParser.parseString(response.body.string()).asJsonObject
             }
-        val lines = response.getAsJsonArray("translations") ?: throw IOException("DeepL returned an invalid response.")
-        return TranslatorResponse(lines.mapIndexed { index, value ->
-            if (!value.isJsonObject) null else value.asJsonObject.let { line ->
-                val text = line.get("text")?.takeUnless { it.isJsonNull }?.asString
-                val language = line.get("detected_source_language")?.takeUnless { it.isJsonNull }?.asString
-                TranslationEntry(text, languageCode(language) != languageCode(request.target) && text != request.lines.getOrNull(index))
-            }
-        })
+        val translation = response.getAsJsonArray("translations")?.firstOrNull()?.takeIf { it.isJsonObject }?.asJsonObject
+            ?: throw IOException("DeepL returned an invalid response.")
+        val language = translation.get("detected_source_language")?.takeUnless { it.isJsonNull }?.asString
+        val translated = languageCode(language) != languageCode(request.target)
+        val texts = deepLLines(translation.get("text")?.takeUnless { it.isJsonNull }?.asString.orEmpty(), request.lines.size)
+        return TranslatorResponse(texts.mapIndexed { index, text ->
+            text?.let { TranslationEntry(it, translated && it != request.lines[index]) }
+        }, language)
+    }
+}
+
+/**
+ * The whole song as one document, each line in its own numbered tag: DeepL reads the lines with
+ * each other for context, and every translated line comes back in its tag, so none can run into
+ * another.
+ */
+internal fun deepLDocument(lines: List<String>): String = lines.withIndex().joinToString("\n") { (index, line) ->
+    "<l i=\"$index\">${line.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")}</l>"
+}
+
+/** [count] lines read back from [deepLDocument]'s tags; a tag that didn't come back is null. */
+internal fun deepLLines(document: String, count: Int): List<String?> {
+    val found = Regex("""<l i="(\d+)">(.*?)</l>""", RegexOption.DOT_MATCHES_ALL).findAll(document)
+        .associate { it.groupValues[1].toInt() to it.groupValues[2] }
+    return List(count) { index ->
+        found[index]?.replace("&lt;", "<")?.replace("&gt;", ">")?.replace("&quot;", "\"")?.replace("&apos;", "'")
+            ?.replace("&amp;", "&")?.trim()?.takeIf(String::isNotBlank)
     }
 }
 
 internal fun deepLRequest(request: TranslatorRequest, key: String): Request {
     fun code(language: String): String = if (languageCode(language) == "no") "NB" else language.uppercase(java.util.Locale.ROOT)
     val body = FormBody.Builder().apply {
-        request.lines.forEach { add("text", it) }
+        add("text", deepLDocument(request.lines))
         add("target_lang", code(request.target))
         request.source?.let { add("source_lang", code(it)) }
-        add("context", request.context)
+        add("tag_handling", "xml")
+        add("split_sentences", "nonewlines")
         add("preserve_formatting", "1")
-        add("split_sentences", "0")
     }.build()
     if (body.contentLength() > 128 * 1024) throw TranslationFailure("This song exceeds DeepL's request size limit.")
     return Request.Builder().url("${DeepLKey.host(key)}/v2/translate")

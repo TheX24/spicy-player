@@ -119,6 +119,9 @@ class TranslationFailure(message: String) : IllegalArgumentException(message)
  */
 class LinesRejected(code: Int) : java.io.IOException("Translation refused these lines (HTTP $code).")
 
+/** The provider is rate limited for now; [retryAfterMs] is how long it asked to wait, when it said. */
+class ProviderBusy(val retryAfterMs: Long? = null) : java.io.IOException("Translation is busy.")
+
 fun interface SongLanguageDetector { fun detect(originalLyrics: String): String? }
 
 object DeepLKey {

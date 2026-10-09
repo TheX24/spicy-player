@@ -18,7 +18,8 @@ object TranslationBatching {
             }
         }
         if (verse.isNotEmpty()) verses.add(verse)
-        if (provider == TranslationProvider.DeepL) return verses.flatten().chunked(50)
+        // One document, so DeepL reads the whole song together; its size limit is checked on the request.
+        if (provider == TranslationProvider.DeepL) return listOf(verses.flatten())
         val batches = mutableListOf<List<TranslationPiece>>()
         var batch = mutableListOf<TranslationPiece>()
         verses.forEach { block ->
@@ -66,7 +67,12 @@ sealed interface TranslationOutcome {
     data class Skipped(val language: String?) : TranslationOutcome
 }
 
-class TranslationEngine(private val detector: SongLanguageDetector, private val cache: TranslationCache) {
+class TranslationEngine(
+    private val detector: SongLanguageDetector,
+    private val cache: TranslationCache,
+    /** Waits between requests and before a retry; tests pass one that doesn't. */
+    private val pause: suspend (Long) -> Unit = { kotlinx.coroutines.delay(it) },
+) {
     private val languages = object : LinkedHashMap<String, String?>(16, 0.75f, true) {
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, String?>): Boolean = size > 32
     }
@@ -105,9 +111,11 @@ class TranslationEngine(private val detector: SongLanguageDetector, private val 
                 batch.forEach { aligned[it.index to it.part] = null }
                 return
             }
+            // Spaced out, so singling out a refused line doesn't trip the provider's rate limit.
+            if (requests > 1) pause(PACE_MS)
             val response = try {
                 // Later batches go out with the language the first answer found.
-                translator.translate(TranslatorRequest(batch.map { it.text }, key.targetLanguage, detected, document.context))
+                ask(translator, TranslatorRequest(batch.map { it.text }, key.targetLanguage, detected, document.context))
             } catch (refused: LinesRejected) {
                 if (batch.size == 1) {
                     aligned[batch[0].index to batch[0].part] = null
@@ -141,7 +149,26 @@ class TranslationEngine(private val detector: SongLanguageDetector, private val 
         return TranslationOutcome.Translated(result)
     }
 
+    /** [Translator.translate], waiting out a busy provider a couple of times before giving up. */
+    private suspend fun ask(translator: Translator, request: TranslatorRequest): TranslatorResponse {
+        repeat(BUSY_RETRIES) { attempt ->
+            try {
+                return translator.translate(request)
+            } catch (busy: ProviderBusy) {
+                pause(busy.retryAfterMs?.coerceIn(1_000L, 10_000L) ?: (BUSY_WAIT_MS * (attempt + 1)))
+            }
+        }
+        return try {
+            translator.translate(request)
+        } catch (busy: ProviderBusy) {
+            throw TranslationFailure("Translation is busy right now. Try again in a minute.")
+        }
+    }
+
     private companion object {
+        const val PACE_MS = 300L
+        const val BUSY_RETRIES = 2
+        const val BUSY_WAIT_MS = 2_000L
         /** Requests one song may take while singling out refused lines, so a broken one can't flood the provider. */
         const val MAX_REQUESTS = 24
     }

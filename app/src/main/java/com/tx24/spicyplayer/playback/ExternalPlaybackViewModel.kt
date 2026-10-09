@@ -184,6 +184,8 @@ data class PlayerUiState(
     val calibratingDelay: Boolean = false,
     val translationPreferences: TranslationPreferences = TranslationPreferences(),
     val translationEnabled: Boolean = false,
+    /** A translation is being fetched for the lyrics on screen. */
+    val translating: Boolean = false,
     val translation: TranslationResult? = null,
     val lyricsLanguage: String? = null,
     val lyricsLanguageOverride: String? = null,
@@ -324,7 +326,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         translationJob?.cancel()
         translationSession.invalidate()
         translatedDocument = null
-        mutableState.value = mutableState.value.copy(translation = null)
+        mutableState.value = mutableState.value.copy(translation = null, translating = false)
     }
 
     private fun translationDocument(): TranslationDocument? {
@@ -362,7 +364,12 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                     TranslationProvider.Unison -> UnisonTranslator(translationClient)
                     TranslationProvider.DeepL -> DeepLTranslator(translationClient, translationStore.key())
                 }
-                val result = withContext(Dispatchers.IO) { translationEngine.translate(document, preferences, source, translator) }
+                mutableState.value = mutableState.value.copy(translating = true)
+                val result = try {
+                    withContext(Dispatchers.IO) { translationEngine.translate(document, preferences, source, translator) }
+                } finally {
+                    if (translationSession.accepts(ticket)) mutableState.value = mutableState.value.copy(translating = false)
+                }
                 if (!translationSession.accepts(ticket) || translationDocument()?.hash != document.hash || !mutableState.value.translationEnabled) return@launch
                 when (result) {
                     is TranslationOutcome.Translated -> mutableState.value = mutableState.value.copy(translation = result.result, lyricsLanguage = result.result.detectedLanguage ?: source)

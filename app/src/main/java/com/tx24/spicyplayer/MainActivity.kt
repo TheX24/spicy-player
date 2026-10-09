@@ -717,6 +717,7 @@ private fun LyricsApp(
                     onResync = viewModel::resync,
                     onTranslate = viewModel::toggleTranslation.takeIf { state.lyrics is LyricsState.Ready },
                     translated = state.translationEnabled,
+                    translating = state.translating,
                 )
                 val onEnterPipButton = onEnterPip.takeIf { settings.pipButton }
                 val onOpenLyricsManager = if (settings.lyricsManagerButton) ({ showLyricsManager = true }) else null

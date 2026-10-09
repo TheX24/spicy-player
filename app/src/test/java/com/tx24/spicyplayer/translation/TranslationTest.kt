@@ -67,6 +67,30 @@ class TranslationTest {
         assertTrue(translator.requests.size <= 8)
     }
 
+    @Test fun `a busy provider is waited out`() = runBlocking {
+        var calls = 0
+        val waits = mutableListOf<Long>()
+        val translator = FakeTranslator { request ->
+            if (calls++ == 0) throw ProviderBusy(retryAfterMs = 4_000L)
+            TranslatorResponse(request.lines.map { TranslationEntry("translated:$it") }, "it")
+        }
+        val result = TranslationEngine(SongLanguageDetector { null }, MemoryCache(), pause = { waits.add(it) })
+            .translate(document("uno"), preferences, "it", translator) as TranslationOutcome.Translated
+        assertEquals(listOf("translated:uno"), result.result.texts)
+        assertEquals(listOf(4_000L), waits)
+    }
+
+    @Test fun `a provider that stays busy says so and nothing is cached`() = runBlocking {
+        val cache = MemoryCache()
+        val translator = FakeTranslator { throw ProviderBusy() }
+        val error = runCatching {
+            TranslationEngine(SongLanguageDetector { null }, cache, pause = {}).translate(document("uno"), preferences, "it", translator)
+        }.exceptionOrNull()
+        assertEquals("Translation is busy right now. Try again in a minute.", error?.message)
+        assertEquals(3, translator.requests.size)
+        assertNull(cache.result)
+    }
+
     @Test fun `a song refused everywhere is a failure and isn't cached`() = runBlocking {
         val cache = MemoryCache()
         val translator = FakeTranslator { throw LinesRejected(502) }
@@ -226,23 +250,29 @@ class TranslationTest {
         assertTrue(result.result.texts[0]!!.count { it == ':' } > 1)
     }
 
-    @Test fun `DeepL keeps each text entry and full original context on every batch`() = runBlocking {
+    @Test fun `DeepL gets the whole song as one tagged document`() = runBlocking {
         val input = document(*Array(120) { "line $it" })
         val translator = FakeTranslator(TranslationProvider.DeepL)
         TranslationEngine(SongLanguageDetector { "ru" }, MemoryCache()).translate(input, preferences.copy(provider = TranslationProvider.DeepL), "ru", translator)
-        assertEquals(listOf(50, 50, 20), translator.requests.map { it.lines.size })
-        translator.requests.forEach {
-            assertEquals(input.context, it.context)
-            assertEquals("ru", it.source)
-        }
-        val request = deepLRequest(translator.requests.first(), "0123456789abcdef:fx")
+        assertEquals(listOf(120), translator.requests.map { it.lines.size })
+        assertEquals("ru", translator.requests.single().source)
+        val request = deepLRequest(translator.requests.single(), "0123456789abcdef:fx")
         val body = request.body as FormBody
         val fields = (0 until body.size).groupBy({ body.name(it) }, { body.value(it) })
-        assertEquals(translator.requests.first().lines, fields["text"])
-        assertEquals(listOf(input.context), fields["context"])
-        assertEquals(listOf("1"), fields["preserve_formatting"])
-        assertEquals(listOf("0"), fields["split_sentences"])
+        assertEquals(listOf(deepLDocument(translator.requests.single().lines)), fields["text"])
+        assertNull(fields["context"])
+        assertEquals(listOf("xml"), fields["tag_handling"])
+        assertEquals(listOf("nonewlines"), fields["split_sentences"])
         assertEquals(listOf("RU"), fields["source_lang"])
+    }
+
+    @Test fun `DeepL lines come back by tag, never running into each other`() {
+        val lines = listOf("マジクソ笑えるわ", "a < b & c", "止まらない")
+        val sent = deepLDocument(lines)
+        assertEquals(lines, deepLLines(sent, 3))
+        // A tag DeepL dropped leaves only that line empty; the others stay where they were.
+        val answer = "<l i=\"0\">This is hilarious</l>\n<l i=\"2\">Can't stop</l>"
+        assertEquals(listOf("This is hilarious", null, "Can't stop"), deepLLines(answer, 3))
     }
 
     @Test fun `DeepL free and paid keys select the right host without key in URL`() {
