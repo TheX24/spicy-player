@@ -16,6 +16,9 @@
 -keep class com.tx24.spicyplayer.translation.TranslationKey { <fields>; <init>(...); }
 -keep class com.tx24.spicyplayer.translation.TranslationResult { <fields>; <init>(...); }
 -keep enum com.tx24.spicyplayer.translation.TranslationProvider { *; }
+-keep enum com.tx24.spicyplayer.translation.TranslationOrigin { *; }
+-keep class com.tx24.spicyplayer.translation.DiskGeniusTranslationCache$Entry { <fields>; <init>(...); }
+-keep class com.tx24.spicyplayer.translation.GeniusTranslationPair { <fields>; <init>(...); }
 
 # Retrofit builds the LRCLIB client from this interface's annotations and generic signatures.
 -keep interface com.tx24.spicyplayer.network.service.LyricsService { *; }
