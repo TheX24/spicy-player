@@ -1,6 +1,14 @@
 package com.tx24.spicyplayer.ui.settings
 
 import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.rounded.Language
+import androidx.compose.material.icons.rounded.ViewAgenda
+import androidx.compose.material.icons.rounded.AutoAwesome
+import androidx.compose.material.icons.rounded.People
+import androidx.compose.material.icons.rounded.Public
+import androidx.compose.material.icons.rounded.Key
+import androidx.compose.material.icons.rounded.KeyOff
+import androidx.compose.material.icons.rounded.Block
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
@@ -14,12 +22,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.tx24.spicyplayer.playback.ExternalPlaybackViewModel
 import com.tx24.spicyplayer.playback.PlayerUiState
+import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
 import com.tx24.spicyplayer.translation.DeepLKey
 import com.tx24.spicyplayer.translation.TranslationLanguages
 import com.tx24.spicyplayer.translation.TranslationMode
 import com.tx24.spicyplayer.translation.TranslationProvider
 import com.tx24.spicyplayer.ui.components.*
 import com.tx24.spicyplayer.ui.theme.SpicySpacing
+
+@Composable
+internal fun RomanizationTranslationContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
+    ToggleRow("Romanize button", settings.romanizeButton, { settings.romanizeButton = it },
+        description = "Show the romanize button.", icon = Icons.Rounded.Translate,
+        searchDescription = "Show the button that romanizes lyrics, on songs that have them.")
+    SettingRow("Romanization", description = "Replace lyrics or show romanization below.", icon = Icons.Rounded.ViewAgenda,
+        searchDescription = "Replace the synced lyric words or show romanization below each line.") {
+        SpicySelect(settings.romanizationMode.name, RomanizationMode.entries.map { it.name },
+            { settings.romanizationMode = RomanizationMode.valueOf(it) }, labels = RomanizationMode.entries.map { it.label })
+    }
+    ToggleRow("Human romanizations", state.humanRomanizations, viewModel::setHumanRomanizations,
+        description = "Use matching romanizations from Genius.", icon = Icons.Rounded.People,
+        searchDescription = "Use a romanization written by people on Genius where it lines up with the lyrics, for readings no romanizer can guess. Asks Genius.")
+    TranslationContent(state, viewModel, settings)
+}
 
 @Composable
 internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
@@ -29,23 +54,28 @@ internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybac
     }.toList().sortedBy { it.second }
     var choosingExcluded by remember { mutableStateOf(false) }
     var key by remember { mutableStateOf("") }
-    SettingRow("Target language", description = "Translate lyrics into this language.") {
+    SettingRow("Target language", description = "Translate lyrics into this language.", icon = Icons.Rounded.Language) {
         SpicySelect(preferences.targetLanguage, languages.map { it.first }, viewModel::setTranslationTarget, labels = languages.map { it.second })
     }
-    SettingRow("Display mode", description = "Show translations below the lyrics or in their place.") {
+    SettingRow("Display mode", description = "Show translations below or replace lyrics.", icon = Icons.Rounded.ViewAgenda,
+        searchDescription = "Show translations below the lyrics or in their place.") {
         SpicySelect(settings.translationMode.name, TranslationMode.entries.map { it.name },
             { settings.translationMode = TranslationMode.valueOf(it) }, labels = TranslationMode.entries.map { it.label })
     }
     ToggleRow("Translate automatically", preferences.automatic, viewModel::setTranslateAutomatically,
-        description = "Translate songs in other languages as their lyrics arrive.")
-    SettingRow("Provider", description = "Choose who translates the original lyric lines.") {
+        description = "Translate when lyrics arrive.", icon = Icons.Rounded.AutoAwesome,
+        searchDescription = "Translate songs in other languages as their lyrics arrive.")
+    SettingRow("Provider", description = "Choose who translates the lyric lines.", icon = Icons.Rounded.Public,
+        searchDescription = "Choose who translates the original lyric lines.") {
         SpicySelect(preferences.provider.name, TranslationProvider.entries.map { it.name },
             { viewModel.setTranslationProvider(TranslationProvider.valueOf(it)) }, labels = TranslationProvider.entries.map { it.label })
     }
     ToggleRow("Use human translations from Genius", preferences.humanTranslations, viewModel::setHumanTranslations,
-        description = "Use human translations where Genius's original lyrics confidently match, then fill gaps with the selected provider.")
+        description = "Prefer matching translations from Genius.", icon = Icons.Rounded.People,
+        searchDescription = "Use human translations where Genius's original lyrics confidently match, then fill gaps with the selected provider.")
     if (preferences.provider == TranslationProvider.DeepL) {
-        SettingRow("DeepL API key", description = if (state.deepLKeyPresent) "A key is saved on this device. Paste a new key to replace it." else "Paste your DeepL API key. Free keys end in :fx.", stacked = true) {
+        SettingRow("DeepL API key", description = if (state.deepLKeyPresent) "Key saved. Paste a new one to replace it." else "Free keys end in :fx.", icon = Icons.Rounded.Key, stacked = true,
+            searchDescription = if (state.deepLKeyPresent) "A key is saved on this device. Paste a new key to replace it." else "Paste your DeepL API key. Free keys end in :fx.") {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S2)) {
                 SpicyTextField(key, { key = it }, placeholder = "DeepL API key", password = true, modifier = Modifier.weight(1f))
                 SpicyButton("Use", onClick = {
@@ -55,12 +85,13 @@ internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybac
             }
         }
         if (state.deepLKeyPresent) {
-            SettingRow("Remove DeepL key", description = "Forget the key on this device.") {
+            SettingRow("Remove DeepL key", description = "Forget the key on this device.", icon = Icons.Rounded.KeyOff) {
                 SpicyButton("Remove", onClick = { viewModel.useDeepLKey("") })
             }
         }
     }
-    SettingRow("Don't translate", description = "Leave songs in languages you already read in their original form.") {
+    SettingRow("Don't translate", description = "Keep these languages untranslated.", icon = Icons.Rounded.Block,
+        searchDescription = "Leave songs in languages you already read in their original form.") {
         SpicyButton(if (preferences.excludedLanguages.isEmpty()) "Choose" else "${preferences.excludedLanguages.size} selected", onClick = { choosingExcluded = true })
     }
     SpicyModal(visible = choosingExcluded, onDismissRequest = { choosingExcluded = false }, title = "Don't translate", backdrop = LocalBackdrop.current) {
@@ -68,7 +99,7 @@ internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybac
             languages.forEach { (code, name) ->
                 ToggleRow(name, code in preferences.excludedLanguages, { selected ->
                     viewModel.setTranslationExcluded(if (selected) preferences.excludedLanguages + code else preferences.excludedLanguages - code)
-                })
+                }, icon = Icons.Rounded.Language)
             }
         }
         SpicyButton("Done", onClick = { choosingExcluded = false })

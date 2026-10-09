@@ -121,7 +121,7 @@ import kotlin.coroutines.cancellation.CancellationException
 internal enum class SettingsPage(val title: String) {
     ThisSong("This song"),
     Lyrics("Lyrics"),
-    Translation("Translation"),
+    Translation("Romanization & Translation"),
     ScrollSync("Scroll & Sync"),
     Background("Background"),
     NowPlaying("Now Playing"),
@@ -347,13 +347,13 @@ private fun PageContent(
     when (page) {
         SettingsPage.ThisSong -> ThisSongContent(state, viewModel, onOpenLyricsManager, onOpenSpotifySearch)
         SettingsPage.Lyrics -> LyricsContent(state, viewModel, settings)
-        SettingsPage.Translation -> TranslationContent(state, viewModel, settings)
+        SettingsPage.Translation -> RomanizationTranslationContent(state, viewModel, settings)
         SettingsPage.ScrollSync -> ScrollSyncContent(state, viewModel, settings)
         SettingsPage.Background -> BackgroundContent(settings)
         SettingsPage.NowPlaying -> NowPlayingContent(settings)
         SettingsPage.Controls -> ControlsContent(settings)
         SettingsPage.Theme -> ThemeContent(settings)
-        SettingsPage.Sources -> SourcesContent(state, viewModel, settings)
+        SettingsPage.Sources -> SourcesContent(state, viewModel)
         SettingsPage.Device -> DeviceContent(settings)
         SettingsPage.Advanced -> AdvancedContent(state, viewModel, updater, settings)
     }
@@ -421,13 +421,13 @@ private fun PageSkeleton(page: SettingsPage) {
             SettingsSkeleton(rows = 5)
         }
         SettingsPage.Lyrics -> SettingsSkeleton(rows = 12)
-        SettingsPage.Translation -> SettingsSkeleton(rows = 8)
+        SettingsPage.Translation -> SettingsSkeleton(rows = 11)
         SettingsPage.ScrollSync -> SettingsSkeleton(rows = 6)
         SettingsPage.Background -> SettingsSkeleton(rows = 3)
         SettingsPage.NowPlaying -> SettingsSkeleton(rows = 8)
-        SettingsPage.Controls -> SettingsSkeleton(rows = 11)
+        SettingsPage.Controls -> SettingsSkeleton(rows = 10)
         SettingsPage.Theme -> SettingsSkeleton(rows = 3)
-        SettingsPage.Sources -> SettingsSkeleton(rows = 14, cards = true)
+        SettingsPage.Sources -> SettingsSkeleton(rows = 12, cards = true)
         SettingsPage.Device -> SettingsSkeleton(rows = 8)
         SettingsPage.Advanced -> SettingsSkeleton(rows = 12)
     }
@@ -468,7 +468,8 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
         ) { onOpen(SettingsPage.Lyrics) }
         GroupDivider()
         GroupRow(Icons.Rounded.Translate, SettingsPage.Translation.title,
-            "${TranslationLanguages.name(state.translationPreferences.targetLanguage)} · ${settings.translationMode.label} · " +
+            "Romanization: ${settings.romanizationMode.label} · " +
+                "${TranslationLanguages.name(state.translationPreferences.targetLanguage)} · " +
                 if (state.translationPreferences.automatic) "Automatic" else "On demand",
         ) { onOpen(SettingsPage.Translation) }
         GroupDivider()
@@ -510,7 +511,7 @@ private fun HomeGroups(state: PlayerUiState, settings: AppSettings, updater: Upd
             SettingsPage.Controls.title,
             listOf(
                 if (settings.autoHideControls) "Hide after ${settings.controlsHideDelay.label}" else "Always shown",
-                "${listOf(settings.playerButtons, settings.romanizeButton, settings.resyncButton, settings.expandButton, settings.quickSettingsButton, settings.pipButton, settings.lyricsManagerButton, settings.queueButton).count { it }} of 8 extra buttons",
+                "${listOf(settings.playerButtons, settings.resyncButton, settings.expandButton, settings.quickSettingsButton, settings.pipButton, settings.lyricsManagerButton, settings.queueButton).count { it }} of 7 extra buttons",
             ).joinToString(),
         ) { onOpen(SettingsPage.Controls) }
         GroupDivider()

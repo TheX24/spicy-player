@@ -192,9 +192,10 @@ fun SettingRow(
     onClick: (() -> Unit)? = null,
     enabled: Boolean = true,
     stacked: Boolean = false,
+    searchDescription: String? = null,
     control: @Composable () -> Unit = {},
 ) {
-    if (!settingMatches(LocalSettingsQuery.current, label, description)) return
+    if (!settingMatches(LocalSettingsQuery.current, label, description, searchDescription)) return
     val interaction = remember { MutableInteractionSource() }
     val haptics = LocalHapticFeedback.current
     RowFrame(
@@ -221,8 +222,9 @@ fun ToggleRow(
     description: String? = null,
     icon: ImageVector? = null,
     enabled: Boolean = true,
+    searchDescription: String? = null,
 ) {
-    if (!settingMatches(LocalSettingsQuery.current, label, description)) return
+    if (!settingMatches(LocalSettingsQuery.current, label, description, searchDescription)) return
     val interaction = remember { MutableInteractionSource() }
     val haptics = LocalHapticFeedback.current
     RowFrame(

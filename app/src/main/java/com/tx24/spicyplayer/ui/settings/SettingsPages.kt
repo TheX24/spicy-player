@@ -70,7 +70,6 @@ import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Search
 import androidx.compose.material.icons.rounded.Refresh
 import androidx.compose.material.icons.rounded.Timer
-import androidx.compose.material.icons.rounded.Translate
 import androidx.compose.material.icons.rounded.CallMerge
 import androidx.compose.material.icons.rounded.Key
 import androidx.compose.material.icons.rounded.DeleteSweep
@@ -603,13 +602,6 @@ internal fun ControlsContent(settings: AppSettings) {
             icon = Icons.Rounded.Widgets,
         )
         ToggleRow(
-            label = "Romanize button",
-            checked = settings.romanizeButton,
-            onCheckedChange = { settings.romanizeButton = it },
-            description = "Show the button that romanizes lyrics, on songs that have them.",
-            icon = Icons.Rounded.Translate,
-        )
-        ToggleRow(
             label = "Resync button",
             checked = settings.resyncButton,
             onCheckedChange = { settings.resyncButton = it },
@@ -742,7 +734,7 @@ internal fun DeviceContent(settings: AppSettings) {
 }
 
 @Composable
-internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel, settings: AppSettings) {
+internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
     var clientKey by remember { mutableStateOf("") }
     Searchable("Sources", "Priority", "Order", *state.sourceOrder.mapNotNull { id -> state.sourceDescriptors.firstOrNull { it.id == id }?.displayName }.toTypedArray()) {
         Text(
@@ -770,20 +762,6 @@ internal fun SourcesContent(state: PlayerUiState, viewModel: ExternalPlaybackVie
         }
     }
     CustomSourcesSection(state, viewModel)
-    SettingsSection("Romanization") {
-        SettingRow("Romanization", description = "Replace the synced lyric words or show romanization below each line.") {
-            val modes = com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode.entries
-            SpicySelect(settings.romanizationMode.name, modes.map { it.name },
-                { settings.romanizationMode = com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode.valueOf(it) }, labels = modes.map { it.label })
-        }
-        ToggleRow(
-            label = "Human romanizations",
-            checked = state.humanRomanizations,
-            onCheckedChange = viewModel::setHumanRomanizations,
-            description = "Use a romanization written by people on Genius where it lines up with the lyrics, for readings no romanizer can guess. Asks Genius.",
-            icon = Icons.Rounded.Translate,
-        )
-    }
     SettingsSection("Blends") {
         Searchable("Blends", "Word timing", *state.blendDescriptors.map { it.displayName }.toTypedArray()) {
             Text(
