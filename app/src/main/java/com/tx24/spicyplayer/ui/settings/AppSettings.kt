@@ -91,6 +91,8 @@ class AppSettings(private val prefs: SharedPreferences) {
     var animatedBackground by boolean("animatedBackground", false)
 
     var keepScreenOn by boolean("keepScreenOn", true)
+    /** Which of the phone's bars stay on screen. */
+    var systemBars by enum("systemBars", SystemBarsMode.HideBoth)
     /** Leaving the app with a song playing shrinks the lyrics into a small floating window. */
     var autoPip by boolean("autoPip", true)
     /**

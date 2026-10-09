@@ -65,6 +65,7 @@ import androidx.compose.material.icons.rounded.MotionPhotosPaused
 import androidx.compose.material.icons.rounded.Album
 import androidx.compose.material.icons.rounded.PictureInPictureAlt
 import androidx.compose.material.icons.rounded.StayCurrentPortrait
+import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Link
 import androidx.compose.material.icons.rounded.Search
@@ -698,6 +699,18 @@ internal fun DeviceContent(settings: AppSettings) {
         description = "Stop the screen from turning off while music plays.",
         icon = Icons.Rounded.StayCurrentPortrait,
     )
+    SettingRow(
+        label = "System bars",
+        description = "Whether the status and navigation bars stay on screen over the lyrics.",
+        icon = Icons.Rounded.Fullscreen,
+    ) {
+        SpicySelect(
+            value = settings.systemBars.name,
+            options = SystemBarsMode.entries.map { it.name },
+            labels = SystemBarsMode.entries.map { it.label },
+            onChange = { settings.systemBars = SystemBarsMode.valueOf(it) },
+        )
+    }
     ToggleRow(
         label = "Floating lyrics",
         checked = settings.autoPip,

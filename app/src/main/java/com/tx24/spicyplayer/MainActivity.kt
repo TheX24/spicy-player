@@ -162,6 +162,7 @@ import com.tx24.spicyplayer.playback.TrackExtrasWanted
 import com.tx24.spicyplayer.ui.nowplaying.TrackDirection
 import androidx.compose.animation.core.spring
 import com.tx24.spicyplayer.ui.settings.AppSettings
+import com.tx24.spicyplayer.ui.settings.SystemBarsMode
 import com.tx24.spicyplayer.ui.settings.LyricsStyle
 import com.tx24.spicyplayer.lyrics.spicy.canvas.LyricsLayoutCalculator
 import androidx.compose.runtime.DisposableEffect
@@ -231,7 +232,7 @@ class LyricsActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         UsageStats.init(this)
         enableEdgeToEdge()
-        hideSystemBars()
+        applySystemBars()
         if (pipSupported) {
             // Recreated inside the window (the system's call, not a resize), no change is reported:
             // the window's own state says where it starts.
@@ -255,6 +256,8 @@ class LyricsActivity : ComponentActivity() {
         }
         setContent {
             val settings = remember { AppSettings(getSharedPreferences("ui", Context.MODE_PRIVATE)) }
+            // A change in Settings shows or hides the bars at once.
+            LaunchedEffect(settings.systemBars) { applySystemBars(settings.systemBars) }
             MaterialTheme(colorScheme = darkColorScheme()) {
                 ProvideTouchHaptics(settings.touchHaptics) {
                     CompositionLocalProvider(
@@ -326,14 +329,15 @@ class LyricsActivity : ComponentActivity() {
     // Dialogs and the keyboard can bring the bars back; hide them again once the window is ours.
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemBars()
+        if (hasFocus) applySystemBars()
     }
 
-    /** Fullscreen: a swipe from the edge shows the bars for a moment over the page. */
-    private fun hideSystemBars() {
+    /** The System bars setting: a swipe from the edge shows a hidden bar for a moment over the page. */
+    internal fun applySystemBars(mode: SystemBarsMode = AppSettings(getSharedPreferences("ui", Context.MODE_PRIVATE)).systemBars) {
         WindowCompat.getInsetsController(window, window.decorView).apply {
             systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-            hide(WindowInsetsCompat.Type.systemBars())
+            if (mode.showStatusBar) show(WindowInsetsCompat.Type.statusBars()) else hide(WindowInsetsCompat.Type.statusBars())
+            if (mode.showNavigationBar) show(WindowInsetsCompat.Type.navigationBars()) else hide(WindowInsetsCompat.Type.navigationBars())
         }
     }
 }
