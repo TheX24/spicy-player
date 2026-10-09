@@ -97,6 +97,8 @@ private const val LOADING_PAUSE_GRACE_MS = 3_000L
  * the new position a moment before the new title. An older one is the previous song's.
  */
 private const val TRACK_REPORT_FRESH_MS = 1_000L
+/** A buffering report this close to the song's end is the player loading the next one, not a stall. */
+private const val END_BUFFERING_MS = 2_000L
 /** Lyrics saved in the Lyrics Manager, and lyrics uploaded for one song "just once". */
 internal val LOCAL_SOURCE = LyricsSourceDescriptor("local", "Local Lyrics DB", 0, setOf(LyricsCapability.WORD_SYNC))
 internal val UPLOADED_SOURCE = LyricsSourceDescriptor("uploaded", "Uploaded TTML", 0, setOf(LyricsCapability.WORD_SYNC))
@@ -494,7 +496,12 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
         refresh()
         val active = controller
         val seekable = ((active?.playbackState?.actions ?: 0L) and PlaybackState.ACTION_SEEK_TO) != 0L
-        if (active != null && seekable && active.packageName != seekRefusedBy) {
+        val bySeek = active != null && seekable && active.packageName != seekRefusedBy
+        SyncTrace.add(
+            SystemClock.elapsedRealtime(),
+            "resync: clock=${currentPositionMs()} bias=${clock.biasMs}" + if (bySeek) " seek" else " from reports",
+        )
+        if (bySeek) {
             seekTo(currentPositionMs(), resync = true)
             return
         }
@@ -515,6 +522,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     fun adjustLyricDelay(deltaMs: Int) {
         val newDelay = clampDelay(mutableState.value.lyricDelayMs + deltaMs)
         outputProfiles.saveDelayMs(outputRoute, newDelay)
+        SyncTrace.add(SystemClock.elapsedRealtime(), "output delay: $newDelay")
         mutableState.value = mutableState.value.copy(lyricDelayMs = newDelay)
     }
 
@@ -537,8 +545,9 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
 
     fun adjustSongDelay(deltaMs: Int) = setSongDelay(mutableState.value.songDelayMs + deltaMs)
 
+    /** Not held at the song's length like [currentPositionMs]: a line can run to the end or past it. */
     fun currentLyricPositionMs(): Long = mutableState.value.let {
-        lyricPositionMs(currentPositionMs(), it.lyricDelayMs, it.songDelayMs)
+        lyricPositionMs(clock.positionAt(SystemClock.elapsedRealtime()), it.lyricDelayMs, it.songDelayMs)
     }
 
     /** Checks [input] and uses it as the person's own key; blank goes back to the built-in one. */
@@ -1587,6 +1596,7 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
                 if (seek != null && SystemClock.elapsedRealtime() - seek.issuedAtMs >= 1_500L) {
                     pendingCommand = null
                     seekRefusedBy = controller?.packageName
+                    SyncTrace.add(SystemClock.elapsedRealtime(), "seek to ${seek.targetMs} not confirmed")
                     updateFromController()
                     // Spotify Free lists seeking but ignores it: resync from its reports instead.
                     if (seek.resync) resyncFromReports()
@@ -1622,6 +1632,16 @@ class ExternalPlaybackViewModel(application: Application) : AndroidViewModel(app
     private fun reconcileClock(playback: PlaybackState, force: Boolean = false, trackChanged: Boolean = false, snap: Boolean = trackChanged) {
         if (playback.position < 0L) return
         val playing = playback.state == PlaybackState.STATE_PLAYING
+        // Spotify reports buffering at its end position about a second before the next song
+        // starts. Stopping the clock there freezes a line that runs to the end halfway through,
+        // so the clock carries on until the next song's report.
+        val duration = mutableState.value.durationMs
+        if (!trackChanged && playback.state == PlaybackState.STATE_BUFFERING && clock.isPlaying &&
+            duration > 0L && playback.position >= duration - END_BUFFERING_MS
+        ) {
+            SyncTrace.add(SystemClock.elapsedRealtime(), "buffering at the end (pos=${playback.position} of $duration): clock runs on")
+            return
+        }
         val relayed = controller?.playbackInfo?.playbackType == MediaController.PlaybackInfo.PLAYBACK_TYPE_REMOTE
         val report = LyricClock.Report(playback.state, playing, playback.position, playback.lastPositionUpdateTime, playback.playbackSpeed, relayed)
         val fresh = clock.isFresh(report)
