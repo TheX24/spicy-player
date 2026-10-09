@@ -1,5 +1,7 @@
 package com.tx24.spicyplayer.ui.settings
 
+import androidx.compose.material.icons.rounded.Translate
+import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.runtime.Composable
@@ -75,9 +77,9 @@ internal fun TranslationContent(state: PlayerUiState, viewModel: ExternalPlaybac
 
 @Composable
 internal fun LyricsLanguageRow(state: PlayerUiState, viewModel: ExternalPlaybackViewModel) {
-    val detected = state.lyricsLanguage?.let(TranslationLanguages::name) ?: "Unknown"
+    val detected = state.lyricsLanguage?.let { "Detected: ${TranslationLanguages.name(it)}." } ?: "Not detected yet."
     val languages = TranslationLanguages.common.toList().sortedBy { it.second }
-    SettingRow("Lyrics language", description = "Detected: $detected. Override it for this song if it is wrong.") {
+    SettingRow("Lyrics language", description = "$detected Set it for this song if that's wrong.", icon = Icons.Rounded.Translate) {
         SpicySelect(state.lyricsLanguageOverride ?: "auto", listOf("auto") + languages.map { it.first },
             { viewModel.setLyricsLanguage(it.takeUnless { code -> code == "auto" }) },
             labels = listOf("Detect automatically") + languages.map { it.second }, enabled = state.localLyricsKey != null)

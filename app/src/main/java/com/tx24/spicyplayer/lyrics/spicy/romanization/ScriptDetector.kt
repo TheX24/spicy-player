@@ -7,12 +7,12 @@ package com.tx24.spicyplayer.lyrics.spicy.romanization
  */
 object ScriptDetector {
 
-    private fun hasKana(c: Char): Boolean {
+    internal fun hasKana(c: Char): Boolean {
         val b = Character.UnicodeBlock.of(c)
         return b == Character.UnicodeBlock.HIRAGANA || b == Character.UnicodeBlock.KATAKANA
     }
 
-    private fun hasHan(c: Char): Boolean {
+    internal fun hasHan(c: Char): Boolean {
         val b = Character.UnicodeBlock.of(c)
         return b == Character.UnicodeBlock.CJK_UNIFIED_IDEOGRAPHS ||
             b == Character.UnicodeBlock.CJK_COMPATIBILITY_IDEOGRAPHS ||

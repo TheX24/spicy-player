@@ -492,16 +492,10 @@ private fun floatingActions(
             }
         })
     }
-    others.forEach { action ->
-        add(FloatingAction(action.name, keep = 10, { controls.onCustomAction(action.action) }) { icon ->
-            ActionIcon(action, Modifier.size(icon(23f)))
-        })
-    }
-    if (showResync) add(FloatingAction("Resync lyrics", keep = 30, controls.onResync) { icon ->
-        Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(icon(23f)))
-    })
+    // In groups: the lyric text (romanize, translate), the view, the app's tools, the player's own
+    // buttons, then settings.
     controls.onTranslate?.let { toggle ->
-        add(FloatingAction(if (controls.translated) "Turn translation off" else "Translate", keep = 25, toggle) { icon ->
+        add(FloatingAction(if (controls.translated) "Turn translation off" else "Translate", keep = 78, toggle) { icon ->
             if (controls.translating) {
                 // A spinning ring in the glyph's place until the translation lands.
                 val turn by rememberInfiniteTransition(label = "translating").animateFloat(
@@ -515,24 +509,32 @@ private fun floatingActions(
             }
         })
     }
+    if (showResync) add(FloatingAction("Resync lyrics", keep = 30, controls.onResync) { icon ->
+        Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(icon(23f)))
+    })
     if (showExpand) add(FloatingAction(if (expanded) "Show lyrics" else "Show the cover", keep = 70, onToggleExpanded) { icon ->
         Image(rememberVectorPainter(if (expanded) SpicyIcons.Collapse else SpicyIcons.Expand), null, Modifier.size(icon(21f)))
     })
     if (onSwapSide != null) add(FloatingAction("Move the cover to the other side", keep = 60, onSwapSide) { icon ->
         Image(rememberVectorPainter(SpicyIcons.SwapSide), null, Modifier.size(icon(23f)))
     })
-    if (onOpenQuickSettings != null) add(FloatingAction("Quick settings", keep = 90, onOpenQuickSettings) { icon ->
-        Image(rememberVectorPainter(Icons.Rounded.Tune), null, Modifier.size(icon(24f)), colorFilter = white)
-    })
-    if (onEnterPip != null) add(FloatingAction("Picture-in-picture", keep = 20, onEnterPip) { icon ->
-        Image(rememberVectorPainter(Icons.Rounded.PictureInPictureAlt), null, Modifier.size(icon(23f)), colorFilter = white)
+    if (onOpenLyricsManager != null) add(FloatingAction("Lyrics Manager", keep = 50, onOpenLyricsManager) { icon ->
+        Image(rememberVectorPainter(SpicyIcons.LyricsManager), null, Modifier.size(icon(23f)))
     })
     if (onOpenQueue != null) add(FloatingAction("Queue", keep = 40, onOpenQueue) { icon ->
         Image(rememberVectorPainter(Icons.AutoMirrored.Rounded.QueueMusic), null, Modifier.size(icon(23f)), colorFilter = white)
     })
-    if (onOpenLyricsManager != null) add(FloatingAction("Lyrics Manager", keep = 50, onOpenLyricsManager) { icon ->
-        Image(rememberVectorPainter(SpicyIcons.LyricsManager), null, Modifier.size(icon(23f)))
+    if (onEnterPip != null) add(FloatingAction("Picture-in-picture", keep = 20, onEnterPip) { icon ->
+        Image(rememberVectorPainter(Icons.Rounded.PictureInPictureAlt), null, Modifier.size(icon(23f)), colorFilter = white)
     })
+    if (onOpenQuickSettings != null) add(FloatingAction("Quick settings", keep = 90, onOpenQuickSettings) { icon ->
+        Image(rememberVectorPainter(Icons.Rounded.Tune), null, Modifier.size(icon(24f)), colorFilter = white)
+    })
+    others.forEach { action ->
+        add(FloatingAction(action.name, keep = 10, { controls.onCustomAction(action.action) }) { icon ->
+            ActionIcon(action, Modifier.size(icon(23f)))
+        })
+    }
     add(FloatingAction("Settings", keep = Int.MAX_VALUE, onOpenSettings) { icon ->
         Image(rememberVectorPainter(SpicyIcons.Settings), null, Modifier.size(icon(23f)))
     })

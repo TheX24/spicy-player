@@ -121,8 +121,8 @@ private fun MainScreen(state: PlayerUiState, viewModel: ExternalPlaybackViewMode
     ) {
         SpicyButton("Open", onClick = { open(QuickScreen.LyricsManager) })
     }
-    SongDelayRow(state, viewModel)
     LyricsLanguageRow(state, viewModel)
+    SongDelayRow(state, viewModel)
     SettingRow(
         label = "Output delay",
         description = "For every song on ${state.outputLabel}. Move it right if the lyrics run ahead of the song.",

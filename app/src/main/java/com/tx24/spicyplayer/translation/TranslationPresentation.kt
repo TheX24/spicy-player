@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.translation
 
+import com.tx24.spicyplayer.lyrics.spicy.romanization.ScriptDetector
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
 import com.tx24.spicyplayer.lyrics.spicy.models.Word
 import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
@@ -9,9 +10,11 @@ internal fun presentationSupplements(original: Line, romanize: Boolean, romaniza
     translation: String?, translationMode: TranslationMode?): List<String> {
     if (original.isInterlude) return emptyList()
     val romanized = if (romanize && romanizationMode == RomanizationMode.UnderLine && original.words.any { it.romanizedText != null }) {
+        // Chinese runs its characters together, but each one's pinyin is a syllable of its own.
+        val chinese = original.words.any { word -> word.text.any(ScriptDetector::hasHan) } && original.words.none { word -> word.text.any(ScriptDetector::hasKana) }
         buildString {
             original.words.forEach { word ->
-                if (isNotEmpty() && !word.isPartOfWord) append(' ')
+                if (isNotEmpty() && (!word.isPartOfWord || chinese)) append(' ')
                 append(word.romanizedText ?: word.text)
             }
         }.takeIf(String::isNotBlank)
@@ -28,6 +31,7 @@ data class TranslationPresentation(val texts: List<String?>, val mode: Translati
             originals.forEachIndexed { index, line -> indices[line.words] = index }
             return TranslationPresentation(timeline.map { line ->
                 if (line.isInterlude) null else indices[line.words]?.let(result.texts::get)
+                    ?.let { plainTranslation(line.words.joinToString("") { word -> word.text }, it) }
             }, mode)
         }
     }
@@ -41,3 +45,10 @@ data class TranslationPresentation(val texts: List<String?>, val mode: Translati
         }
     }
 }
+
+
+/** Translators mark titles and stress as *emphasis*; shown as is, the asterisks are just noise. */
+internal fun plainTranslation(original: String, translation: String): String =
+    if ('*' in original) translation else translation.replace(EMPHASIS, "$1").replace("*", "").trim()
+
+private val EMPHASIS = Regex("""\*+([^*]+)\*+""")

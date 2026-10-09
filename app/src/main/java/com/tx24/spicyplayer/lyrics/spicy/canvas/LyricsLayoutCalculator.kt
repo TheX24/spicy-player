@@ -81,14 +81,20 @@ internal object LyricsLayoutCalculator {
                     measure(it, 0.6f, layout.contentWidth / ACTIVE_LINE_SCALE, layout.isRightAligned)
                 }
                 if (supplements.isNotEmpty()) {
-                    val gap = size * density * 0.12f
+                    val em = size * density
                     var y = maxOf(layout.height, layout.words.maxOfOrNull { it.relativeOffset.y + it.textLayoutResult.size.height } ?: 0f)
-                    val rows = supplements.map { measured ->
-                        y += gap
+                    // The notes sit close to each other and a little apart from their line, so they
+                    // read as belonging to it.
+                    val rows = supplements.mapIndexed { row, measured ->
+                        y += em * if (row == 0) LINE_TO_NOTE_GAP else NOTE_GAP
                         SupplementLayout(measured, Offset(if (layout.isRightAligned) layout.totalWidth - measured.size.width else 0f, y))
                             .also { y += measured.size.height }
                     }
                     layout = layout.copy(height = y, lyricHeight = layout.height, supplements = rows)
+                    // Then air before the next line: more before this line's own background vocal,
+                    // which otherwise sits tight under it and reads as one more note.
+                    val nextIsBackground = !line.isBackground && display.getOrNull(index + 1)?.isBackground == true
+                    extraY += em * if (nextIsBackground) NOTES_TO_BACKGROUND_GAP else NOTES_TO_NEXT_GAP
                 }
             }
             extraY += layout.height - original.height
@@ -97,6 +103,12 @@ internal object LyricsLayoutCalculator {
     }
     /** Scale of the active line in line-synced lyrics (reference: data-lyrics-type="Line" .line.Active). */
     internal const val ACTIVE_LINE_SCALE = 1.05f
+
+    // Gaps around a line's notes (romanization, translation), in lyric font sizes.
+    private const val LINE_TO_NOTE_GAP = 0.22f
+    private const val NOTE_GAP = 0.06f
+    private const val NOTES_TO_NEXT_GAP = 0.18f
+    private const val NOTES_TO_BACKGROUND_GAP = 0.4f
 
     private val bundledFontFamily = FontFamily(
         Font(R.font.lyrics_regular, FontWeight.Normal),

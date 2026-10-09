@@ -1,5 +1,6 @@
 package com.tx24.spicyplayer.translation
 
+import com.tx24.spicyplayer.lyrics.spicy.romanization.RomanizationMode
 import com.tx24.spicyplayer.lyrics.TimedLine
 import com.tx24.spicyplayer.lyrics.TimedWord
 import com.tx24.spicyplayer.lyrics.spicy.models.Line
@@ -368,5 +369,19 @@ class TranslationTest {
         assertTrue(translator.requests.size > 1)
         assertNull(translator.requests.first().source)
         assertTrue(translator.requests.drop(1).all { it.source == "it" })
+    }
+
+    @Test fun `translation asterisks go unless the line has its own`() {
+        assertEquals("If you don't, it's like Strange Tales from a Chinese Studio",
+            plainTranslation("你不出手說聊齋", "If you don't, it's like *Strange Tales from a Chinese Studio*"))
+        assertEquals("*sigh*", plainTranslation("*ため息*", "*sigh*"))
+    }
+
+    @Test fun `chinese pinyin under the line is spaced by syllable, japanese keeps its words`() {
+        fun syllable(text: String, roman: String) = Word(text, 0, 1, isPartOfWord = true, romanizedText = roman)
+        val chinese = Line(listOf(Word("你", 0, 1, romanizedText = "nǐ"), syllable("不", "bù"), syllable("出", "chū")), 0)
+        assertEquals("nǐ bù chū", presentationSupplements(chinese, true, RomanizationMode.UnderLine, null, null).single())
+        val japanese = Line(listOf(Word("ちょう", 0, 1, romanizedText = "chou"), syllable("だい", "dai"), Word("ビーム", 0, 1, romanizedText = "biimu")), 0)
+        assertEquals("choudai biimu", presentationSupplements(japanese, true, RomanizationMode.UnderLine, null, null).single())
     }
 }
