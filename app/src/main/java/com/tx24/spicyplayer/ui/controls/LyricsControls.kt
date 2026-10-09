@@ -1,5 +1,29 @@
 package com.tx24.spicyplayer.ui.controls
 
+import com.tx24.spicyplayer.ui.theme.SpicyType
+import com.tx24.spicyplayer.ui.theme.SpicyRadii
+import com.tx24.spicyplayer.ui.components.SelectMenuPosition
+import com.tx24.spicyplayer.ui.components.MENU_FILL
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.draw.clip
+import androidx.compose.material.icons.rounded.MoreHoriz
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
+import androidx.compose.animation.core.MutableTransitionState
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.AnimatedVisibility
 import com.tx24.spicyplayer.ui.theme.SpicyPalette
 import androidx.compose.material.icons.automirrored.rounded.QueueMusic
 
@@ -265,13 +289,12 @@ private fun ControlsColumn(
         Spacer(Modifier.height(ROW_GAP))
         PlaybackRow(controls, shuffle, repeat, Modifier.padding(horizontal = SIDE_MARGIN - SpicySpacing.S2))
         Spacer(Modifier.height(ROW_GAP))
-        // The gap shrinks when a player adds enough buttons that the usual one runs off the screen.
-        val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, onEnterPip != null, showResync, showExpand).count { it } + others.size + 1
+        // A player that adds enough buttons to run off the screen gets the rest in a More menu.
         BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = SpicySpacing.S2), contentAlignment = Alignment.Center) {
-            val fits = (maxWidth - FLOATING_SIZE * buttons) / (buttons - 1).coerceAtLeast(1)
-            FloatingButtons(fits.coerceIn(4.dp, SpicySpacing.S4)) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = FLOATING_SIZE, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip)
-            }
+            FloatingButtons(
+                floatingActions(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip),
+                maxWidth, minSize = FLOATING_SIZE, maxSize = FLOATING_SIZE, minGap = SpicySpacing.S2, maxGap = SpicySpacing.S4,
+            )
         }
     }
 }
@@ -313,23 +336,124 @@ private fun ControlsBar(
             Timeline(controls, shown, Modifier)
         }
         BoxWithConstraints(Modifier.weight(1f), contentAlignment = Alignment.CenterEnd) {
-            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, onEnterPip != null, showResync, showExpand).count { it } + others.size + 1
-            val room = maxWidth - SpicySpacing.S4
-            val size = ((room - COVER_BUTTON_GAP * (buttons - 1)) / buttons).coerceIn(COVER_BUTTON_MIN, COVER_BUTTON_MAX)
-            FloatingButtons(COVER_BUTTON_GAP) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, size = size, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip)
+            FloatingButtons(
+                floatingActions(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide = null, showResync = showResync, showExpand = showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip),
+                maxWidth - SpicySpacing.S4, minSize = COVER_BUTTON_MIN, maxSize = COVER_BUTTON_MAX, minGap = COVER_BUTTON_GAP, maxGap = COVER_BUTTON_GAP,
+            )
+        }
+    }
+}
+
+/** One floating glass button. Those with the lowest [keep] go into the More menu first. */
+private class FloatingAction(
+    val label: String,
+    val keep: Int,
+    val onClick: () -> Unit,
+    /** Draws the glyph; takes the icon's size as drawn for a 48dp button and scales it. */
+    val icon: @Composable (scaled: (Float) -> Dp) -> Unit,
+)
+
+/** How many buttons a row holds ([slots], the More button among them), and how big and far apart. */
+internal data class ButtonFit(val slots: Int, val size: Dp, val gap: Dp)
+
+/**
+ * Fits [count] buttons into [width]: as big as fits up to [maxSize]. When they don't all fit at
+ * [minSize] and [minGap], the row keeps as many as do, the last of them being the More button.
+ */
+internal fun fitButtons(width: Dp, count: Int, minSize: Dp, maxSize: Dp, minGap: Dp, maxGap: Dp): ButtonFit {
+    val all = (width - minGap * (count - 1)) / count
+    val slots = if (all >= minSize) count else ((width + minGap) / (minSize + minGap)).toInt().coerceIn(2, count)
+    val size = ((width - minGap * (slots - 1)) / slots).coerceIn(minSize, maxSize)
+    val gap = if (slots > 1) ((width - size * slots) / (slots - 1)).coerceIn(minGap, maxGap) else 0.dp
+    return ButtonFit(slots, size, gap)
+}
+
+/** The buttons in [width], with the ones that don't fit behind a More button at the row's end. */
+@Composable
+private fun FloatingButtons(actions: List<FloatingAction>, width: Dp, minSize: Dp, maxSize: Dp, minGap: Dp, maxGap: Dp) {
+    val fit = fitButtons(width, actions.size, minSize, maxSize, minGap, maxGap)
+    val kept = if (fit.slots >= actions.size) actions.toSet()
+    else actions.sortedByDescending { it.keep }.take(fit.slots - 1).toSet()
+    val overflow = actions.filter { it !in kept }
+    fun icon(dp: Float) = fit.size * (dp / FLOATING_SIZE.value)
+    Row(horizontalArrangement = Arrangement.spacedBy(fit.gap)) {
+        actions.filter { it in kept }.forEach { action ->
+            GlassButton(onClick = action.onClick, contentDescription = action.label, size = fit.size) { action.icon(::icon) }
+        }
+        if (overflow.isNotEmpty()) MoreButton(overflow, fit.size)
+    }
+}
+
+/** A glass button that opens a menu of [actions], each with its glyph and name. */
+@Composable
+private fun MoreButton(actions: List<FloatingAction>, size: Dp) {
+    // Drives the open and close animation; the popup stays up until the close finishes.
+    val menu = remember { MutableTransitionState(false) }
+    val haptics = LocalHapticFeedback.current
+    Box {
+        GlassButton(onClick = { menu.targetState = !menu.targetState }, contentDescription = "More", size = size) {
+            Image(rememberVectorPainter(Icons.Rounded.MoreHoriz), null, Modifier.size(size * (24f / FLOATING_SIZE.value)), colorFilter = ColorFilter.tint(Color.White))
+        }
+        if (menu.currentState || menu.targetState) {
+            val margin = with(LocalDensity.current) { SpicySpacing.S2.roundToPx() }
+            val position = remember(margin) { SelectMenuPosition(margin) }
+            Popup(popupPositionProvider = position, onDismissRequest = { menu.targetState = false }, properties = PopupProperties(focusable = true)) {
+                val origin = TransformOrigin(1f, if (position.above) 1f else 0f)
+                AnimatedVisibility(
+                    visibleState = menu,
+                    enter = fadeIn(tween(SpicyMotion.FAST_MS)) +
+                        scaleIn(tween(SpicyMotion.FAST_MS, easing = SpicyMotion.Modal), initialScale = 0.94f, transformOrigin = origin),
+                    exit = fadeOut(tween(SpicyMotion.FAST_MS)) +
+                        scaleOut(tween(SpicyMotion.FAST_MS), targetScale = 0.94f, transformOrigin = origin),
+                ) {
+                    val plate = RoundedCornerShape(SpicyRadii.Md)
+                    Column(
+                        Modifier
+                            .widthIn(min = 180.dp, max = 280.dp)
+                            .width(IntrinsicSize.Max)
+                            .heightIn(max = 360.dp)
+                            .clip(plate)
+                            .background(MENU_FILL)
+                            .border(1.dp, SpicyColors.HairlineStrong, plate)
+                            .verticalScroll(rememberScrollState())
+                            .padding(vertical = SpicySpacing.S1),
+                    ) {
+                        actions.forEach { action ->
+                            MoreItem(action) {
+                                haptics.performHapticFeedback(HapticFeedbackType.ContextClick)
+                                menu.targetState = false
+                                action.onClick()
+                            }
+                        }
+                    }
+                }
             }
         }
     }
 }
 
 @Composable
-private fun FloatingButtons(gap: Dp, content: @Composable () -> Unit) {
-    Row(horizontalArrangement = Arrangement.spacedBy(gap)) { content() }
+private fun MoreItem(action: FloatingAction, onClick: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .heightIn(min = 44.dp)
+            .padding(horizontal = SpicySpacing.S1)
+            .clip(RoundedCornerShape(SpicyRadii.Sm))
+            .background(if (pressed) SpicyColors.TintBgPressed else Color.Transparent)
+            .clickable(interaction, indication = null, role = Role.Button, onClick = onClick)
+            .padding(horizontal = SpicySpacing.S3),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(SpicySpacing.S3),
+    ) {
+        Box(Modifier.size(24.dp), contentAlignment = Alignment.Center) { action.icon { it.dp } }
+        Text(action.label, style = SpicyType.Body.copy(color = SpicyColors.TextPrimary))
+    }
 }
 
-@Composable
-private fun FloatingButtonsContent(
+private fun floatingActions(
     controls: PlaybackControlsState,
     others: List<SessionCustomAction>,
     romanizeAvailable: Boolean,
@@ -342,72 +466,52 @@ private fun FloatingButtonsContent(
     onToggleExpanded: () -> Unit,
     /** Shows the button that moves the landscape panel to the other side when set. */
     onSwapSide: (() -> Unit)?,
-    size: Dp,
     showResync: Boolean,
     showExpand: Boolean,
     onOpenQueue: (() -> Unit)? = null,
     onEnterPip: (() -> Unit)? = null,
-) {
-    // Icons keep their size against the button's (drawn for a 48dp one).
-    fun icon(dp: Float) = size * (dp / FLOATING_SIZE.value)
+): List<FloatingAction> = buildList {
+    // Material icons are black until tinted; the others here are drawn white.
+    val white = ColorFilter.tint(Color.White)
     if (romanizeAvailable) {
-        GlassButton(
-            size = size,
-            onClick = onToggleRomanize,
-            contentDescription = if (romanized) "Show original lyrics" else "Romanize lyrics",
-        ) {
-            // Shows what a tap switches to: "A" to go back, the kana mark to romanize.
+        // Shows what a tap switches to: "A" to go back, the kana mark to romanize.
+        add(FloatingAction(if (romanized) "Show original lyrics" else "Romanize lyrics", keep = 80, onToggleRomanize) { icon ->
             if (romanized) {
                 Image(rememberVectorPainter(SpicyIcons.DisableRomanization), null, Modifier.size(icon(19f)))
             } else {
                 Image(rememberVectorPainter(SpicyIcons.EnableRomanization), null, Modifier.size(icon(17f)))
             }
-        }
+        })
     }
     others.forEach { action ->
-        GlassButton(onClick = { controls.onCustomAction(action.action) }, contentDescription = action.name, size = size) {
+        add(FloatingAction(action.name, keep = 10, { controls.onCustomAction(action.action) }) { icon ->
             ActionIcon(action, Modifier.size(icon(23f)))
-        }
+        })
     }
-    if (showResync) GlassButton(onClick = controls.onResync, contentDescription = "Resync lyrics", size = size) {
+    if (showResync) add(FloatingAction("Resync lyrics", keep = 30, controls.onResync) { icon ->
         Image(rememberVectorPainter(SpicyIcons.Resync), null, Modifier.size(icon(23f)))
-    }
-    if (showExpand) GlassButton(
-        onClick = onToggleExpanded,
-        contentDescription = if (expanded) "Show lyrics" else "Show the cover",
-        size = size,
-    ) {
+    })
+    if (showExpand) add(FloatingAction(if (expanded) "Show lyrics" else "Show the cover", keep = 70, onToggleExpanded) { icon ->
         Image(rememberVectorPainter(if (expanded) SpicyIcons.Collapse else SpicyIcons.Expand), null, Modifier.size(icon(21f)))
-    }
-    if (onSwapSide != null) {
-        GlassButton(onClick = onSwapSide, contentDescription = "Move the cover to the other side", size = size) {
-            Image(rememberVectorPainter(SpicyIcons.SwapSide), null, Modifier.size(icon(23f)))
-        }
-    }
-    if (onOpenQuickSettings != null) {
-        GlassButton(onClick = onOpenQuickSettings, contentDescription = "Quick settings", size = size) {
-            // Material icons are black until tinted; the others here are drawn white.
-            Image(rememberVectorPainter(Icons.Rounded.Tune), null, Modifier.size(icon(24f)), colorFilter = ColorFilter.tint(Color.White))
-        }
-    }
-    if (onEnterPip != null) {
-        GlassButton(onClick = onEnterPip, contentDescription = "Picture-in-picture", size = size) {
-            Image(rememberVectorPainter(Icons.Rounded.PictureInPictureAlt), null, Modifier.size(icon(23f)), colorFilter = ColorFilter.tint(Color.White))
-        }
-    }
-    if (onOpenQueue != null) {
-        GlassButton(onClick = onOpenQueue, contentDescription = "Queue", size = size) {
-            Image(rememberVectorPainter(Icons.AutoMirrored.Rounded.QueueMusic), null, Modifier.size(icon(23f)), colorFilter = ColorFilter.tint(Color.White))
-        }
-    }
-    if (onOpenLyricsManager != null) {
-        GlassButton(onClick = onOpenLyricsManager, contentDescription = "Lyrics Manager", size = size) {
-            Image(rememberVectorPainter(SpicyIcons.LyricsManager), null, Modifier.size(icon(23f)))
-        }
-    }
-    GlassButton(onClick = onOpenSettings, contentDescription = "Settings", size = size) {
+    })
+    if (onSwapSide != null) add(FloatingAction("Move the cover to the other side", keep = 60, onSwapSide) { icon ->
+        Image(rememberVectorPainter(SpicyIcons.SwapSide), null, Modifier.size(icon(23f)))
+    })
+    if (onOpenQuickSettings != null) add(FloatingAction("Quick settings", keep = 90, onOpenQuickSettings) { icon ->
+        Image(rememberVectorPainter(Icons.Rounded.Tune), null, Modifier.size(icon(24f)), colorFilter = white)
+    })
+    if (onEnterPip != null) add(FloatingAction("Picture-in-picture", keep = 20, onEnterPip) { icon ->
+        Image(rememberVectorPainter(Icons.Rounded.PictureInPictureAlt), null, Modifier.size(icon(23f)), colorFilter = white)
+    })
+    if (onOpenQueue != null) add(FloatingAction("Queue", keep = 40, onOpenQueue) { icon ->
+        Image(rememberVectorPainter(Icons.AutoMirrored.Rounded.QueueMusic), null, Modifier.size(icon(23f)), colorFilter = white)
+    })
+    if (onOpenLyricsManager != null) add(FloatingAction("Lyrics Manager", keep = 50, onOpenLyricsManager) { icon ->
+        Image(rememberVectorPainter(SpicyIcons.LyricsManager), null, Modifier.size(icon(23f)))
+    })
+    add(FloatingAction("Settings", keep = Int.MAX_VALUE, onOpenSettings) { icon ->
         Image(rememberVectorPainter(SpicyIcons.Settings), null, Modifier.size(icon(23f)))
-    }
+    })
 }
 
 /**
@@ -458,13 +562,10 @@ fun CoverControls(
                 .padding(horizontal = side * 0.06f, vertical = side * 0.06f),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            val buttons = listOf(romanizeAvailable, onOpenLyricsManager != null, onOpenQueue != null, onOpenQuickSettings != null, onEnterPip != null, onSwapSide != null, showResync, showExpand).count { it } + others.size + 1
-            val room = side * 0.88f
-            val size = ((room - COVER_BUTTON_GAP * (buttons - 1)) / buttons).coerceIn(COVER_BUTTON_MIN, COVER_BUTTON_MAX)
-            val gap = ((room - size * buttons) / (buttons - 1).coerceAtLeast(1)).coerceIn(2.dp, SpicySpacing.S3)
-            FloatingButtons(gap) {
-                FloatingButtonsContent(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide, size, showResync, showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip)
-            }
+            FloatingButtons(
+                floatingActions(controls, others, romanizeAvailable, romanized, onToggleRomanize, onOpenSettings, onOpenLyricsManager, onOpenQuickSettings, expanded, onToggleExpanded, onSwapSide, showResync, showExpand, onOpenQueue = onOpenQueue, onEnterPip = onEnterPip),
+                side * 0.88f, minSize = COVER_BUTTON_MIN, maxSize = COVER_BUTTON_MAX, minGap = COVER_BUTTON_GAP, maxGap = SpicySpacing.S3,
+            )
             Spacer(Modifier.weight(1f))
             PlaybackRow(controls, shuffle, repeat, Modifier, skipWidth = side * 0.15f, fillSlots = true)
             Spacer(Modifier.weight(1f))
@@ -476,9 +577,9 @@ fun CoverControls(
 private val SIDE_MARGIN = 28.dp
 /** The bottom controls' widest, so they don't stretch across a landscape or tablet screen. */
 private val CONTROLS_MAX_WIDTH = 560.dp
-/** The glass buttons over the cover: as big as fits in one row, between these. */
+/** The glass buttons over the cover: as big as fits in one row, between these; the rest go in More. */
 private val COVER_BUTTON_MAX = 40.dp
-private val COVER_BUTTON_MIN = 26.dp
+private val COVER_BUTTON_MIN = 32.dp
 private val COVER_BUTTON_GAP = 6.dp
 /** The one-row landscape bar ([ControlsBar]). */
 private val BAR_MIDDLE_WIDTH = 360.dp

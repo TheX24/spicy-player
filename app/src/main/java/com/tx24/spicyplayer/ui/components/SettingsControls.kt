@@ -458,7 +458,7 @@ private fun SelectOption(label: String, selected: Boolean, onClick: () -> Unit) 
  * Puts the menu under its pill, right edges lined up (the pills sit at a row's end), or over the
  * pill when it doesn't fit below; always [margin] inside the window.
  */
-private class SelectMenuPosition(private val margin: Int) : PopupPositionProvider {
+internal class SelectMenuPosition(private val margin: Int) : PopupPositionProvider {
     var above by mutableStateOf(false)
         private set
 
@@ -475,7 +475,7 @@ private class SelectMenuPosition(private val margin: Int) : PopupPositionProvide
     }
 }
 
-private val MENU_FILL = Color(30, 30, 34).copy(alpha = 0.98f)
+internal val MENU_FILL = Color(30, 30, 34).copy(alpha = 0.98f)
 private const val REOPEN_GUARD_MS = 300L
 
 /** A flat tinted pill that shrinks to 0.97 while held. */
