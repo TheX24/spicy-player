@@ -4,5 +4,6 @@ package com.tx24.spicyplayer.ui.settings
 enum class SystemBarsMode(val label: String, val showStatusBar: Boolean, val showNavigationBar: Boolean) {
     HideBoth("Hide both", showStatusBar = false, showNavigationBar = false),
     ShowStatusBar("Show the status bar", showStatusBar = true, showNavigationBar = false),
+    ShowNavigationBar("Show the navigation bar", showStatusBar = false, showNavigationBar = true),
     ShowBoth("Show both", showStatusBar = true, showNavigationBar = true),
 }
