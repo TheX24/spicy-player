@@ -10,7 +10,7 @@ For bugs, include the app version from Settings, phone and Android version, musi
 
 For ideas, explain what you want to do and how the change would help. A concrete example beats a giant specification.
 
-You can also report bugs and discuss ideas in the [Spicy Lyrics Mobile thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j). Join the server first; the thread link only opens for members. Use the same details there; avoid posting the same report in both places unless you link them.
+You can also report bugs and discuss ideas in the [#mobile-support](https://discord.com/channels/1369992682214264993/1558259688741543967) forum on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j), one post per problem. Join the server first; the channel link only opens for members. Use the same details there; avoid posting the same report in both places unless you link them.
 
 Security vulnerabilities go through [private reporting](SECURITY.md), rather than public issues or Discord.
 

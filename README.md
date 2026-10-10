@@ -67,7 +67,7 @@ Spicy Lyrics Mobile is free and open source. If it's useful to you:
 
 ## Bugs, ideas and contributions
 
-[Open an issue](https://github.com/spicylyrics/mobile/issues/new/choose) or post in the [Spicy Lyrics Mobile thread](https://discord.com/channels/1369992682214264993/1555941028622770337) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j) (join first, then the thread link works). Include your app version, Android version, music app, and steps to reproduce; screenshots and song links help.
+[Open an issue](https://github.com/spicylyrics/mobile/issues/new/choose) or post in [#mobile-support](https://discord.com/channels/1369992682214264993/1558259688741543967) on the [Spicy Lyrics Discord](https://discord.com/invite/uqgXU5wh8j) (join first, then the channel link works). Paste your debug info (Settings → Advanced → Debug info → Copy) and describe what happened; screen recordings and song links help.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for reports and pull requests, and [SECURITY.md](SECURITY.md) for private vulnerability reports. Remove keys and private information before sharing diagnostics.
 
